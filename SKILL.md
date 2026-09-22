@@ -18,7 +18,9 @@ biobench/
     ├── boltzgen-deploy/      install BoltzGen and its weights
     ├── binder-design/        run a BoltzGen binder design
     ├── proteinmpnn-deploy/   install ProteinMPNN
-    └── sequence-design/      design sequences for a fixed backbone
+    ├── sequence-design/      design sequences for a fixed backbone
+    ├── genmol-deploy/        install GenMol and its weights
+    └── molecule-generation/  generate small molecules with GenMol
 ```
 
 ## First contact
@@ -52,8 +54,11 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "design a binder for X" | `binder-design` | BoltzGen runs on the local GPU; result published |
 | "design around the residues I selected" | `binder-design` | Reads `selection.json`, uses them as hotspots |
 | "design a sequence for this backbone" | `sequence-design` | ProteinMPNN runs locally; backbone published |
+| "generate some molecules" | `molecule-generation` | GenMol runs locally; SMILES reported |
+| "grow this fragment" / "link these fragments" | `molecule-generation` | GenMol fragment modes |
 | "install BoltzGen" / "weights missing" | `boltzgen-deploy` | Environment + weights setup |
 | "install ProteinMPNN" | `proteinmpnn-deploy` | Environment setup |
+| "install GenMol" | `genmol-deploy` | Environment + weights setup |
 | "show me 7xwo" / "display NK1R" | `structure-viewer` | Fetch from RCSB, publish |
 | "what's in the viewer now" | `structure-viewer` | Read `static/current.json` |
 | "what did I select" | `structure-viewer` | Read `static/selection.json` |

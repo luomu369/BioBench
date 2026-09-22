@@ -147,6 +147,42 @@ else
     }
 fi
 
+# ---------------------------------------------------------------- genmol env
+head_ "conda env: genmol"
+if env_exists genmol; then
+    PY="$CONDA/envs/genmol/bin/python"
+    if "$PY" -c "import genmol" 2>/dev/null; then
+        ok "genmol importable, torch $("$PY" -c 'import torch;print(torch.__version__)')"
+    else
+        bad "genmol env exists but import fails"
+        [[ $FIX -eq 1 ]] && {
+            echo "         fixing: pip install -e /tmp/genmol"
+            [[ -d /tmp/genmol ]] || git clone --depth 1 https://github.com/NVIDIA-BioNeMo/GenMol.git /tmp/genmol
+            (cd /tmp/genmol && "$PY" -m pip install -q -e .) && ok "reinstalled genmol"
+        }
+    fi
+    "$PY" -c "from safe.converter import SAFEConverter" 2>/dev/null \
+        && ok "safe.converter importable" \
+        || bad "safe package needs the __init__.py fix (see genmol-deploy)"
+    if compgen -G "$MODELS/genmol/*/*.ckpt" > /dev/null; then
+        ok "weights present ($(du -sh "$MODELS/genmol" | cut -f1))"
+    else
+        bad "no GenMol checkpoints under $MODELS/genmol"
+    fi
+else
+    warn "conda env 'genmol' missing (optional — needed for molecule-generation)"
+    [[ $FIX -eq 1 ]] && {
+        echo "         fixing: creating env"
+        "$CONDA/bin/conda" create -n genmol python=3.12 -y --solver=classic >/dev/null 2>&1
+        "$CONDA/envs/genmol/bin/pip" install -q torch --index-url https://download.pytorch.org/whl/cu130
+        "$CONDA/envs/genmol/bin/pip" install -q safe-mol openbabel-wheel easydict \
+            einops jaxtyping pandas omegaconf hydra-core huggingface_hub
+        git clone --depth 1 https://github.com/NVIDIA-BioNeMo/GenMol.git /tmp/genmol
+        (cd /tmp/genmol && "$CONDA/envs/genmol/bin/pip" install -q -e .)
+        env_exists genmol && ok "created genmol env"
+    }
+fi
+
 # ---------------------------------------------------------------- viewer assets
 head_ "viewer assets"
 for f in index.html 3Dmol-min.js; do

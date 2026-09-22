@@ -27,7 +27,13 @@ biobench/
 │   ├── proteinmpnn-deploy/   Install ProteinMPNN
 │   │   └── scripts/
 │   │       └── preflight.py  Env/import/weights readiness
-│   └── sequence-design/      Design sequences for a fixed backbone
+│   ├── sequence-design/      Design sequences for a fixed backbone
+│   ├── genmol-deploy/        Install GenMol and its weights
+│   │   └── scripts/
+│   │       └── preflight.py  Env/import/weights/checkpoint readiness
+│   └── molecule-generation/ Generate small molecules with GenMol
+│       └── scripts/
+│           └── generate.py  de novo / fragment completion / linking
 ├── webapp/
 │   ├── run_viewer.sh         Launch the viewer
 │   └── static/
@@ -96,6 +102,8 @@ agent harness drive it.
 | `binder-design` | Running a BoltzGen binder design |
 | `proteinmpnn-deploy` | ProteinMPNN installation |
 | `sequence-design` | ProteinMPNN sequence design |
+| `genmol-deploy` | GenMol installation |
+| `molecule-generation` | GenMol small-molecule generation |
 
 ## Installing a skill elsewhere
 
