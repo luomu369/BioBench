@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BioBench Viewer</title>
+<script src="3Dmol-min.js"></script>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #131a22;
+    --border: #223040;
+    --text: #dbe6f0;
+    --muted: #7d8fa3;
+    --accent: #4da3ff;
+    --ok: #4ade80;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ---------- viewer ---------- */
+  #viewer-wrap {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 40%, #16202b 0%, #0b0f14 70%);
+  }
+  #viewer { width: 100%; height: 100%; }
+  #viewer-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    color: var(--muted);
+    pointer-events: none;
+    text-align: center;
+    padding: 20px;
+  }
+  #viewer-hint.hidden { display: none; }
+  #viewer-hint .big { font-size: 18px; color: var(--text); }
+  #viewer-hint .small { font-size: 13px; max-width: 460px; line-height: 1.7; }
+  #viewer-hint code {
+    background: rgba(10,14,19,.8);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  /* ---------- top bar ---------- */
+  #topbar {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctl {
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(19,26,34,.72);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 13px;
+    padding: 7px 30px 7px 14px;
+    cursor: pointer;
+    outline: none;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%237d8fa3'><path d='M7 10l5 5 5-5z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 15px;
+    transition: border-color .15s;
+  }
+  .ctl:hover { border-color: rgba(77,163,255,.5); }
+  .ctl:disabled { opacity: .45; cursor: default; }
+  .ctl option { background: #131a22; color: var(--text); }
+  .ctl.icon {
+    padding: 7px;
+    width: 32px; height: 32px;
+    background-image: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ctl.icon svg { width: 15px; height: 15px; fill: var(--muted); }
+  .ctl.icon:hover svg { fill: var(--text); }
+  .ctl.icon.on { border-color: rgba(77,163,255,.7); }
+  .ctl.icon.on svg { fill: var(--accent); }
+
+  /* ---------- structure label ---------- */
+  #structure-label {
+    position: absolute;
+    top: 14px; left: 16px;
+    background: rgba(11,15,20,.72);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--muted);
+    display: none;
+    backdrop-filter: blur(8px);
+  }
+  #structure-label.show { display: block; }
+  #structure-label .src { color: var(--accent); }
+
+  /* ---------- metrics panel ---------- */
+  /* ---------- left column: metrics + sequence ---------- */
+  #left-col {
+    position: absolute;
+    top: 58px; left: 16px;
+    z-index: 10;
+    width: min(400px, calc(100% - 300px));
+    max-height: calc(100% - 120px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-width: thin;
+  }
+  #left-col:empty { display: none; }
+
+  #metrics {
+    background: rgba(19,26,34,.78);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 12px;
+    padding: 12px 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    display: none;
+    flex-shrink: 0;
+  }
+  #metrics.show { display: block; }
+  #metrics .m-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  #metrics .m-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
+    padding: 2px 0;
+  }
+  #metrics .m-row .k { color: var(--muted); }
+  #metrics .m-row .v { font-variant-numeric: tabular-nums; }
+  #metrics .m-notes {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(34,48,64,.7);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ---------- sequence panel ---------- */
+  #seq-panel {
+    background: rgba(19,26,34,.78);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 14px;
+    padding: 12px 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.45);
+    display: none;
+    flex-shrink: 0;
+    max-height: 220px;
+    overflow: auto;
+  }
+  #seq-panel.show { display: block; }
+  #seq-panel .seq-head {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  #seq-panel .seq-body {
+    font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--text);
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+
+  /* ---------- selection panel ---------- */
+  #selection {
+    position: absolute;
+    right: 16px; top: 58px;
+    z-index: 10;
+    width: 230px;
+    max-height: calc(100% - 140px);
+    overflow: auto;
+    background: rgba(19,26,34,.78);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 14px;
+    padding: 14px 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.45);
+    display: none;
+  }
+  #selection.show { display: block; }
+  #selection .s-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  #selection .s-clear {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  #selection .s-clear:hover { text-decoration: underline; }
+  #selection .s-empty { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  #selection .s-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 7px;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: default;
+  }
+  #selection .s-row:hover { background: rgba(77,163,255,.1); }
+  #selection .s-swatch {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  #selection .s-name { flex: 1; font-family: ui-monospace, Menlo, monospace; }
+  #selection .s-del {
+    background: none; border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  #selection .s-del:hover { color: var(--err); }
+  #selection .s-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(34,48,64,.7);
+  }
+  #selection .s-btn {
+    flex: 1;
+    background: rgba(11,15,20,.6);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 11px;
+    padding: 6px 4px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  #selection .s-btn:hover { border-color: rgba(77,163,255,.5); }
+
+  /* ---------- status bar ---------- */
+  #status {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    background: rgba(19,26,34,.82);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 999px;
+    padding: 9px 20px;
+    font-size: 13px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.55),
+                0 0 0 1px rgba(77,163,255,.08);
+    max-width: calc(100% - 32px);
+  }
+  #status[data-state="running"] {
+    border-color: rgba(77,163,255,.45);
+    box-shadow: 0 8px 32px rgba(0,0,0,.55),
+                0 0 18px rgba(77,163,255,.18);
+  }
+  #status[data-state="done"] { border-color: rgba(74,222,128,.45); }
+  #status[data-state="error"] { border-color: rgba(248,113,113,.45); }
+  #status.show { display: flex; }
+  #status .dot {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    border: 2px solid rgba(125,143,163,.35);
+    border-top-color: var(--muted);
+    flex-shrink: 0;
+  }
+  #status[data-state="running"] .dot {
+    border-color: rgba(77,163,255,.25);
+    border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  #status[data-state="done"] .dot {
+    border: none;
+    width: 15px; height: 15px;
+    background: var(--ok);
+    border-radius: 50%;
+    /* checkmark via clip-path */
+    clip-path: polygon(
+      14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  }
+  #status[data-state="error"] .dot {
+    border: none;
+    width: 15px; height: 15px;
+    background: var(--err);
+    border-radius: 50%;
+    clip-path: polygon(
+      20% 0%, 0% 20%, 30% 50%, 0% 80%, 20% 100%,
+      50% 70%, 80% 100%, 100% 80%, 70% 50%,
+      100% 20%, 80% 0%, 50% 30%);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #status .msg { color: var(--text); }
+  #status[data-state="error"] .msg { color: var(--err); }
+  #status .bar {
+    width: 120px; height: 6px;
+    background: rgba(34,48,64,.9);
+    border-radius: 3px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  #status .bar > div {
+    height: 100%;
+    background: linear-gradient(90deg, #2b7fd4, var(--accent));
+    width: 0%;
+    transition: width .5s ease;
+    background-size: 20px 20px;
+    background-image: linear-gradient(
+      135deg,
+      rgba(255,255,255,.22) 25%, transparent 25%,
+      transparent 50%, rgba(255,255,255,.22) 50%,
+      rgba(255,255,255,.22) 75%, transparent 75%);
+    animation: stripes 1s linear infinite;
+  }
+  @keyframes stripes {
+    from { background-position: 0 0; }
+    to   { background-position: 20px 0; }
+  }
+  #status[data-state="done"] .bar > div {
+    background: var(--ok);
+    background-image: none;
+    animation: none;
+  }
+  #status[data-state="error"] .bar > div {
+    background: var(--err);
+    background-image: none;
+    animation: none;
+  }
+  #status .step { color: var(--muted); font-size: 12px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div id="viewer-wrap">
+  <div id="viewer"></div>
+  <div id="viewer-hint">
+    <div class="big">No structure loaded</div>
+    <div class="small">
+      Ask your agent to run a BioBench skill, e.g.
+      <em>"design a binder for NK2R"</em> or <em>"show me 7xwo"</em>.
+      Results appear here automatically.
+    </div>
+  </div>
+</div>
+
+<div id="structure-label"></div>
+
+<div id="topbar">
+    <select id="chain-picker" class="ctl" disabled>
+      <option>Load a structure…</option>
+    </select>
+    <select id="style-picker" class="ctl" disabled>
+      <option value="cartoon">Cartoon</option>
+      <option value="stick">Stick</option>
+      <option value="sphere">Sphere</option>
+      <option value="line">Line</option>
+      <option value="surface">Surface</option>
+    </select>
+    <select id="color-picker" class="ctl" disabled>
+      <option value="spectrum">Spectrum</option>
+      <option value="chain">By chain</option>
+      <option value="secondary">Secondary</option>
+      <option value="polarity">Polarity</option>
+      <option value="white">White</option>
+    </select>
+    <button id="spin-btn" class="ctl icon" disabled title="Toggle rotation">
+      <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+    </button>
+    <button id="reset-btn" class="ctl icon" disabled title="Reset view">
+      <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97-.7-2.8L3.84 11.66C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" opacity="0"/><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </button>
+  </div>
+
+  <div id="selection">
+    <div class="s-head">
+      <span>Selection</span>
+      <button class="s-clear" id="sel-clear">clear all</button>
+    </div>
+    <div id="sel-list"></div>
+    <div class="s-actions">
+      <button class="s-btn" id="sel-label">Label</button>
+      <button class="s-btn" id="sel-focus">Focus</button>
+      <button class="s-btn" id="sel-hide">Hide</button>
+    </div>
+  </div>
+
+<div id="left-col">
+  <div id="metrics">
+    <div class="m-title">Metrics</div>
+    <div id="metrics-rows"></div>
+    <div class="m-notes" id="metrics-notes"></div>
+  </div>
+
+  <div id="seq-panel">
+    <div class="seq-head">
+      <span id="seq-title">Sequence</span>
+      <span id="seq-len"></span>
+    </div>
+    <div class="seq-body" id="seq-body"></div>
+  </div>
+</div>
+
+<div id="status">
+  <span class="dot"></span>
+  <span class="msg"></span>
+  <span class="bar"><div></div></span>
+  <span class="step"></span>
+</div>
+
+<script>
+const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "0b0f14" });
+let chains = [];
+let lastUpdated = null;
+let currentStructure = null;
+
+const hint = document.getElementById("viewer-hint");
+const label = document.getElementById("structure-label");
+const chainPicker = document.getElementById("chain-picker");
+const metricsPanel = document.getElementById("metrics");
+const metricsRows = document.getElementById("metrics-rows");
+const metricsNotes = document.getElementById("metrics-notes");
+const seqPanel = document.getElementById("seq-panel");
+const seqTitle = document.getElementById("seq-title");
+const seqLen = document.getElementById("seq-len");
+const seqBody = document.getElementById("seq-body");
+const statusBar = document.getElementById("status");
+
+const AA3TO1 = {
+  ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLN:'Q', GLU:'E', GLY:'G',
+  HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S',
+  THR:'T', TRP:'W', TYR:'Y', VAL:'V',
+  MSE:'M', SEC:'U', PYL:'O', HYP:'P', SEP:'S', TPO:'T', PTR:'Y'
+};
+
+/* ---------------- structure rendering ---------------- */
+
+function extractChains(model) {
+  if (!model || !model.selectedAtoms) return [];
+  let atoms = [];
+  try { atoms = model.selectedAtoms({}) || []; } catch (e) { return []; }
+
+  const byChain = new Map();
+  atoms.forEach(a => {
+    if (!a) return;
+    const one = AA3TO1[(a.resn || "").toUpperCase()];
+    if (!one) return;
+    const chain = a.chain || "_";
+    if (!byChain.has(chain)) byChain.set(chain, new Map());
+    const residues = byChain.get(chain);
+    const key = a.resi != null ? a.resi : a.serial;
+    if (!residues.has(key)) residues.set(key, one);
+  });
+
+  return [...byChain.entries()].map(([chain, residues]) => ({
+    chain,
+    seq: [...residues.values()].join(""),
+    residues: [...residues.keys()]
+  }));
+}
+
+function renderSequence(chainInfo) {
+  if (!chainInfo) {
+    // "All chains" selected — show a per-chain summary instead of one sequence
+    if (!chains.length) { seqPanel.classList.remove("show"); return; }
+    seqTitle.textContent = "All chains";
+    seqLen.textContent = `${chains.length} chains`;
+    seqBody.textContent = chains
+      .map(c => `Chain ${c.chain}  (${c.seq.length} aa)\n${c.seq}`)
+      .join("\n\n");
+    seqPanel.classList.add("show");
+    return;
+  }
+  seqTitle.textContent = `Chain ${chainInfo.chain}`;
+  seqLen.textContent = `${chainInfo.seq.length} residues`;
+  seqBody.textContent = chainInfo.seq;
+  seqPanel.classList.add("show");
+}
+
+function renderMetrics(meta) {
+  const m = meta.metrics || {};
+  const keys = Object.keys(m);
+  if (!keys.length && !meta.notes) {
+    metricsPanel.classList.remove("show");
+    return;
+  }
+  metricsRows.innerHTML = "";
+  keys.forEach(k => {
+    const row = document.createElement("div");
+    row.className = "m-row";
+    const v = typeof m[k] === "number" ? m[k].toFixed(3) : String(m[k]);
+    row.innerHTML = `<span class="k"></span><span class="v"></span>`;
+    row.querySelector(".k").textContent = k;
+    row.querySelector(".v").textContent = v;
+    metricsRows.appendChild(row);
+  });
+  metricsNotes.textContent = meta.notes || "";
+  metricsNotes.style.display = meta.notes ? "" : "none";
+  metricsPanel.classList.add("show");
+}
+
+const stylePicker = document.getElementById("style-picker");
+const colorPicker = document.getElementById("color-picker");
+const spinBtn = document.getElementById("spin-btn");
+const resetBtn = document.getElementById("reset-btn");
+
+function renderStructure(data, meta) {
+  viewer.removeAllModels();
+  const fmt = meta.format === "pdb" ? "pdb" : "mmcif";
+  viewer.addModel(data, fmt);
+
+  // removeAllModels() clears click bindings — re-attach for the new model
+  viewer.setClickable({}, true, onAtomClick);
+
+  chains = extractChains(viewer.getModel());
+  const isPeptide = chains.length > 0;
+  if (isPeptide) {
+    applyStyle();
+  } else {
+    // Non-protein (ligands, nucleic acids): plain sticks
+    viewer.setStyle({}, { stick: { radius: 0.15, colorscheme: "Jmol" } });
+  }
+  viewer.zoomTo();
+  viewer.render();
+
+  hint.classList.add("hidden");
+  label.innerHTML = "";
+  label.appendChild(document.createTextNode(meta.name || "structure"));
+  if (meta.source) {
+    const src = document.createElement("span");
+    src.className = "src";
+    src.textContent = `  ·  ${meta.source}`;
+    label.appendChild(src);
+  }
+  label.classList.add("show");
+
+  // Chain dropdown — prefer metadata, fall back to parsed chains
+  const metaChains = meta.chains || [];
+  chainPicker.disabled = chains.length === 0;
+  chainPicker.innerHTML = "";
+  if (chains.length === 0) {
+    chainPicker.innerHTML = "<option>No protein chains</option>";
+    seqPanel.classList.remove("show");
+  } else {
+    // "all" shows the whole complex; individual entries isolate one chain
+    const all = document.createElement("option");
+    all.value = "all";
+    const total = chains.reduce((n, c) => n + c.seq.length, 0);
+    all.textContent = `All chains (${chains.length} chains, ${total} aa)`;
+    chainPicker.appendChild(all);
+
+    chains.forEach((c, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      const role = (metaChains[i] || {}).role;
+      opt.textContent = role
+        ? `Chain ${c.chain} — ${role} (${c.seq.length} aa)`
+        : `Chain ${c.chain} (${c.seq.length} aa)`;
+      chainPicker.appendChild(opt);
+    });
+    chainPicker.value = "all";
+    renderSequence(null);
+  }
+
+  renderMetrics(meta);
+
+  // Enable the style controls and reset selection state
+  stylePicker.disabled = false;
+  colorPicker.disabled = false;
+  spinBtn.disabled = false;
+  resetBtn.disabled = false;
+  selection = {};
+  selCounter = 0;
+  viewer.removeAllLabels();
+  renderSelectionPanel();
+}
+
+chainPicker.addEventListener("change", () => {
+  if (chainPicker.value === "all") {
+    renderSequence(null);
+    applyStyle();
+    return;
+  }
+  const idx = parseInt(chainPicker.value, 10);
+  if (isNaN(idx) || !chains[idx]) return;
+  renderSequence(chains[idx]);
+  applyStyle();
+});
+
+/* ---------------- style controls ---------------- */
+
+let spinning = false;
+
+function colorSpec(scheme) {
+  switch (scheme) {
+    case "chain":     return { color: "chain" };
+    case "secondary": return { color: "secondaryStructure" };
+    case "polarity":  return { color: "polarity" };
+    case "white":     return { color: "white" };
+    default:          return { color: "spectrum" };
+  }
+}
+
+function styleSpec(kind, scheme) {
+  const color = colorSpec(scheme);
+  switch (kind) {
+    case "stick":   return { stick: { ...color, radius: 0.18 } };
+    case "sphere":  return { sphere: { ...color, scale: 0.5 } };
+    case "line":    return { line: { ...color, linewidth: 2 } };
+    case "surface": return { cartoon: color, surface: { opacity: 0.25, color: "white" } };
+    default:        return { cartoon: color, stick: {} };
+  }
+}
+
+function applyStyle() {
+  const kind = stylePicker.value;
+  const scheme = colorPicker.value;
+  const idx = parseInt(chainPicker.value, 10);
+  const onlyChain = (!isNaN(idx) && chains[idx]) ? chains[idx].chain : null;
+
+  viewer.setStyle({}, {});
+  const sel = onlyChain ? { chain: onlyChain } : {};
+  viewer.setStyle(sel, styleSpec(kind, scheme));
+
+  // Re-apply selection highlights on top
+  Object.entries(selection).forEach(([key, item]) => {
+    viewer.setStyle(item.sel, {
+      [item.style]: { color: item.color, radius: item.radius || 0.25 }
+    });
+  });
+
+  viewer.render();
+}
+
+stylePicker.addEventListener("change", applyStyle);
+colorPicker.addEventListener("change", applyStyle);
+
+spinBtn.addEventListener("click", () => {
+  spinning = !spinning;
+  spinBtn.classList.toggle("on", spinning);
+  viewer.spin(spinning ? "y" : "", spinning ? 30 : 0);
+  viewer.render();
+});
+
+resetBtn.addEventListener("click", () => {
+  viewer.zoomTo();
+  viewer.render();
+});
+
+/* ---------------- residue selection ---------------- */
+
+const selectionPanel = document.getElementById("selection");
+const selList = document.getElementById("sel-list");
+const selClear = document.getElementById("sel-clear");
+
+// key → { sel, label, color, style, radius }
+let selection = {};
+let selCounter = 0;
+const PALETTE = ["#ff6b6b", "#4ecdc4", "#ffe66d", "#a78bfa",
+                 "#fb923c", "#34d399", "#f472b6", "#60a5fa"];
+
+function selKey(atom) {
+  return `${atom.chain || "_"}:${atom.resi}`;
+}
+
+// Persist the current selection so an agent can read it.
+// Written to static/selection.json — see the structure-viewer skill.
+function persistSelection(keys) {
+  const residues = keys.map(k => {
+    const item = selection[k];
+    const [chain, resi] = k.split(":");
+    return {
+      chain,
+      resi: isNaN(Number(resi)) ? resi : Number(resi),
+      resn: item.label.split(" ")[0],
+      color: item.color,
+    };
+  });
+
+  const payload = {
+    structure: currentStructure || null,
+    count: residues.length,
+    residues,
+    updated: new Date().toISOString(),
+  };
+
+  // Fire-and-forget: the viewer must not block on this write.
+  fetch("selection.json", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => { /* static server may reject POST; selection still works */ });
+}
+
+function selLabel(atom) {
+  return `${atom.resn || "?"} ${atom.resi}${atom.chain ? " · " + atom.chain : ""}`;
+}
+
+function renderSelectionPanel() {
+  const keys = Object.keys(selection);
+  selList.innerHTML = "";
+  selectionPanel.classList.add("show");
+
+  persistSelection(keys);
+
+  if (!keys.length) {
+    selList.innerHTML =
+      '<div class="s-empty">Click residues in the viewer to select them. ' +
+      'Alt-click to remove one.</div>';
+    return;
+  }
+
+  keys.forEach(key => {
+    const item = selection[key];
+    const row = document.createElement("div");
+    row.className = "s-row";
+
+    const sw = document.createElement("span");
+    sw.className = "s-swatch";
+    sw.style.background = item.color;
+
+    const name = document.createElement("span");
+    name.className = "s-name";
+    name.textContent = item.label;
+
+    const del = document.createElement("button");
+    del.className = "s-del";
+    del.textContent = "×";
+    del.title = "Remove";
+    del.addEventListener("click", () => {
+      delete selection[key];
+      applyStyle();
+      renderSelectionPanel();
+    });
+
+    row.append(sw, name, del);
+    selList.appendChild(row);
+  });
+}
+
+function addSelection(atom) {
+  const key = selKey(atom);
+  if (selection[key]) return;
+  const color = PALETTE[selCounter % PALETTE.length];
+  selCounter += 1;
+  selection[key] = {
+    sel: { chain: atom.chain, resi: atom.resi },
+    label: selLabel(atom),
+    color,
+    // Always highlight with sticks — following the main style breaks
+    // surface/line rendering (opacity and radius are not portable).
+    style: "stick",
+    radius: 0.3,
+  };
+}
+
+// 3Dmol click handling: nearest atom within a pixel radius.
+// Every click appends to the selection (multi-select by default).
+// Alt/Option + click removes a residue. Use "clear all" to reset.
+function onAtomClick(atom) {
+  if (!atom) return;
+  const key = selKey(atom);
+
+  if (window.event && window.event.altKey) {
+    delete selection[key];
+  } else {
+    addSelection(atom);
+  }
+  applyStyle();
+  renderSelectionPanel();
+}
+
+selClear.addEventListener("click", () => {
+  selection = {};
+  selCounter = 0;
+  applyStyle();
+  renderSelectionPanel();
+});
+
+document.getElementById("sel-focus").addEventListener("click", () => {
+  const sels = Object.values(selection).map(s => s.sel);
+  if (!sels.length) return;
+  viewer.setStyle({}, {});
+  viewer.setStyle({ or: sels }, { stick: { color: "orange", radius: 0.3 } });
+  viewer.zoomTo({ or: sels });
+  viewer.render();
+});
+
+document.getElementById("sel-hide").addEventListener("click", () => {
+  const sels = Object.values(selection).map(s => s.sel);
+  if (!sels.length) return;
+  viewer.setStyle({ or: sels }, {});
+  viewer.render();
+});
+
+document.getElementById("sel-label").addEventListener("click", () => {
+  Object.values(selection).forEach(s => {
+    viewer.addLabel(s.label, {
+      position: s.sel,
+      fontSize: 11,
+      fontColor: "#0b0f14",
+      backgroundColor: s.color,
+      padding: 3,
+    });
+  });
+  viewer.render();
+});
+
+/* ---------------- status bar ---------------- */
+
+// Map raw pipeline step names to plain-language descriptions.
+// Skills emit machine names; the viewer shows something a biologist reads.
+const STEP_LABELS = {
+  // BoltzGen
+  design:           "生成 binder 主链骨架",
+  design_folding:   "折叠验证设计的序列",
+  folding:          "预测结构并计算置信度",
+  affinity:         "评估结合亲和力",
+  analysis:         "汇总设计指标",
+  filtering:        "筛选并排序设计",
+  inverse_folding:  "为骨架设计氨基酸序列",
+  // ProteinMPNN
+  sequence_design:  "设计氨基酸序列",
+  // generic
+  publish:          "发布结果",
+  init:             "初始化",
+};
+
+function stepLabel(step) {
+  if (!step) return "";
+  return STEP_LABELS[step] || step;
+}
+
+function renderStatus(s) {
+  if (!s || s.state === "idle") {
+    statusBar.classList.remove("show");
+    return;
+  }
+  statusBar.dataset.state = s.state;
+  statusBar.querySelector(".msg").textContent = s.message || s.state;
+
+  const total = s.step_total || 0;
+  const idx = s.step_index || 0;
+  const pct = total > 0 ? Math.round((idx / total) * 100) : 0;
+  statusBar.querySelector(".bar > div").style.width = pct + "%";
+  statusBar.querySelector(".step").textContent =
+    total > 0 ? `${idx}/${total} ${stepLabel(s.step)}`.trim() : "";
+
+  statusBar.classList.add("show");
+}
+
+/* ---------------- polling ---------------- */
+
+async function poll() {
+  try {
+    const res = await fetch("current.json?t=" + Date.now());
+    if (res.ok) {
+      const meta = await res.json();
+      if (meta.updated && meta.updated !== lastUpdated) {
+        lastUpdated = meta.updated;
+        currentStructure = meta.name || null;
+        const cif = await fetch("current.cif?t=" + Date.now());
+        if (cif.ok) renderStructure(await cif.text(), meta);
+      }
+    }
+  } catch (e) { /* viewer not published yet */ }
+
+  try {
+    const res = await fetch("status.json?t=" + Date.now());
+    if (res.ok) renderStatus(await res.json());
+  } catch (e) { /* no status file */ }
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

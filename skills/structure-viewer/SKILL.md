@@ -1,0 +1,248 @@
+---
+name: structure-viewer
+description: '**OUTPUT CONVENTION** — How BioBench skills publish results to the BioBench Viewer web app. USE FOR: any skill that produces a protein structure the user should see; writing current.cif / current.json; reporting task progress to the viewer; understanding the viewer contract. DO NOT USE FOR: installing models (see boltzgen-deploy); analyzing sequences without producing a structure. Every BioBench skill that generates or loads a structure MUST follow this convention.'
+---
+
+# Structure Viewer Output Convention
+
+The BioBench Viewer is a static web app that renders whatever structure a
+skill publishes. It has no backend and no LLM — it only watches two files.
+
+## The contract
+
+Every skill that produces a structure for the user to see MUST write:
+
+| File | Purpose | Direction |
+|------|---------|-----------|
+| `webapp/static/current.cif` | The structure to render (mmCIF or PDB format) | skill → viewer |
+| `webapp/static/current.json` | Metadata describing what was produced | skill → viewer |
+| `webapp/static/status.json` | Progress bar and status message | skill → viewer |
+| `webapp/static/selection.json` | Residues the user selected in the viewer | viewer → skill |
+
+The viewer polls `current.json` every 2 seconds. When its `updated` timestamp
+changes, the viewer reloads `current.cif` and re-renders.
+
+`selection.json` flows the other way: the viewer writes it whenever the user
+changes their residue selection, and skills read it to learn what the user is
+pointing at.
+
+## selection.json schema
+
+```json
+{
+  "structure": "nk1r_binder_rank0",
+  "count": 3,
+  "residues": [
+    {"chain": "B", "resi": 216, "resn": "TYR", "color": "#ff6b6b"},
+    {"chain": "B", "resi": 217, "resn": "GLU", "color": "#4ecdc4"},
+    {"chain": "A", "resi": 12,  "resn": "LEU", "color": "#ffe66d"}
+  ],
+  "updated": "2026-09-22T14:30:00"
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `structure` | Name from `current.json` — which structure was selected from |
+| `count` | Number of selected residues |
+| `residues[].chain` | Chain ID |
+| `residues[].resi` | Residue number (author numbering) |
+| `residues[].resn` | Three-letter residue name |
+| `residues[].color` | Highlight color assigned by the viewer |
+
+### Reading the selection
+
+When the user says something like "design around my selected residues" or
+"use the residues I picked", read this file:
+
+```bash
+python3 -c "
+import json
+d = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+print('structure:', d['structure'], '| count:', d['count'])
+for r in d['residues']:
+    print(f\"  {r['chain']}:{r['resi']} {r['resn']}\")
+"
+```
+
+If the file is missing or `count` is 0, the user has not selected anything —
+ask them to select residues in the viewer first.
+
+### Using it in a design
+
+BoltzGen accepts hotspot residues in the design spec. Convert the selection
+into the `binding_site` block:
+
+```yaml
+entities:
+  - protein:
+      id: B
+      sequence: 70..110
+  - file:
+      path: target.cif
+      include:
+        - chain:
+            id: B
+      binding:
+        - chain:
+            id: B
+            residue: [216, 217, 220]
+```
+
+Generate that `residue` list from `selection.json`, filtered to the target
+chain. See `binder-design` for the full spec format.
+
+## current.json schema
+
+```json
+{
+  "name": "nk2r_binder_01",
+  "source": "boltzgen",
+  "format": "cif",
+  "chains": [
+    {"id": "A", "role": "target", "residues": 336},
+    {"id": "B", "role": "binder", "residues": 84}
+  ],
+  "metrics": {
+    "plddt": 0.87,
+    "iptm": 0.72,
+    "rmsd": 1.9
+  },
+  "notes": "Designed against NK2R (7xwo) chain A",
+  "updated": "2026-09-22T12:30:00"
+}
+```
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name` | yes | Short identifier shown in the viewer header |
+| `source` | yes | Which skill produced it (`boltzgen`, `rcsb`, `esmfold`, …) |
+| `format` | yes | `cif` or `pdb` — tells the viewer how to parse |
+| `chains` | no | Chain list; drives the chain dropdown |
+| `metrics` | no | Key numbers shown in the metrics panel |
+| `notes` | no | Free-text context for the user |
+| `updated` | yes | ISO timestamp; the viewer's change detector |
+
+## Progress reporting
+
+Long-running tasks should report progress so the viewer can show it. **The
+agent reports progress — it knows what it is doing, so it should say so
+directly rather than making a script guess from log output.**
+
+Use the bundled publisher:
+
+```bash
+python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py \
+  --status --state running --step design --index 1 --total 6 \
+  --skill boltzgen-deploy --message "Diffusion sampling, batch 1/4"
+```
+
+Call it whenever the task moves to a new phase. Typical points:
+
+- before starting a long computation
+- after each pipeline step completes
+- when a partial result is worth showing
+- on success (`--state done`) or failure (`--state error`)
+
+### Status fields
+
+| Field | Meaning |
+|-------|---------|
+| `state` | `idle`, `running`, `done`, `error` |
+| `step` | Short name of the current phase |
+| `step_index` / `step_total` | Drives the progress bar |
+| `message` | Human-readable detail |
+| `skill` | Which skill is running, for attribution |
+
+### Publishing a structure
+
+```bash
+python3 .../publish.py \
+  --structure /path/to/design.cif \
+  --name nk1r_binder_rank0 \
+  --source boltzgen \
+  --roles "A=target,B=binder" \
+  --metrics '{"plddt": 0.87, "iptm": 0.72}' \
+  --notes "Top-ranked of 4 designs"
+```
+
+Chain counts are parsed from the file automatically — do not hand-write them.
+Use `--roles` to label chains (e.g. `A=target,B=binder`) so the viewer's
+dropdown shows their purpose.
+
+Both actions can be combined in one call by passing `--structure` and
+`--status` together.
+
+## Writing these files
+
+Use atomic writes so the viewer never reads a half-written file:
+
+```bash
+# Copy to a temp name in the same directory, then rename
+cp result.cif webapp/static/.current.cif.tmp
+mv webapp/static/.current.cif.tmp webapp/static/current.cif
+```
+
+In Python:
+
+```python
+import json, os
+from pathlib import Path
+
+def publish(cif_text: str, meta: dict, viewer: Path):
+    viewer.mkdir(parents=True, exist_ok=True)
+    tmp = viewer / ".current.cif.tmp"
+    tmp.write_text(cif_text)
+    os.replace(tmp, viewer / "current.cif")
+
+    meta["updated"] = datetime.now().isoformat(timespec="seconds")
+    tmp = viewer / ".current.json.tmp"
+    tmp.write_text(json.dumps(meta, indent=2))
+    os.replace(tmp, viewer / "current.json")
+```
+
+## Rules
+
+1. **Never write directly to `current.cif`** — always write-then-rename, or the
+   viewer may render a truncated file.
+2. **Always bump `updated`** — the viewer uses it to detect changes; a stale
+   timestamp means the viewer ignores your update.
+3. **`format` must match the file** — the viewer passes `mmcif` or `pdb` to
+   3Dmol.js based on this field. A mismatch renders nothing.
+4. **Clean up on failure** — set `status.json` state to `error` with a message
+   so the user sees why nothing appeared.
+5. **Keep structures under ~5 MB** — larger files slow the browser. If a
+   structure is huge, publish a representative chain instead and note it.
+
+## Example: publishing a BoltzGen result
+
+```bash
+BIOBENCH=/home/asus_gx10/biobench
+RUN=$BIOBENCH/runs/my-design
+
+# 1. Report progress
+cat > $BIOBENCH/webapp/static/status.json <<'EOF'
+{"state":"running","skill":"boltzgen-deploy","step":"folding",
+ "step_index":4,"step_total":6,"message":"Refolding designs"}
+EOF
+
+# 2. Publish the top-ranked design
+cp $RUN/intermediate_designs/rank0_*.cif \
+   $BIOBENCH/webapp/static/.current.cif.tmp
+mv $BIOBENCH/webapp/static/.current.cif.tmp \
+   $BIOBENCH/webapp/static/current.cif
+
+# 3. Publish metadata
+cat > $BIOBENCH/webapp/static/.current.json.tmp <<'EOF'
+{"name":"nk2r_binder_rank0","source":"boltzgen","format":"cif",
+ "metrics":{"plddt":0.87},"notes":"Top-ranked of 8 designs"}
+EOF
+mv $BIOBENCH/webapp/static/.current.json.tmp \
+   $BIOBENCH/webapp/static/current.json
+
+# 4. Mark done
+cat > $BIOBENCH/webapp/static/status.json <<'EOF'
+{"state":"done","skill":"boltzgen-deploy","step":"filtering",
+ "step_index":6,"step_total":6,"message":"Published rank0"}
+EOF
+```

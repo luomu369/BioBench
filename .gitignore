@@ -1,0 +1,23 @@
+# Local LLM credentials — never commit
+config.json
+
+# Run outputs
+runs/
+
+# Viewer runtime state (written by skills and the page at runtime)
+webapp/static/current.cif
+webapp/static/current.json
+webapp/static/status.json
+webapp/static/selection.json
+webapp/static/*.tmp
+
+# Cached structures fetched from RCSB
+structures/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors / OS
+.vscode/
+.DS_Store
