@@ -173,7 +173,10 @@ def pdbqt_to_pdb(src: Path, dst: Path, model: int = 1,
             seen_any = True
     if not seen_any:
         raise ValueError(f"no ATOM records in MODEL {model}")
-    dst.write_text("\n".join(lines) + "\nTER\nEND\n")
+    # TER only — no END. This file is meant to be appended to the receptor
+    # PDB, and a PDB parser stops at the first END it sees, which would
+    # silently drop the ligand from the complex.
+    dst.write_text("\n".join(lines) + "\nTER\n")
 
 
 def main():
@@ -284,8 +287,13 @@ def main():
         pdbqt_to_pdb(out_pdbqt, work / "ligand_pose1.pdb", model=1)
         rec_pdb = work / "receptor.pdb"
         if rec_pdb.is_file():
-            parts = [rec_pdb.read_text(), (work / "ligand_pose1.pdb").read_text()]
-            complex_pdb.write_text("\n".join(parts))
+            # A PDB parser stops at the first END, so the receptor's own
+            # END must go and a single one be written after the ligand.
+            rec_lines = [l for l in rec_pdb.read_text().splitlines()
+                         if l.strip() != "END"]
+            lig_lines = (work / "ligand_pose1.pdb").read_text().splitlines()
+            complex_pdb.write_text(
+                "\n".join(rec_lines + lig_lines) + "\nEND\n")
             summary["complex_pdb"] = str(complex_pdb)
     except Exception as e:
         print(f"warning: could not build complex.pdb ({e})", file=sys.stderr)

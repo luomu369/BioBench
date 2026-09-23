@@ -416,7 +416,6 @@
       <option value="spectrum">Spectrum</option>
       <option value="chain">By chain</option>
       <option value="secondary">Secondary</option>
-      <option value="polarity">Polarity</option>
       <option value="white">White</option>
     </select>
     <button id="spin-btn" class="ctl icon" disabled title="Toggle rotation">
@@ -591,11 +590,14 @@ function renderStructure(data, meta) {
   }
   label.classList.add("show");
 
-  // Chain dropdown — prefer metadata, fall back to parsed chains
+  // Chain dropdown — protein chains from the model, plus any ligand
+  // chains reported in the metadata (they carry no amino acids, so
+  // extractChains skips them).
   const metaChains = meta.chains || [];
-  chainPicker.disabled = chains.length === 0;
+  const ligandChains = metaChains.filter(c => c.ligand);
+  chainPicker.disabled = chains.length === 0 && ligandChains.length === 0;
   chainPicker.innerHTML = "";
-  if (chains.length === 0) {
+  if (chains.length === 0 && ligandChains.length === 0) {
     chainPicker.innerHTML = "<option>No protein chains</option>";
     seqPanel.classList.remove("show");
   } else {
@@ -603,16 +605,29 @@ function renderStructure(data, meta) {
     const all = document.createElement("option");
     all.value = "all";
     const total = chains.reduce((n, c) => n + c.seq.length, 0);
-    all.textContent = `All chains (${chains.length} chains, ${total} aa)`;
+    all.textContent = ligandChains.length
+      ? `All chains (${chains.length} chains, ${total} aa + ${ligandChains.length} ligand)`
+      : `All chains (${chains.length} chains, ${total} aa)`;
     chainPicker.appendChild(all);
 
     chains.forEach((c, i) => {
       const opt = document.createElement("option");
       opt.value = i;
-      const role = (metaChains[i] || {}).role;
+      const role = (metaChains.find(m => m.id === c.chain) || {}).role;
       opt.textContent = role
         ? `Chain ${c.chain} — ${role} (${c.seq.length} aa)`
         : `Chain ${c.chain} (${c.seq.length} aa)`;
+      chainPicker.appendChild(opt);
+    });
+
+    // Ligand entries use a "lig:<chain>" value so they are distinguishable
+    // from the numeric protein indices.
+    ligandChains.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = `lig:${c.id}`;
+      opt.textContent = c.role
+        ? `Ligand ${c.id} — ${c.role} (${c.residues} res)`
+        : `Ligand ${c.id} (${c.residues} res)`;
       chainPicker.appendChild(opt);
     });
     chainPicker.value = "all";
@@ -638,6 +653,12 @@ chainPicker.addEventListener("change", () => {
     applyStyle();
     return;
   }
+  if (chainPicker.value.startsWith("lig:")) {
+    // Ligand selected — no sequence to show, just isolate the chain
+    seqPanel.classList.remove("show");
+    applyStyle();
+    return;
+  }
   const idx = parseInt(chainPicker.value, 10);
   if (isNaN(idx) || !chains[idx]) return;
   renderSequence(chains[idx]);
@@ -651,8 +672,7 @@ let spinning = false;
 function colorSpec(scheme) {
   switch (scheme) {
     case "chain":     return { color: "chain" };
-    case "secondary": return { color: "secondaryStructure" };
-    case "polarity":  return { color: "polarity" };
+    case "secondary": return { color: "ssJmol" };
     case "white":     return { color: "white" };
     default:          return { color: "spectrum" };
   }
@@ -672,10 +692,24 @@ function styleSpec(kind, scheme) {
 function applyStyle() {
   const kind = stylePicker.value;
   const scheme = colorPicker.value;
-  const idx = parseInt(chainPicker.value, 10);
+  const val = chainPicker.value;
+  const ligandOnly = val.startsWith("lig:") ? val.slice(4) : null;
+  const idx = parseInt(val, 10);
   const onlyChain = (!isNaN(idx) && chains[idx]) ? chains[idx].chain : null;
 
   viewer.setStyle({}, {});
+
+  if (ligandOnly) {
+    // Ligand isolated — show it large and centred, nothing else
+    viewer.setStyle({ chain: ligandOnly }, {
+      stick: { radius: 0.3, colorscheme: "Jmol" },
+      sphere: { scale: 0.45, colorscheme: "Jmol" }
+    });
+    viewer.zoomTo({ chain: ligandOnly });
+    viewer.render();
+    return;
+  }
+
   const sel = onlyChain ? { chain: onlyChain } : {};
   viewer.setStyle(sel, styleSpec(kind, scheme));
 
