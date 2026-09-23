@@ -20,7 +20,9 @@ biobench/
     ├── proteinmpnn-deploy/   install ProteinMPNN
     ├── sequence-design/      design sequences for a fixed backbone
     ├── genmol-deploy/        install GenMol and its weights
-    └── molecule-generation/  generate small molecules with GenMol
+    ├── molecule-generation/  generate small molecules with GenMol
+    ├── foldseek-deploy/      install Foldseek
+    └── structure-comparison/ compare structures with Foldseek
 ```
 
 ## First contact
@@ -56,9 +58,12 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "design a sequence for this backbone" | `sequence-design` | ProteinMPNN runs locally; backbone published |
 | "generate some molecules" | `molecule-generation` | GenMol runs locally; SMILES reported |
 | "grow this fragment" / "link these fragments" | `molecule-generation` | GenMol fragment modes |
+| "does my design look like a known fold?" | `structure-comparison` | Foldseek search; matches reported |
+| "cluster these structures" | `structure-comparison` | Foldseek clustering |
+| "install GenMol" | `genmol-deploy` | Environment + weights setup |
+| "install Foldseek" | `foldseek-deploy` | Static binary install |
 | "install BoltzGen" / "weights missing" | `boltzgen-deploy` | Environment + weights setup |
 | "install ProteinMPNN" | `proteinmpnn-deploy` | Environment setup |
-| "install GenMol" | `genmol-deploy` | Environment + weights setup |
 | "show me 7xwo" / "display NK1R" | `structure-viewer` | Fetch from RCSB, publish |
 | "what's in the viewer now" | `structure-viewer` | Read `static/current.json` |
 | "what did I select" | `structure-viewer` | Read `static/selection.json` |

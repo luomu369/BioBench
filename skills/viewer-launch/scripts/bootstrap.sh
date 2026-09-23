@@ -183,6 +183,25 @@ else
     }
 fi
 
+# ---------------------------------------------------------------- foldseek
+head_ "foldseek"
+FS="$HOME/tools/foldseek/bin/foldseek"
+if [[ -x "$FS" ]] || command -v foldseek >/dev/null 2>&1; then
+    BIN=$(command -v foldseek 2>/dev/null || echo "$FS")
+    VER=$("$BIN" version 2>/dev/null | head -1 | cut -c1-12)
+    ok "foldseek $VER ($BIN)"
+else
+    warn "foldseek not installed (optional — needed for structure-comparison)"
+    [[ $FIX -eq 1 ]] && {
+        echo "         fixing: downloading arm64 release binary"
+        mkdir -p "$HOME/tools"
+        (cd "$HOME/tools" \
+            && curl -sL -o fs.tar.gz "https://github.com/steineggerlab/foldseek/releases/download/10-941cd33/foldseek-linux-arm64.tar.gz" \
+            && tar xzf fs.tar.gz && rm -f fs.tar.gz) \
+            && ok "installed foldseek to $HOME/tools/foldseek"
+    }
+fi
+
 # ---------------------------------------------------------------- viewer assets
 head_ "viewer assets"
 for f in index.html 3Dmol-min.js; do

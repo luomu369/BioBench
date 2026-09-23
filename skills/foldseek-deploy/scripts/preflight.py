@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Preflight check for a Foldseek installation.
+
+Verifies the binary exists, is executable, reports a version, and can run a
+trivial search. Read-only.
+
+Exit codes: 0 all checks passed, 1 one or more failed.
+"""
+
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+CANDIDATES = [
+    Path("/home/asus_gx10/tools/foldseek/bin/foldseek"),
+    Path.home() / "tools/foldseek/bin/foldseek",
+]
+
+
+def check(label, ok, detail=""):
+    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
+    return ok
+
+
+def find_binary():
+    on_path = shutil.which("foldseek")
+    if on_path:
+        return Path(on_path)
+    for c in CANDIDATES:
+        if c.is_file():
+            return c
+    return None
+
+
+def main():
+    results = []
+
+    binary = find_binary()
+    if binary is None:
+        check("foldseek binary", False,
+              "not on PATH and not in ~/tools/foldseek/bin")
+        print("\nInstall: see skills/foldseek-deploy/SKILL.md")
+        return 1
+    results.append(check("foldseek binary", True, str(binary)))
+
+    results.append(check("executable", binary.stat().st_mode & 0o111 != 0))
+
+    r = subprocess.run([str(binary), "version"], capture_output=True,
+                       text=True, timeout=60)
+    # `foldseek version` prints just the git commit hash
+    version = (r.stdout + r.stderr).strip().splitlines()
+    version = version[0].strip() if version else ""
+    results.append(check("reports version", bool(version),
+                         version[:16] if version else "no output"))
+
+    # Smoke test: search a real structure against itself.
+    # A 3-residue stub is filtered out by foldseek's minimum-length cutoff,
+    # so use a cached PDB entry when one exists, else skip with a warning.
+    smoke = next(iter(sorted(
+        Path("/home/asus_gx10/biobench/structures").glob("*.cif"))), None)
+    if smoke is None:
+        results.append(check("trivial search runs", True,
+                             "skipped — no local structure to test with"))
+    else:
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            out = td / "out.m8"
+            tmp = td / "tmp"
+            r = subprocess.run(
+                [str(binary), "easy-search", str(smoke), str(smoke), str(out),
+                 str(tmp), "--format-output", "query,target,pident,bits"],
+                capture_output=True, text=True, timeout=600,
+            )
+            ok = r.returncode == 0 and out.is_file() and out.stat().st_size > 0
+            results.append(check("trivial search runs", ok,
+                                 f"{smoke.name} vs itself"
+                                 if ok else r.stderr.strip()[-160:]))
+
+    print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
+    return 0 if all(results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

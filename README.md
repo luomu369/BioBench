@@ -31,9 +31,13 @@ biobench/
 │   ├── genmol-deploy/        Install GenMol and its weights
 │   │   └── scripts/
 │   │       └── preflight.py  Env/import/weights/checkpoint readiness
-│   └── molecule-generation/ Generate small molecules with GenMol
-│       └── scripts/
-│           └── generate.py  de novo / fragment completion / linking
+│   ├── molecule-generation/ Generate small molecules with GenMol
+│   │   └── scripts/
+│   │       └── generate.py  de novo / fragment completion / linking
+│   ├── foldseek-deploy/      Install Foldseek
+│   │   └── scripts/
+│   │       └── preflight.py  Binary/version/smoke-search readiness
+│   └── structure-comparison/ Compare structures with Foldseek
 ├── webapp/
 │   ├── run_viewer.sh         Launch the viewer
 │   └── static/
@@ -104,6 +108,8 @@ agent harness drive it.
 | `sequence-design` | ProteinMPNN sequence design |
 | `genmol-deploy` | GenMol installation |
 | `molecule-generation` | GenMol small-molecule generation |
+| `foldseek-deploy` | Foldseek installation |
+| `structure-comparison` | Foldseek structure search and clustering |
 
 ## Installing a skill elsewhere
 
