@@ -51,19 +51,28 @@ def atomic_write(path: Path, text: str) -> None:
 
 
 def parse_chains(path: Path) -> list[dict]:
-    """Extract per-chain residue counts from a PDB or mmCIF file."""
+    """Extract per-chain residue counts from a PDB or mmCIF file.
+
+    Both amino-acid residues and HETATM ligands are counted. Ligands get
+    ``"ligand": true`` so the viewer can style them differently.
+    """
     residues: dict[str, dict[str, str]] = {}
+    ligands: dict[str, bool] = {}
     text = path.read_text(errors="replace")
 
     if path.suffix in (".pdb", ".ent"):
         for line in text.splitlines():
             if not line.startswith(("ATOM", "HETATM")):
                 continue
-            one = AA3TO1.get(line[17:20].strip().upper())
-            if not one:
-                continue
+            resname = line[17:20].strip().upper()
+            one = AA3TO1.get(resname)
+            is_ligand = one is None
+            if is_ligand and resname in ("HOH", "WAT", "DOD"):
+                continue  # skip water
             chain = line[21] or "_"
-            residues.setdefault(chain, {})[line[22:27].strip()] = one
+            residues.setdefault(chain, {})[line[22:27].strip()] = one or "X"
+            if is_ligand:
+                ligands[chain] = True
     else:
         cols: dict[str, int] = {}
         in_loop = False
@@ -78,16 +87,23 @@ def parse_chains(path: Path) -> list[dict]:
                 parts = line.split()
                 if len(parts) < len(cols):
                     continue
-                one = AA3TO1.get(parts[cols.get("label_comp_id", 0)].upper())
-                if not one:
+                resname = parts[cols.get("label_comp_id", 0)].upper()
+                one = AA3TO1.get(resname)
+                is_ligand = one is None
+                if is_ligand and resname in ("HOH", "WAT", "DOD"):
                     continue
                 chain = parts[cols.get("auth_asym_id",
                                        cols.get("label_asym_id", 0))]
                 resi = parts[cols.get("auth_seq_id",
                                       cols.get("label_seq_id", 0))]
-                residues.setdefault(chain, {})[resi] = one
+                residues.setdefault(chain, {})[resi] = one or "X"
+                if is_ligand:
+                    ligands[chain] = True
 
-    return [{"id": c, "residues": len(r)} for c, r in residues.items()]
+    return [
+        {"id": c, "residues": len(r), **({"ligand": True} if c in ligands else {})}
+        for c, r in residues.items()
+    ]
 
 
 def publish_structure(args) -> int:

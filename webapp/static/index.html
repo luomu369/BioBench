@@ -466,6 +466,7 @@
 <script>
 const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "0b0f14" });
 let chains = [];
+let currentMeta = {};
 let lastUpdated = null;
 let currentStructure = null;
 
@@ -560,6 +561,7 @@ const spinBtn = document.getElementById("spin-btn");
 const resetBtn = document.getElementById("reset-btn");
 
 function renderStructure(data, meta) {
+  currentMeta = meta;
   viewer.removeAllModels();
   const fmt = meta.format === "pdb" ? "pdb" : "mmcif";
   viewer.addModel(data, fmt);
@@ -676,6 +678,20 @@ function applyStyle() {
   viewer.setStyle({}, {});
   const sel = onlyChain ? { chain: onlyChain } : {};
   viewer.setStyle(sel, styleSpec(kind, scheme));
+
+  // Ligands (non-amino-acid chains from metadata) always render as
+  // ball-and-stick so they stay visible under surface/cartoon styles.
+  const ligandChains = (currentMeta.chains || [])
+    .filter(c => c.ligand)
+    .map(c => c.chain);
+  if (ligandChains.length) {
+    ligandChains.forEach(ch => {
+      viewer.setStyle({ chain: ch }, {
+        stick: { radius: 0.25, color: "orange" },
+        sphere: { scale: 0.35, color: "orange" }
+      });
+    });
+  }
 
   // Re-apply selection highlights on top
   Object.entries(selection).forEach(([key, item]) => {
