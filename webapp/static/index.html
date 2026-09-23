@@ -33,6 +33,25 @@
     background: radial-gradient(ellipse at 50% 40%, #16202b 0%, #0b0f14 70%);
   }
   #viewer { width: 100%; height: 100%; }
+  /* Follows the cursor over the canvas and names the residue under it. */
+  #hover-tip {
+    position: absolute;
+    z-index: 20;
+    pointer-events: none;
+    background: rgba(13,18,25,.92);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text);
+    white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    backdrop-filter: blur(4px);
+  }
+  #hover-tip .ht-res { font-weight: 600; }
+  #hover-tip .ht-chain { color: var(--muted); margin-left: 6px; }
+  #hover-tip .ht-sel { color: var(--accent); margin-left: 6px; }
   #viewer-hint {
     position: absolute;
     inset: 0;
@@ -408,6 +427,7 @@
 
 <div id="viewer-wrap">
   <div id="viewer"></div>
+  <div id="hover-tip" hidden></div>
   <div id="viewer-hint">
     <div class="big">No structure loaded</div>
     <div class="small">
@@ -604,6 +624,10 @@ function renderStructure(data, meta) {
 
   // removeAllModels() clears click bindings — re-attach for the new model
   viewer.setClickable({}, true, onAtomClick);
+  // 3Dmol waits 500 ms before firing a hover, which feels laggy for a
+  // tooltip that is only naming the residue under the cursor.
+  viewer.setHoverDuration(0);
+  viewer.setHoverable({}, true, onAtomHover, onHoverOut);
 
   chains = extractChains(viewer.getModel());
   const isPeptide = chains.length > 0;
@@ -941,6 +965,77 @@ function persistSelection(keys) {
 function selLabel(atom) {
   return `${atom.resn || "?"} ${atom.resi}${atom.chain ? " · " + atom.chain : ""}`;
 }
+
+/* ---------------- hover tooltip ---------------- */
+
+const hoverTip = document.getElementById("hover-tip");
+
+// 3Dmol gives us the atom under the cursor but not the pointer position,
+// so track that ourselves and place the tip next to it.
+let hoverPos = { x: 0, y: 0 };
+
+function onAtomHover(atom) {
+  if (!atom) {
+    hoverTip.hidden = true;
+    return;
+  }
+  const resn = atom.resn || "?";
+  const resi = atom.resi != null ? atom.resi : "";
+  const chain = atom.chain || "_";
+  const elem = atom.elem ? ` ${atom.elem}` : "";
+
+  hoverTip.innerHTML = "";
+  const res = document.createElement("span");
+  res.className = "ht-res";
+  res.textContent = `${resn} ${resi}${elem}`;
+  hoverTip.appendChild(res);
+
+  const ch = document.createElement("span");
+  ch.className = "ht-chain";
+  ch.textContent = `chain ${chain}`;
+  hoverTip.appendChild(ch);
+
+  // Say whether this residue is already selected, so the user knows what
+  // a click will do before making it.
+  const key = `${chain}:${resi}`;
+  if (selection[key] || selection[`chain:${chain}`]) {
+    const sel = document.createElement("span");
+    sel.className = "ht-sel";
+    sel.textContent = "selected";
+    hoverTip.appendChild(sel);
+  }
+
+  hoverTip.hidden = false;
+  positionTip();
+}
+
+function onHoverOut() {
+  hoverTip.hidden = true;
+}
+
+// Keep the tip inside the viewer: flip it to the other side of the cursor
+// when it would run off the right or bottom edge.
+function positionTip() {
+  const wrap = document.getElementById("viewer-wrap").getBoundingClientRect();
+  const w = hoverTip.offsetWidth;
+  const h = hoverTip.offsetHeight;
+  let x = hoverPos.x + 14;
+  let y = hoverPos.y + 14;
+  if (x + w > wrap.width - 8) x = hoverPos.x - w - 14;
+  if (y + h > wrap.height - 8) y = hoverPos.y - h - 14;
+  hoverTip.style.left = `${Math.max(8, x)}px`;
+  hoverTip.style.top = `${Math.max(8, y)}px`;
+}
+
+document.getElementById("viewer-wrap").addEventListener("mousemove", (e) => {
+  const wrap = e.currentTarget.getBoundingClientRect();
+  hoverPos = { x: e.clientX - wrap.left, y: e.clientY - wrap.top };
+  if (!hoverTip.hidden) positionTip();
+});
+
+document.getElementById("viewer-wrap").addEventListener("mouseleave", () => {
+  hoverTip.hidden = true;
+});
 
 function renderSelectionPanel() {
   const keys = Object.keys(selection);
