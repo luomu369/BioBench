@@ -371,6 +371,36 @@ Three things bite here, all of which cost a round trip:
   gemmi drops hand-built chains when writing mmCIF, and the publish
   reports fewer chains than expected.
 
+### Verify the complex before publishing it
+
+A flexible run's output is easy to get subtly wrong, and the viewer will
+happily render a physically impossible structure. Three checks, all cheap:
+
+```bash
+python3 -c "
+import gemmi, math, sys
+st = gemmi.read_structure(sys.argv[1]); st.setup_entities()
+lig = [a for ch in st[0] if ch.name=='L' for r in ch for a in r]
+pro = [a for ch in st[0] if ch.name!='L' for r in ch for a in r]
+clash = sum(1 for p in pro for l in lig if math.dist(p.pos, l.pos) < 2.0)
+print(f'chains: {[(c.name, len(c)) for c in st[0]]}')
+print(f'clashes < 2.0 A: {clash}')
+" flex_out/complex.pdb
+```
+
+1. **Residue count per chain** — compare against the receptor you fed in.
+   A chain that lost residues means the merge dropped them.
+2. **Clash count** — receptor-ligand atom pairs under 2.0 Å should be 0.
+   Anything above means the pose is not physically realisable.
+3. **Residue order** — a chain whose numbering jumps backwards mid-file
+   renders as two disconnected pieces in the viewer.
+
+> **Residue numbers repeat across chains.** 7XWQ has a 298 on both A and
+> B. Any code that matches "the residues Vina moved" by number alone will
+> match both, and since Vina only emitted the flexible chain's version,
+> the other chain's copy vanishes — 19 residues silently deleted from
+> chain B, leaving it in 14 pieces. Always match on chain *and* number.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

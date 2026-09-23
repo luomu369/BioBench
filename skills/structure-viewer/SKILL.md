@@ -284,6 +284,50 @@ def publish(cif_text: str, meta: dict, viewer: Path):
    pass them with `--highlight`. The viewer selects them on arrival with
    their side chains drawn, so the user sees the result instead of hunting
    for it. Derive the list from the file you are publishing.
+8. **Check what you built before publishing it.** A viewer renders a
+   broken file as happily as a good one, so a silent fault in the merge
+   step reaches the user as a wrong structure. Before publishing anything
+   assembled from more than one source, confirm:
+
+   ```bash
+   python3 -c "
+   import gemmi, sys
+   st = gemmi.read_structure(sys.argv[1]); st.setup_entities()
+   for c in st[0]:
+       n = [r.seqid.num for r in c]
+       gaps = sum(1 for a, b in zip(n, n[1:]) if b != a + 1)
+       print(f'{c.name}: {len(n)} residues, {gaps} gaps')
+   " combined.pdb
+   ```
+
+   Residue counts should match the inputs, and gaps should match the
+   source structure's own unresolved regions — no more. Extra gaps mean
+   the merge dropped residues.
+
+## When the user says the structure looks wrong
+
+Ask **where** before theorising. "It's broken" has cost several rounds of
+misdiagnosis: a chain rendered in pieces was blamed on residue ordering,
+then on a format-detection bug, and only turned out to be 19 residues
+deleted from one chain by a number-only match. Each guess was plausible
+and each was wrong.
+
+The useful questions, in order:
+
+1. **Which chain, and roughly where?** The viewer's hover tooltip names
+   the residue under the cursor — ask the user to hover the break.
+2. **Did it look right before the last step?** This localises the fault
+   to one stage of the pipeline immediately.
+3. **What does the file actually contain?** Read it back with gemmi and
+   compare residue counts and ordering against the input. Do not reason
+   about the rendering until the data is confirmed.
+
+The viewer's own model is inspectable too, which distinguishes "the file
+is wrong" from "the viewer mis-read a correct file":
+
+```js
+document.querySelector('#viewer canvas')._3dmol_viewer.models[0].atoms
+```
 
 ## Example: publishing a BoltzGen result
 

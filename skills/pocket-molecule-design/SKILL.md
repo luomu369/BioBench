@@ -17,6 +17,43 @@ publish them alongside the receptor.
 - "Propose ligands for the residues I selected"
 - "Explore chemistry around this scaffold"
 
+## Reading a selection from the viewer
+
+When the user points at residues in the viewer, they are in
+`webapp/static/selection.json`:
+
+```bash
+python3 -c "
+import json
+sel = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+print(f\"{sel['count']} residues on structure {sel['structure']}\")
+for r in sel['residues']:
+    print(f\"  {r['chain']}/{r['resi']} {r['resn']}\")
+"
+```
+
+Turn them into a centre, and check the spread before committing to a box
+size — a selection that spans 15 Å or more is probably two sites, not one:
+
+```bash
+python3 -c "
+import gemmi, math, json, sys
+st = gemmi.read_structure(sys.argv[1]); st.setup_entities()
+sel = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+want = {(r['chain'], r['resi']) for r in sel['residues']}
+pts = [a.pos for ch in st[0] for r in ch for a in r
+       if (ch.name, r.seqid.num) in want]
+c = [sum(getattr(p, k) for p in pts)/len(pts) for k in 'xyz']
+print(f'{len(pts)} atoms, centroid {c[0]:.2f},{c[1]:.2f},{c[2]:.2f}')
+print(f'max radius {max(math.dist(p, c) for p in pts):.2f} A')
+" /tmp/cur.pdb
+```
+
+> **The published file may be PDB text under a `.cif` name.** The viewer's
+> contract file is always `current.cif`, but `publish.py` writes whatever
+> format the source was. If gemmi rejects it with `expected block header`,
+> copy it to a `.pdb` name and read that.
+
 ## Confirm before running
 
 Generation takes ~10 minutes for 20 molecules, so confirm first:
@@ -35,7 +72,7 @@ Proceed?
 | Parameter | How to decide | Default |
 |-----------|---------------|---------|
 | **Receptor** | The structure the user is looking at | required |
-| **Reference ligand** | Anything that marks the pocket centre — a docked pose, a co-crystallised ligand, or a fragment | required |
+| **Pocket centre** | A reference ligand, or explicit coordinates | required |
 | **Molecules** | Ask the user | 20 |
 | **Beam size** | Higher = better molecules, much slower | 20 |
 
@@ -43,6 +80,50 @@ Proceed?
 > to place a 10 Å box; the generated molecules are not constrained to
 > resemble it. A docked pose, a crystal ligand, or even a single placed
 > fragment all work.
+>
+> **When the user selected residues in the viewer, use their centroid and
+> skip the reference ligand entirely.** `--center` takes coordinates
+> directly, so no SDF is needed:
+>
+> ```bash
+> $PY gen.py --pdb_file /tmp/receptor.pdb --sdf_file /tmp/anything.sdf \
+>   --center "16.33,-9.59,-32.43" --outdir /tmp/resgen_out
+> ```
+>
+> `--sdf_file` is a required argument but its contents are ignored when
+> `--center` is given — the `if args.center is not None` branch overwrites
+> the data built from the SDF. It still names the output directory, so
+> give it a meaningful stem. A one-atom SDF at the centroid works if you
+> prefer to keep the two paths identical.
+>
+> Compute the centroid from the selected residues, and check the spread
+> first: if the selection spans more than ~15 Å the 10 Å box will not
+> cover it, and either a larger `box_size` or a tighter selection is
+> needed.
+
+### Expect small molecules without a reference ligand
+
+ResGen grows each molecule outward from a single seed atom and stops when
+`focal_threshold` is met. With a reference ligand present the seed sits in
+a pocket shaped by something drug-sized, and the result is multi-ring. With
+only a centroid the model has nothing to grow against, and a hydrophobic
+pocket satisfies the stop condition early — a run on a six-residue
+all-leucine selection produced 11 molecules averaging 5.5 heavy atoms
+(acetone, acetic acid, propanol, phenol).
+
+That is the model behaving as designed, not a fault. If the user wants
+drug-sized output, the options in order of effort:
+
+1. **Give it a reference ligand** — any molecule that marks the pocket,
+   even a fragment or a docked pose. This is what changes the outcome.
+2. **Raise `focal_threshold`** in `configs/sample.yml` (default 0.5) so
+   generation runs longer.
+3. **Dock a library instead** — `molecular-docking` scores molecules you
+   already have, which suits a hydrophobic pocket where the goal is to
+   find something that fits rather than to invent chemistry.
+
+Say which you did and what it implies; do not present 5-atom molecules as
+design candidates without the caveat.
 
 ## Workflow
 
