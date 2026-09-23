@@ -330,7 +330,7 @@
     padding: 5px 7px;
     border-radius: 8px;
     font-size: 12px;
-    cursor: default;
+    cursor: pointer;
   }
   #selection .s-row:hover { background: rgba(77,163,255,.1); }
   #selection .s-swatch {
@@ -1342,15 +1342,52 @@ function renderSelectionPanel() {
     del.className = "s-del";
     del.textContent = "×";
     del.title = "Remove";
-    del.addEventListener("click", () => {
+    del.addEventListener("click", ev => {
+      ev.stopPropagation();
       delete selection[key];
       applyStyle();
       renderSelectionPanel();
     });
 
+    // Clicking the row flies the camera to that selection. The panel lists
+    // things picked from all over the complex, and without this the only
+    // way back to one is to hunt for it in the 3D view.
+    row.addEventListener("click", () => seekToSelection(item.sel));
+
     row.append(sw, name, del);
     selList.appendChild(row);
   });
+}
+
+// Centre the camera on a selection spec. zoomTo takes a 3Dmol selection,
+// not coordinates — it resolves the atoms itself and frames them, so a
+// single atom and a whole chain both work through the same call.
+//
+// A lone atom has no extent, and zoomTo's own minimum framing is 5 units,
+// which would leave it lost in the middle of the screen. Widen the
+// selection to the atom's residue in that case so the framing has
+// something to work with.
+function seekToSelection(sel) {
+  if (!sel) return;
+  const model = viewer.getModel();
+  if (!model) return;
+
+  let target = sel;
+  if (sel.index !== undefined) {
+    const atoms = Array.isArray(sel.index) ? sel.index : [sel.index];
+    const found = atoms.map(i => model.atoms.find(a => a.index === i))
+                        .filter(Boolean);
+    if (!found.length) return;
+    if (found.length === 1) {
+      // one atom: frame its residue instead, so the view has context
+      target = { chain: found[0].chain, resi: found[0].resi };
+    } else {
+      target = { index: atoms };
+    }
+  }
+
+  viewer.zoomTo(target, 600);
+  viewer.render();
 }
 
 // Colour for the next selection. Derived from how many things are already
