@@ -135,7 +135,7 @@ visualization `.cif`.
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step design --index 1 --total 5 \
+python3 $PUB --status --state running --step "生成 binder 主链骨架" --index 1 --total 5 \
   --skill ligand-binding-design --message "正在设计结合小分子的蛋白"
 ```
 
@@ -198,7 +198,7 @@ python3 $PUB \
   --roles "A=protein,B=ligand" \
   --metrics '{"designs": 4}' \
   --notes "Protein designed to bind the specified ligand" \
-  --status --state done --step filtering --index 5 --total 5 \
+  --status --state done --step "筛选并排序设计" --index 5 --total 5 \
   --skill ligand-binding-design --message "Published $(basename "$BEST")"
 ```
 

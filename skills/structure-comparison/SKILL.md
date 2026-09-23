@@ -67,7 +67,7 @@ Pick the target from what the user is actually asking:
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step search --index 1 --total 3 \
+python3 $PUB --status --state running --step "搜索结构数据库" --index 1 --total 3 \
   --skill structure-comparison --message "正在比对结构"
 ```
 
@@ -345,7 +345,7 @@ don't say. No required structure. Reference material if you want it:
 For a shortlist, publish the best hit and list the rest in the message:
 
 ```bash
-python3 $PUB --status --state done --step search --index 3 --total 3 \
+python3 $PUB --status --state done --step "搜索结构数据库" --index 3 --total 3 \
   --skill structure-comparison \
   --message "Top 5: 7xwq 100% | 7xwr 99.5% | 4j26 97.3% | 1u9e 97.7% | 1u3r 98.2%"
 ```

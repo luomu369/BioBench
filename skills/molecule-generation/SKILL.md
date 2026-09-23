@@ -52,7 +52,7 @@ If the user gave a count, use it. Otherwise ask.
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step generation --index 1 --total 2 \
+python3 $PUB --status --state running --step "分子生成" --index 1 --total 2 \
   --skill molecule-generation --message "正在生成小分子"
 ```
 
@@ -129,7 +129,7 @@ Notable: 3 contain a morpholine ring, 2 are chiral, all parse as valid SMILES.
 Mark the task done:
 
 ```bash
-python3 $PUB --status --state done --step generation --index 2 --total 2 \
+python3 $PUB --status --state done --step "分子生成" --index 2 --total 2 \
   --skill molecule-generation --message "已生成 20 个分子"
 ```
 

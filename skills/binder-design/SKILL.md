@@ -147,7 +147,7 @@ writes a visualization `.cif` you can inspect before committing to a run.
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step design --index 1 --total 5 \
+python3 $PUB --status --state running --step "生成 binder 主链骨架" --index 1 --total 5 \
   --skill binder-design --message "开始设计：生成 binder 主链骨架"
 ```
 
@@ -253,7 +253,7 @@ python3 $PUB \
   --notes "生成 4 个设计（模型产出的候选数量），界面预测 TM-score 0.43
 （复合物界面置信度，>0.7 为好，当前值说明界面可信度中等）。
 建议：增加设计数量或调整约束残基以提升界面置信度。" \
-  --status --state done --step filtering --index 5 --total 5 \
+  --status --state done --step "筛选并排序设计" --index 5 --total 5 \
   --skill binder-design --message "Published $(basename "$BEST")"
 ```
 

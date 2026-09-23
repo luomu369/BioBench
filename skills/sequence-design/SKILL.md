@@ -121,7 +121,7 @@ positions matter.
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step sequence_design --index 1 --total 2 \
+python3 $PUB --status --state running --step "设计氨基酸序列" --index 1 --total 2 \
   --skill sequence-design --message "正在为骨架设计氨基酸序列"
 ```
 
@@ -201,7 +201,7 @@ python3 $PUB \
   --notes "设计 8 条序列（模型产出的候选数量），最佳得分 0.876
 （ProteinMPNN 的负对数似然，越低越好，表示序列与骨架越匹配）。
 建议：得分良好，可挑选前 3 条用结构预测验证折叠。" \
-  --status --state done --step design --index 2 --total 2 \
+  --status --state done --step "设计氨基酸序列" --index 2 --total 2 \
   --skill sequence-design --message "8 sequences designed"
 ```
 

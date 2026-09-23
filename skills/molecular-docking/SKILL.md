@@ -56,7 +56,7 @@ Proceed?
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step docking --index 1 --total 2 \
+python3 $PUB --status --state running --step "分子对接" --index 1 --total 2 \
   --skill molecular-docking --message "正在对接小分子"
 ```
 
@@ -167,7 +167,7 @@ Docked the ligand into NK1R (box centered on the orthosteric site):
 Mark the task done:
 
 ```bash
-python3 $PUB --status --state done --step docking --index 2 --total 2 \
+python3 $PUB --status --state done --step "分子对接" --index 2 --total 2 \
   --skill molecular-docking --message "对接完成，最佳亲和力 -9.8 kcal/mol"
 ```
 
@@ -194,7 +194,7 @@ $PY $PUB --structure docking_out/complex.pdb \
   --name "I1M_docked_7XWQ" --source vina \
   --roles "A=receptor,L=ligand" \
   --metrics '{"best_affinity_kcal_mol": {"label": "结合亲和力", "value": -8.55, "hint": "kcal/mol，越负越强"}, "num_modes": {"label": "姿态数", "value": 5}}' \
-  --status --state done --step docking --index 2 --total 2 \
+  --status --state done --step "分子对接" --index 2 --total 2 \
   --skill molecular-docking --message "对接完成"
 ```
 

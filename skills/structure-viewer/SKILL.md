@@ -133,7 +133,7 @@ Use the bundled publisher:
 
 ```bash
 python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py \
-  --status --state running --step design --index 1 --total 6 \
+  --status --state running --step "生成 binder 主链骨架" --index 1 --total 6 \
   --skill boltzgen-deploy --message "Diffusion sampling, batch 1/4"
 ```
 
@@ -149,7 +149,7 @@ Call it whenever the task moves to a new phase. Typical points:
 | Field | Meaning |
 |-------|---------|
 | `state` | `idle`, `running`, `done`, `error` |
-| `step` | Short name of the current phase |
+| `step` | 当前阶段的说明文字，直接显示在进度条上 |
 | `step_index` / `step_total` | Drives the progress bar |
 | `message` | Human-readable detail |
 | `skill` | Which skill is running, for attribution |

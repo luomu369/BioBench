@@ -97,7 +97,7 @@ From an existing PDBQT pose (e.g. a Vina result), extract it with
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step generation --index 1 --total 3 \
+python3 $PUB --status --state running --step "分子生成" --index 1 --total 3 \
   --skill pocket-molecule-design --message "正在生成口袋适配分子"
 ```
 
@@ -176,7 +176,7 @@ python3 $PUB --structure /tmp/combined.cif \
 （距参考配体 10 A 内的受体残基），参考配体 I1M 仅用于定位口袋中心，
 束搜索宽度 20（每步保留的候选数，越大越慢）。
 建议：分子数量充足，挑选 3–5 个用分子对接验证结合能力。" \
-  --status --state done --step generation --index 3 --total 3 \
+  --status --state done --step "分子生成" --index 3 --total 3 \
   --skill pocket-molecule-design --message "生成完成：11 个口袋适配分子"
 ```
 
