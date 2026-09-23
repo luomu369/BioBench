@@ -71,6 +71,13 @@ def prepare_flex_receptor(pdb: Path, stem: Path, flex_spec: str):
 def pick_flex_residues(st, chain_id, center, cutoff):
     """Amino-acid residues of `chain_id` within `cutoff` of the centre.
 
+    Distance is measured to the residue's *nearest atom*, not its centroid.
+    A long side chain reaches into the box while its centroid stays well
+    outside it — MET 479 in 7XWQ has its centroid 11.4 A from the pocket
+    centre but its CB/CG sit right where the ligand goes. Judging by
+    centroid leaves such residues rigid, and the ligand then clashes with
+    a side chain Vina was never allowed to move.
+
     Non-polymer residues are skipped: a co-crystallised ligand sitting in
     the box is not a side chain and cannot be made flexible.
     """
@@ -83,17 +90,99 @@ def pick_flex_residues(st, chain_id, center, cutoff):
                 continue
             if not res.name.isalpha() or len(res.name) != 3:
                 continue
-            pts = [(a.pos.x, a.pos.y, a.pos.z) for a in res]
-            if not pts:
-                continue
-            mx = sum(p[0] for p in pts) / len(pts)
-            my = sum(p[1] for p in pts) / len(pts)
-            mz = sum(p[2] for p in pts) / len(pts)
-            d = math.sqrt((mx - center[0]) ** 2 + (my - center[1]) ** 2
-                          + (mz - center[2]) ** 2)
+            d = min(
+                math.sqrt((a.pos.x - center[0]) ** 2
+                          + (a.pos.y - center[1]) ** 2
+                          + (a.pos.z - center[2]) ** 2)
+                for a in res
+            ) if len(res) else float("inf")
             if d < cutoff:
                 out.append((res.seqid.num, res.name, d))
     return sorted(out, key=lambda r: r[2])
+
+
+def read_pdbqt_model(path: Path, model: int = 1) -> list[dict]:
+    """Atoms of one MODEL from a Vina PDBQT, as plain dicts."""
+    atoms, in_model = [], False
+    for line in path.read_text().splitlines():
+        if line.startswith("MODEL"):
+            in_model = (int(line.split()[1]) == model)
+            continue
+        if line.startswith("ENDMDL"):
+            if in_model:
+                break
+            continue
+        if not in_model:
+            continue
+        if line.startswith(("ATOM", "HETATM")):
+            raw = line[76:78].strip()
+            if raw.upper() == "A":
+                raw = "C"  # aromatic carbon — not a real element symbol
+            atoms.append({
+                "name": line[12:16].strip(),
+                "resn": line[17:20].strip(),
+                "chain": line[21],
+                "resi": line[22:27].strip(),
+                "x": float(line[30:38]), "y": float(line[38:46]),
+                "z": float(line[46:54]),
+                "elem": raw or line[12:16].strip()[0],
+            })
+    return atoms
+
+
+def build_complex(docked: Path, receptor_pdb: Path, out: Path,
+                  flex_chain: str, ligand_chain: str = "L") -> None:
+    """Write receptor + moved side chains + ligand as one PDB.
+
+    The ligand is whatever Vina wrote with an empty chain ID and residue
+    name UNL; everything else is a receptor residue whose coordinates Vina
+    changed. Those residues are re-emitted over the receptor's own copies
+    so the published complex matches the pose that was actually scored.
+    """
+    atoms = read_pdbqt_model(docked, model=1)
+    moved: dict[str, list[dict]] = {}
+    ligand: list[dict] = []
+    for a in atoms:
+        if a["resn"] == "UNL" or a["chain"] not in (flex_chain, " "):
+            ligand.append(a)
+        else:
+            moved.setdefault(a["resi"], []).append(a)
+
+    rec_lines = []
+    for line in receptor_pdb.read_text().splitlines():
+        if line.startswith(("ATOM", "HETATM")):
+            if line[22:27].strip() in moved:
+                continue  # replaced below with the moved coordinates
+        if line.strip() == "END":
+            continue
+        rec_lines.append(line)
+
+    serial = 0
+    for line in rec_lines:
+        if line.startswith(("ATOM", "HETATM")):
+            serial = max(serial, int(line[6:11]))
+    for resi in sorted(moved, key=lambda r: int(r)):
+        for a in moved[resi]:
+            serial += 1
+            rec_lines.append(
+                f"ATOM  {serial:5d} {a['name']:<4s} {a['resn']:>3s} "
+                f"{flex_chain}{int(resi):4d}    "
+                f"{a['x']:8.3f}{a['y']:8.3f}{a['z']:8.3f}"
+                f"{'  1.00':>6s}{'  0.00':>6s}          "
+                f"{a['elem']:>2s}"
+            )
+
+    lig_lines = [
+        f"HETATM{i:5d} {a['name']:<4s} {'UNL':>3s} {ligand_chain}{1:4d}    "
+        f"{a['x']:8.3f}{a['y']:8.3f}{a['z']:8.3f}"
+        f"{'  1.00':>6s}{'  0.00':>6s}          "
+        f"{a['elem']:>2s}"
+        for i, a in enumerate(ligand, 1)
+    ]
+
+    out.write_text("\n".join(rec_lines + lig_lines) + "\nTER\nEND\n")
+    print(f"== complex: {len(moved)} moved residues + "
+          f"{len(ligand)} ligand atoms -> {out}", file=sys.stderr)
 
 
 def main():
@@ -115,6 +204,10 @@ def main():
                          "overrides --flex-cutoff")
     ap.add_argument("--num-modes", type=int, default=5)
     ap.add_argument("--exhaustiveness", type=int, default=16)
+    ap.add_argument("--cpu", type=int, default=0,
+                    help="threads for Vina; 0 = all available cores. Vina is "
+                         "CPU-only and its auto-detection often falls back "
+                         "to a single thread, so this is passed explicitly.")
     ap.add_argument("--out", default="flex_dock_out")
     args = ap.parse_args()
 
@@ -200,6 +293,7 @@ open({str(lig_pdbqt)!r}, 'w').write(prep.write_pdbqt_string())
         "--out", str(out_pdbqt),
         "--num_modes", str(args.num_modes),
         "--exhaustiveness", str(args.exhaustiveness),
+        "--cpu", str(args.cpu),
     ]
     print("== docking (flexible receptor)", file=sys.stderr)
     r = sh(cmd)
@@ -220,6 +314,19 @@ open({str(lig_pdbqt)!r}, 'w').write(prep.write_pdbqt_string())
                 "rmsd_ub": float(m.group(4)),
             })
 
+    # ---- viewable complex: receptor + moved side chains + ligand ----
+    # A flexible run returns the ligand *and* the side chains it moved, but
+    # rec_pdb still holds those residues in their original positions.
+    # Publishing that receptor next to the new ligand shows the ligand
+    # clashing with side chains Vina had already rotated away — the pose
+    # looks impossible even though the docking was fine. Write the moved
+    # residues back over the receptor's copies.
+    complex_pdb = work / "complex.pdb"
+    try:
+        build_complex(out_pdbqt, rec_pdb, complex_pdb, args.flex_chain)
+    except Exception as e:
+        print(f"warning: could not build complex.pdb ({e})", file=sys.stderr)
+
     summary = {
         "receptor": str(receptor),
         "ligand": args.ligand or args.ligand_file,
@@ -231,6 +338,7 @@ open({str(lig_pdbqt)!r}, 'w').write(prep.write_pdbqt_string())
         "best_affinity": modes[0]["affinity_kcal_mol"] if modes else None,
         "modes": modes,
         "output": str(out_pdbqt),
+        "complex_pdb": str(complex_pdb) if complex_pdb.is_file() else None,
     }
     (work / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))

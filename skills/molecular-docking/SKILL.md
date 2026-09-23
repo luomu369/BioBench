@@ -25,12 +25,13 @@ poses.
 Docking is fast (seconds to a minute), so confirm intent:
 
 ```
-Receptor:     7XWQ.cif (GPCR, chains A-D)
-Ligand:       c1cc(ccc1C[C@@H](C#N)c2ccc(cc2Cl)O)O  (I1M)
-Box center:   -3.3, -7.6, -39.7   (centroid of the bound ligand)
-Box size:     20 x 20 x 20 Å
-Poses:        5
+Receptor:       7XWQ.cif (GPCR, chains A-D)
+Ligand:         c1cc(ccc1C[C@@H](C#N)c2ccc(cc2Cl)O)O  (I1M)
+Box center:     -3.3, -7.6, -39.7   (centroid of the bound ligand)
+Box size:       20 x 20 x 20 Å
+Poses:          5
 Exhaustiveness: 16
+Flexibility:    rigid receptor
 
 Proceed?
 ```
@@ -41,6 +42,31 @@ Proceed?
 | **Box size** | Should cover the site plus ligand reach | 22 Å cube |
 | **Poses** | How many binding modes to report | 9 |
 | **Exhaustiveness** | Higher = more thorough, slower | 8 |
+| **Flexibility** | Rigid, or flexible side chains | rigid |
+| **Flex residues** | Which side chains may move | 8 Å of the box centre |
+
+**Ask about flexibility explicitly.** It is the one parameter that changes
+what the result means, not just how long it takes:
+
+- **Rigid** — the pocket is frozen. Fast, and the score is comparable to
+  other rigid runs.
+- **Flexible** — chosen side chains rotate during the search. Slower
+  (roughly 10×), and the score is *not* comparable to a rigid one, because
+  a flexible receptor can always improve its score by moving. Compare
+  flexible against flexible.
+
+Ask which the user wants, and say why it matters. If they say "just dock
+it", rigid is the safe default — but if the pocket is known to rearrange
+for this ligand class, say so and offer flexible.
+
+**Ask about the box when there is no co-crystallised ligand.** An apo
+structure gives `--auto-box` nothing to find, and a guessed centre produces
+meaningless affinities (a box that missed the pocket scored +6 kcal/mol).
+Offer the alternatives: a holo structure of the same target, a literature
+site, or a residue selection in the viewer.
+
+If the user already specified any of these ("dock with 20 poses", "let the
+pocket move", "use the residues I selected"), use it and do not re-ask.
 
 ## Workflow
 
@@ -121,6 +147,28 @@ Run the script once per ligand and compare `best_affinity` across runs.
 | `--num-modes` | How many poses to output |
 | `--exhaustiveness` | Search effort; 8 is default, 32 for production |
 | `--energy-range` | Max affinity gap from the best mode (kcal/mol) |
+| `--cpu` | Threads for Vina; 0 = all cores (see below) |
+
+### Vina is CPU-only — pass `--cpu` explicitly
+
+AutoDock Vina has no GPU path. Its search is Monte Carlo plus local
+optimisation, where each step depends on the previous one, so it cannot be
+batched the way a neural network can; the scoring function is cheap enough
+that moving data to a GPU costs more than computing it. `--help` lists only
+`--cpu`, with no CUDA or OpenCL option.
+
+Vina's own CPU auto-detection is unreliable — it logged `CPU: 0` and then
+ran single-threaded on a 20-core machine, turning a one-minute dock into
+fifteen. Both scripts therefore pass `--cpu` explicitly, defaulting to `0`
+(all cores). Leave it alone unless you want to reserve cores for something
+else.
+
+If GPU docking is genuinely needed, the drop-in replacements are
+**AutoDock-GPU** (same Vina scoring, CUDA/OpenCL, typically 10–100×) and
+**Uni-Dock** (CUDA, faster still, supports batch and covalent docking).
+Both keep Vina-compatible output. Diffusion-based dockers (DiffDock) and
+structure-prediction models (Boltz-2, Chai-1) are a different paradigm and
+do run on the GPU.
 
 ## Step 3 — Interpret the results
 
@@ -236,9 +284,15 @@ $PY skills/molecular-docking/scripts/dock_flex.py \
   --num-modes 5 --exhaustiveness 16 --out flex_out
 ```
 
-`--flex-cutoff` picks every amino-acid residue of `--flex-chain` whose
-centroid is within that distance of the box centre; `--flex-residues
-298,302` overrides it with an explicit list.
+`--flex-cutoff` picks every amino-acid residue of `--flex-chain` with any
+atom within that distance of the box centre; `--flex-residues 298,302`
+overrides it with an explicit list.
+
+> **Nearest atom, not centroid.** A long side chain reaches into the box
+> while its centroid stays well outside — MET 479 in 7XWQ has its centroid
+> 11.4 Å from the pocket centre but its CB/CG sit right where the ligand
+> goes. Judging by centroid leaves such residues rigid, and the ligand then
+> clashes with a side chain Vina was never allowed to move.
 
 Flexible docking is slower (roughly 10× rigid) and the scores are not
 directly comparable to a rigid run — a flexible receptor can always reach
@@ -248,6 +302,14 @@ a better score by moving. Compare flexible against flexible.
 > appear in the log exactly as in rigid docking; the Monte Carlo search
 > covers ligand pose *and* the flexible side-chain torsions. Nothing is
 > placed directly.
+
+> **Publish `complex.pdb`, not the receptor.** A flexible run returns the
+> ligand *and* the side chains it moved, but the receptor file still holds
+> those residues in their original positions. Publishing that receptor next
+> to the new ligand shows the ligand clashing with side chains Vina had
+> already rotated away — the pose looks impossible even though the docking
+> was fine. `dock_flex.py` writes `complex.pdb` with the moved residues
+> written back over the receptor's copies; publish that.
 
 ### Publishing a flexible-docking result
 
@@ -307,6 +369,10 @@ Three things bite here, all of which cost a round trip:
 | `option --read_with_prody requires Prody` | `-i` defaults to the ProDy reader | Use `--read_pdb` instead |
 | Flexible run finds 0 flexible residues | Box centre is on the wrong chain | Check which chain the reference ligand actually binds |
 | Published structure missing the ligand chains | mmCIF written without `setup_entities()` | Call it before `make_mmcif_document()` |
+| Ligand overlaps the receptor in the viewer | Receptor still holds its co-crystallised ligand | `remove_ligands_and_waters()` before combining |
+| Ligand clashes with a side chain Vina moved | Published the rigid receptor, not the moved one | Publish `complex.pdb` from `dock_flex.py` |
+| Ligand clashes with a residue that was never flexible | Flex residues picked by centroid, missing long side chains | `pick_flex_residues` now uses nearest-atom distance |
+| Flexible docking takes 15+ minutes | Vina ran single-threaded despite 20 cores | Pass `--cpu 0`; auto-detection logged `CPU: 0` and used one thread |
 
 ## References
 

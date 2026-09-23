@@ -102,6 +102,31 @@ re-ask. If they did not, **ask** — do not pick a number silently.
 Read-only operations (listing structures, reading a selection, checking the
 environment) need no confirmation.
 
+## Run long jobs in the background
+
+**Never hold the conversation open on a long-running command.** Start it in
+the background, tell the user it is running, and carry on — they can keep
+talking while the model works.
+
+```
+# start it, do not wait
+<command> &          # or the agent's own background-execution facility
+
+# then poll for completion
+```
+
+Anything that runs longer than a few seconds belongs in the background:
+model inference, docking sweeps, database downloads, installs. A command
+that blocks the terminal blocks the conversation, and the user cannot ask a
+question or change their mind while it runs.
+
+Report progress as it happens — publish to `status.json` so the viewer's
+progress bar moves, and tell the user what step the job is on. When it
+finishes, report the result and publish the structure.
+
+Short commands (git, grep, reading a file, a quick check) run in the
+foreground; they finish before the user notices.
+
 ## The publishing contract
 
 Every skill that produces a structure writes two files into

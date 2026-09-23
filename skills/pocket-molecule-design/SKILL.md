@@ -136,6 +136,13 @@ import gemmi
 from rdkit import Chem
 
 ref = gemmi.read_structure('7XWQ.cif')
+ref.setup_entities()
+# Drop the co-crystallised ligand and waters before combining. Leaving
+# them in puts the original ligand in the same pocket as the new
+# molecules, and the viewer shows them overlapping.
+ref.remove_ligands_and_waters()
+ref.remove_alternative_conformations()
+
 out = gemmi.Structure()
 out.name = 'receptor_with_designs'
 out.spacegroup_hm = 'P 1'
@@ -161,9 +168,18 @@ for i, mol in enumerate(supp):
     ch.add_residue(res)
     out[0].add_chain(ch)
 
+out.setup_entities()
 out.make_mmcif_document().write_file('/tmp/combined.cif')
 "
 ```
+
+> **`remove_ligands_and_waters()` is not optional.** A PDB entry's pocket
+> already contains its co-crystallised ligand. Copying the receptor
+> verbatim keeps it, and any molecule you then place in that pocket
+> overlaps it — the viewer shows a physically impossible structure and
+> the docking scores no longer describe what is on screen. 7XWQ carries
+> I1M in chains A and B plus 96 waters; leaving them in put every generated
+> molecule 0.4 Å from the original ligand's atoms.
 
 Then publish:
 

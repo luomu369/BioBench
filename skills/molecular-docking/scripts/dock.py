@@ -204,6 +204,10 @@ def main():
                     help="center the box on a bound ligand in the receptor")
     ap.add_argument("--num-modes", type=int, default=9)
     ap.add_argument("--exhaustiveness", type=int, default=8)
+    ap.add_argument("--cpu", type=int, default=0,
+                    help="threads for Vina; 0 = all available cores. Vina is "
+                         "CPU-only and its auto-detection often falls back "
+                         "to a single thread, so this is passed explicitly.")
     ap.add_argument("--energy-range", type=float, default=3)
     ap.add_argument("--out", default="docking_out")
     args = ap.parse_args()
@@ -254,6 +258,7 @@ def main():
         "--out", str(out_pdbqt),
         "--num_modes", str(args.num_modes),
         "--exhaustiveness", str(args.exhaustiveness),
+        "--cpu", str(args.cpu),
         "--energy_range", str(args.energy_range),
     ]
 
