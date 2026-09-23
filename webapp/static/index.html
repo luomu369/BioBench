@@ -448,9 +448,6 @@
 <div id="structure-label"></div>
 
 <div id="topbar">
-    <select id="chain-picker" class="ctl" disabled>
-      <option>Load a structure…</option>
-    </select>
     <select id="style-picker" class="ctl" disabled>
       <option value="surface">Surface</option>
       <option value="cartoon">Cartoon</option>
@@ -541,7 +538,6 @@ if (!webglAvailable()) {
 
 const hint = document.getElementById("viewer-hint");
 const label = document.getElementById("structure-label");
-const chainPicker = document.getElementById("chain-picker");
 const metricsPanel = document.getElementById("metrics");
 const metricsRows = document.getElementById("metrics-rows");
 const metricsNotes = document.getElementById("metrics-notes");
@@ -749,47 +745,13 @@ function renderStructure(data, meta) {
   }
   label.classList.add("show");
 
-  // Chain dropdown — protein chains from the model, plus any ligand
-  // chains reported in the metadata (they carry no amino acids, so
-  // extractChains skips them).
+  // The view is always the whole complex; per-chain control lives in the
+  // sequence panel's eye toggles.
   const metaChains = meta.chains || [];
   const ligandChains = metaChains.filter(c => c.ligand);
-  chainPicker.disabled = chains.length === 0 && ligandChains.length === 0;
-  chainPicker.innerHTML = "";
   if (chains.length === 0 && ligandChains.length === 0) {
-    chainPicker.innerHTML = "<option>No protein chains</option>";
     seqPanel.classList.remove("show");
   } else {
-    // "all" shows the whole complex; individual entries isolate one chain
-    const all = document.createElement("option");
-    all.value = "all";
-    const total = chains.reduce((n, c) => n + c.seq.length, 0);
-    all.textContent = ligandChains.length
-      ? `All chains (${chains.length} chains, ${total} aa + ${ligandChains.length} ligand)`
-      : `All chains (${chains.length} chains, ${total} aa)`;
-    chainPicker.appendChild(all);
-
-    chains.forEach((c, i) => {
-      const opt = document.createElement("option");
-      opt.value = i;
-      const role = (metaChains.find(m => m.id === c.chain) || {}).role;
-      opt.textContent = role
-        ? `Chain ${c.chain} — ${role} (${c.seq.length} aa)`
-        : `Chain ${c.chain} (${c.seq.length} aa)`;
-      chainPicker.appendChild(opt);
-    });
-
-    // Ligand entries use a "lig:<chain>" value so they are distinguishable
-    // from the numeric protein indices.
-    ligandChains.forEach(c => {
-      const opt = document.createElement("option");
-      opt.value = `lig:${c.id}`;
-      opt.textContent = c.role
-        ? `Ligand ${c.id} — ${c.role} (${c.residues} res)`
-        : `Ligand ${c.id} (${c.residues} res)`;
-      chainPicker.appendChild(opt);
-    });
-    chainPicker.value = "all";
     renderSequence(null);
   }
 
@@ -806,24 +768,6 @@ function renderStructure(data, meta) {
   viewer.removeAllLabels();
   renderSelectionPanel();
 }
-
-chainPicker.addEventListener("change", () => {
-  if (chainPicker.value === "all") {
-    renderSequence(null);
-    applyStyle();
-    return;
-  }
-  if (chainPicker.value.startsWith("lig:")) {
-    // Ligand selected — no amino-acid sequence to show, just focus it
-    seqPanel.classList.remove("show");
-    applyStyle();
-    return;
-  }
-  const idx = parseInt(chainPicker.value, 10);
-  if (isNaN(idx) || !chains[idx]) return;
-  renderSequence(chains[idx]);
-  applyStyle();
-});
 
 /* ---------------- style controls ---------------- */
 
@@ -939,10 +883,6 @@ function selectionHighlightSpec(kind) {
 function applyStyle() {
   const kind = stylePicker.value;
   const scheme = colorPicker.value;
-  const val = chainPicker.value;
-  const ligandOnly = val.startsWith("lig:") ? val.slice(4) : null;
-  const idx = parseInt(val, 10);
-  const focusChain = (!isNaN(idx) && chains[idx]) ? chains[idx].chain : null;
 
   viewer.setStyle({}, {});
 
@@ -983,13 +923,6 @@ function applyStyle() {
     }
     viewer.setStyle(item.sel, styled);
   });
-
-  // Centre the camera on the picked chain without hiding the others.
-  if (focusChain) {
-    viewer.zoomTo({ chain: focusChain });
-  } else if (ligandOnly) {
-    viewer.zoomTo({ chain: ligandOnly });
-  }
 
   viewer.render();
 }
