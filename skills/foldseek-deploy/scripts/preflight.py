@@ -18,6 +18,28 @@ CANDIDATES = [
     Path.home() / "tools/foldseek/bin/foldseek",
 ]
 
+# The database is a flat set of files sharing a `pdb` prefix — `pdb` itself
+# is the main data file, not a directory. Point searches at this directory.
+DB_DIR = Path("/home/asus_gx10/foldseek-db")
+
+# `foldseek databases` has been observed to unpack incompletely, silently
+# dropping the two largest data files and the *.lookup symlinks for the
+# sub-databases. Without them a search fails partway through, so check
+# explicitly.
+DB_REQUIRED = [
+    "pdb.lookup",
+    "pdb",
+    "pdb_ca",
+    "pdb_seq_ca.1",
+    "pdb_h",
+    "pdb_ss",
+    "pdb_clu",
+    "pdb_ca.lookup",
+    "pdb_h.lookup",
+    "pdb_ss.lookup",
+    "pdb_clu.lookup",
+]
+
 
 def check(label, ok, detail=""):
     print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
@@ -77,6 +99,23 @@ def main():
             results.append(check("trivial search runs", ok,
                                  f"{smoke.name} vs itself"
                                  if ok else r.stderr.strip()[-160:]))
+
+    # Optional: the PDB database. Not a hard requirement — local-file
+    # comparisons work without it — but report its state so a partial
+    # download is caught before a search fails.
+    if not DB_DIR.is_dir():
+        results.append(check("PDB database", True,
+                             "not downloaded (local-file search only)"))
+    else:
+        missing = [f for f in DB_REQUIRED if not (DB_DIR / f).exists()]
+        if missing:
+            results.append(check("PDB database", False,
+                                 f"incomplete, missing: {', '.join(missing)}"))
+        else:
+            size = sum(f.stat().st_size for f in DB_DIR.iterdir()
+                       if f.is_file()) / 1e9
+            results.append(check("PDB database", True,
+                                 f"{DB_DIR} ({size:.1f} GB)"))
 
     print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
     return 0 if all(results) else 1

@@ -19,11 +19,12 @@ Compare protein structures with Foldseek and report what matches.
 
 ## Confirm before running
 
-Searches are fast (seconds for local files), so confirm intent:
+Searches are fast (seconds for local files, a few seconds against the PDB
+database), so confirm intent:
 
 ```
 Query:      nk1r_binder_0.cif (2 chains)
-Targets:    7XWO.cif
+Targets:    PDB database (/home/asus_gx10/foldseek-db)
 Mode:       easy-search
 Sensitivity: default
 
@@ -33,8 +34,16 @@ Proceed?
 | Parameter | How to decide | Default |
 |-----------|---------------|---------|
 | **Mode** | From the request | `search` |
-| **Targets** | Local files, or a directory of structures | required |
+| **Targets** | Local files, a directory, or the PDB database | required |
 | **Sensitivity** | `-s` 0–9; higher finds weaker matches | 7.5 |
+
+Pick the target from what the user is actually asking:
+
+| Question | Target |
+|----------|--------|
+| "Does my design look like any known protein?" | PDB database |
+| "Is this the same as that structure?" | The specific local file |
+| "Did these designs converge on one fold?" | The directory of designs |
 
 ## Workflow
 
@@ -58,6 +67,7 @@ python3 $PUB --status --state running --step search --index 1 --total 2 \
 
 ```bash
 FS=/home/asus_gx10/tools/foldseek/bin/foldseek
+DBDIR=/home/asus_gx10/foldseek-db
 ```
 
 ### Search one query against targets
@@ -68,6 +78,65 @@ $FS easy-search query.cif target.cif result.m8 tmp \
 ```
 
 `target.cif` can also be a **directory** — every structure inside is searched.
+
+### Search against the PDB database
+
+Answers "what known protein does this look like?" — the question a local
+file comparison cannot:
+
+```bash
+cd $DBDIR
+$FS easy-search /path/to/query.cif pdb result.m8 tmp \
+  --format-output "query,target,pident,alnlen,evalue,bits"
+```
+
+Two things are easy to get wrong here:
+
+- **Pass the prefix `pdb`, not the directory.** The database is a flat set
+  of files sharing a `pdb` prefix (`pdb`, `pdb_ca`, `pdb_h`, …); `pdb`
+  itself is the main data file, not a folder. Giving the directory path
+  makes foldseek treat it as a folder of structures and fail with
+  "No structures found in given input".
+- **Run from inside `$DBDIR`**, or pass an absolute prefix
+  (`/home/asus_gx10/foldseek-db/pdb`).
+
+The database is 6.0 GB on disk, PDB data as of 2025-01-01. A single query
+takes a couple of seconds.
+
+Target names come back as PDB entries, e.g. `7xwr-assembly1_A` — strip the
+`-assembly1_A` suffix to get the four-character PDB ID for RCSB lookups.
+
+> **`pdb100` means 100% sequence identity clustering.** Only chains with
+> identical sequences were merged, so no distinct sequence is lost: 1.56 M
+> chains collapse to 324 k representatives (4.8:1). This is *not* a
+> non-redundant set — remote homologues are all still there.
+
+If the database is missing, download it with:
+
+```bash
+mkdir -p /home/asus_gx10/foldseek-db
+$FS databases PDB /home/asus_gx10/foldseek-db /home/asus_gx10/foldseek-db/dltmp
+```
+
+> **Check the download before deleting `dltmp`.** `foldseek databases` has
+> been observed to unpack incompletely. Two separate things go missing:
+>
+> 1. the large data files `pdb_ca` and `pdb_seq_ca.1`
+> 2. the `*.lookup` symlinks for `pdb_ca`, `pdb_h`, `pdb_ss`, `pdb_clu`
+>
+> Symptom of (1) is a mid-search failure; symptom of (2) is
+> `Cannot open lookup file .../pdb_ca.lookup!`. Repair with:
+>
+> ```bash
+> cd /home/asus_gx10/foldseek-db
+> tar xzf dltmp/latest/pdb.tar.gz pdb_ca pdb_seq_ca.1   # if missing
+> ln -sf pdb_ca pdb_seq_ca.0
+> for f in pdb_ca pdb_h pdb_ss pdb_clu; do ln -sf pdb.lookup $f.lookup; done
+> ```
+>
+> Then `rm -rf dltmp` to reclaim the ~2.3 GB cached tarball.
+>
+> `skills/foldseek-deploy/scripts/preflight.py` checks all of this.
 
 ### Reciprocal best hit
 
@@ -150,6 +219,19 @@ The designed binder (chain A) has no significant match —
 it is a novel fold, as expected for a de novo design.
 ```
 
+Against the PDB database, name the entries you found:
+
+```
+Searched the NK1R binder against the PDB (324 k representatives):
+
+  chain B → 7xwr-assembly1_A   100.0% id, 219 res, e-value 4.4e-30
+  chain B → 7xvy-assembly1_A    99.5% id, 219 res, e-value 4.2e-30
+  chain B → 1u3r-assembly1_A    93.8% id, 229 res, e-value 3.7e-28
+
+  → The target is a class A GPCR; 7xwr is the same receptor in a
+    different conformational state, 1u3r a close homologue.
+```
+
 Mark the task done:
 
 ```bash
@@ -171,6 +253,10 @@ One line per hit, tab-separated, best hits first. Columns are controlled by
 | `cannot execute binary file` | Wrong architecture | Install the arm64 build |
 | Very slow on many targets | Single-threaded | Add `--threads 8` |
 | Hits look like noise | Default sensitivity too high | Raise `-e` (stricter e-value) |
+| Database search errors on `pdb_ca` | Incomplete download | Re-extract `pdb_ca` and `pdb_seq_ca.1` from `dltmp/latest/pdb.tar.gz` |
+| `Cannot open lookup file .../pdb_ca.lookup` | Missing `*.lookup` symlinks | `for f in pdb_ca pdb_h pdb_ss pdb_clu; do ln -sf pdb.lookup $f.lookup; done` |
+| `No structures found in given input` | Passed the directory instead of the `pdb` prefix | `cd /home/asus_gx10/foldseek-db` and pass `pdb` |
+| Database search finds nothing | Wrong path | Check `/home/asus_gx10/foldseek-db/pdb.lookup` exists |
 
 ## References
 
