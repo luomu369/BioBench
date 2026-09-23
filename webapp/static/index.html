@@ -1047,7 +1047,6 @@ function applyStyle() {
 // reads as a volume against the surface shell, low enough that the
 // lining residues stay visible through it. 0.55 washed out to nothing.
 const POCKET_SPHERE = { scale: 0.35, color: "#fbbf24", opacity: 0.85 };
-const POCKET_SPHERE_FADED = { scale: 0.35, color: "#fbbf24", opacity: 0.15 };
 
 viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
 
@@ -1065,13 +1064,14 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
   const ligandIds = new Set((currentMeta.chains || [])
     .filter(c => c.ligand).map(c => c.id));
   Object.entries(selection).forEach(([key, item]) => {
-    // A selected pocket fades rather than recolouring. The cloud is a
-    // volume, not a molecule: tinting it toward the selection colour
-    // destroys the read of what is inside, and the point of selecting a
-    // pocket is to look through it. It still gets a row in the panel and
-    // still seeks to on click, like anything else.
+    // A selected pocket takes the selection colour and fades. The colour
+    // has to match the swatch in the panel or the row says one thing and
+    // the view says another; the fade is what keeps the cavity readable,
+    // not a reason to keep the default hue.
     if (item.pocket) {
-      viewer.setStyle(item.sel, { sphere: { ...POCKET_SPHERE_FADED } });
+      viewer.setStyle(item.sel, {
+        sphere: { scale: 0.35, color: item.color, opacity: 0.3 },
+      });
       return;
     }
     // A single atom or a bond: keep the geometry exactly as it was and
