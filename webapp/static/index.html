@@ -100,8 +100,6 @@
   }
   .ctl.icon svg { width: 15px; height: 15px; fill: var(--muted); }
   .ctl.icon:hover svg { fill: var(--text); }
-  .ctl.icon.on { border-color: rgba(77,163,255,.7); }
-  .ctl.icon.on svg { fill: var(--accent); }
 
   /* ---------- structure label ---------- */
   #structure-label {
@@ -418,13 +416,15 @@
       <option value="secondary">Secondary</option>
       <option value="white">White</option>
     </select>
-    <button id="spin-btn" class="ctl icon" disabled title="Toggle rotation">
-      <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
-    </button>
+    <select id="ligand-style-picker" class="ctl" disabled title="Ligand rendering">
+      <option value="ballstick">Ball &amp; stick</option>
+      <option value="stick">Stick</option>
+      <option value="spacefill">Space fill</option>
+      <option value="line">Line</option>
+    </select>
     <button id="reset-btn" class="ctl icon" disabled title="Reset view">
       <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97-.7-2.8L3.84 11.66C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" opacity="0"/><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     </button>
-    <button id="ligand-btn" class="ctl" disabled title="Zoom to the ligand">Ligand</button>
   </div>
 
   <div id="selection">
@@ -557,13 +557,8 @@ function renderMetrics(meta) {
 
 const stylePicker = document.getElementById("style-picker");
 const colorPicker = document.getElementById("color-picker");
-const spinBtn = document.getElementById("spin-btn");
+const ligandStylePicker = document.getElementById("ligand-style-picker");
 const resetBtn = document.getElementById("reset-btn");
-// Declared here, above renderStructure(), which enables/disables it. A
-// `const` further down would still be in its temporal dead zone when the
-// first poll calls renderStructure, and the ReferenceError would be
-// swallowed by poll()'s try/catch.
-const ligandBtn = document.getElementById("ligand-btn");
 
 function renderStructure(data, meta) {
   currentMeta = meta;
@@ -645,9 +640,8 @@ function renderStructure(data, meta) {
   // Enable the style controls and reset selection state
   stylePicker.disabled = false;
   colorPicker.disabled = false;
-  spinBtn.disabled = false;
+  ligandStylePicker.disabled = ligandChains.length === 0;
   resetBtn.disabled = false;
-  ligandBtn.disabled = ligandChains.length === 0;
   selection = {};
   selCounter = 0;
   viewer.removeAllLabels();
@@ -661,7 +655,7 @@ chainPicker.addEventListener("change", () => {
     return;
   }
   if (chainPicker.value.startsWith("lig:")) {
-    // Ligand selected — no sequence to show, just isolate the chain
+    // Ligand selected — no amino-acid sequence to show, just focus it
     seqPanel.classList.remove("show");
     applyStyle();
     return;
@@ -673,8 +667,6 @@ chainPicker.addEventListener("change", () => {
 });
 
 /* ---------------- style controls ---------------- */
-
-let spinning = false;
 
 // 3Dmol distinguishes two style fields: `color` takes a literal colour
 // ("red", "#ff0000") while `colorscheme` takes the name of a built-in
@@ -704,54 +696,54 @@ function styleSpec(kind, scheme) {
   }
 }
 
+// How a small molecule is drawn. Jmol element colours throughout — blue
+// N, red O, grey C — the convention chemists read at a glance, and it
+// keeps the ligand distinguishable from a protein coloured by chain.
+//
+// `thick` is set when the protein is drawn as a surface: that shell is
+// depth-sorted and opaque, so anything inside the pocket needs extra
+// visual weight to read through it.
+function ligandStyleSpec(kind, thick) {
+  switch (kind) {
+    case "stick":
+      return { stick: { radius: thick ? 0.3 : 0.22, colorscheme: "Jmol" } };
+    case "spacefill":
+      return { sphere: { scale: thick ? 0.55 : 0.45, colorscheme: "Jmol" } };
+    case "line":
+      return { line: { linewidth: thick ? 4 : 3, colorscheme: "Jmol" } };
+    case "ballstick":
+    default:
+      return {
+        stick: { radius: thick ? 0.3 : 0.22, colorscheme: "Jmol" },
+        sphere: { scale: thick ? 0.42 : 0.32, colorscheme: "Jmol" }
+      };
+  }
+}
+
 function applyStyle() {
   const kind = stylePicker.value;
   const scheme = colorPicker.value;
   const val = chainPicker.value;
   const ligandOnly = val.startsWith("lig:") ? val.slice(4) : null;
   const idx = parseInt(val, 10);
-  const onlyChain = (!isNaN(idx) && chains[idx]) ? chains[idx].chain : null;
+  const focusChain = (!isNaN(idx) && chains[idx]) ? chains[idx].chain : null;
 
   viewer.setStyle({}, {});
 
-  if (ligandOnly) {
-    // Ligand isolated — show it large and centred, nothing else
-    viewer.setStyle({ chain: ligandOnly }, {
-      stick: { radius: 0.3, colorscheme: "Jmol" },
-      sphere: { scale: 0.45, colorscheme: "Jmol" }
-    });
-    viewer.zoomTo({ chain: ligandOnly });
-    viewer.render();
-    return;
-  }
+  // Every chain keeps the chosen style; picking one only moves the camera
+  // onto it, so the rest of the complex stays on screen for context.
+  viewer.setStyle({}, styleSpec(kind, scheme));
 
-  const sel = onlyChain ? { chain: onlyChain } : {};
-  viewer.setStyle(sel, styleSpec(kind, scheme));
-
-  // Ligands (non-amino-acid chains from metadata) always render as
-  // ball-and-stick so they stay visible under surface/cartoon styles.
-  // A small molecule is a handful of atoms in a structure of thousands,
-  // so it gets a thick, high-contrast style rather than a subtle one.
-  //
-  // Jmol element colours are used rather than one flat colour: they are
-  // the convention chemists read at a glance (blue N, red O, grey C) and
-  // they keep the ligand distinguishable from a protein coloured by chain.
-  //
-  // Under "surface" the protein is wrapped in an opaque depth-sorted
-  // shell that hides anything inside the pocket, so the shell is made
-  // more transparent and the ligand is drawn thicker on top of it.
+  // Ligands (non-amino-acid chains from metadata) get their own rendering
+  // style, chosen independently of the protein's, so a small molecule
+  // stays legible inside a structure of thousands of atoms.
   // current.json chains carry "id", not "chain" — see publish.py.
   const ligandChains = (currentMeta.chains || [])
     .filter(c => c.ligand)
     .map(c => c.id);
   if (ligandChains.length) {
-    const thick = kind === "surface";
-    ligandChains.forEach(ch => {
-      viewer.setStyle({ chain: ch }, {
-        stick: { radius: thick ? 0.3 : 0.25, colorscheme: "Jmol" },
-        sphere: { scale: thick ? 0.45 : 0.4, colorscheme: "Jmol" }
-      });
-    });
+    const spec = ligandStyleSpec(ligandStylePicker.value, kind === "surface");
+    ligandChains.forEach(ch => viewer.setStyle({ chain: ch }, spec));
   }
 
   // Re-apply selection highlights on top
@@ -761,41 +753,25 @@ function applyStyle() {
     });
   });
 
+  // Centre the camera on the picked chain without hiding the others.
+  if (focusChain) {
+    viewer.zoomTo({ chain: focusChain });
+  } else if (ligandOnly) {
+    viewer.zoomTo({ chain: ligandOnly });
+  }
+
   viewer.render();
 }
 
 stylePicker.addEventListener("change", applyStyle);
 colorPicker.addEventListener("change", applyStyle);
-
-spinBtn.addEventListener("click", () => {
-  spinning = !spinning;
-  spinBtn.classList.toggle("on", spinning);
-  viewer.spin(spinning ? "y" : "", spinning ? 30 : 0);
-  viewer.render();
-});
+ligandStylePicker.addEventListener("change", applyStyle);
 
 resetBtn.addEventListener("click", () => {
   viewer.zoomTo();
   viewer.render();
 });
 
-/* ---------------- ligand focus ---------------- */
-
-function ligandChainIds() {
-  // current.json chains carry "id", not "chain" — see publish.py.
-  return (currentMeta.chains || [])
-    .filter(c => c.ligand)
-    .map(c => c.id);
-}
-
-// Zoom to the first ligand and select it in the dropdown, so the pose is
-// easy to find in a complex of thousands of atoms.
-ligandBtn.addEventListener("click", () => {
-  const ids = ligandChainIds();
-  if (!ids.length) return;
-  chainPicker.value = `lig:${ids[0]}`;
-  applyStyle();
-});
 
 /* ---------------- residue selection ---------------- */
 
