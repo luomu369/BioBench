@@ -1,6 +1,6 @@
 ---
 name: structure-comparison
-description: '**WORKFLOW SKILL** — Compare protein structures with Foldseek: search a query against a set of targets, cluster structures by fold, or find reciprocal best hits. USE FOR: finding structurally similar proteins; checking whether a designed binder resembles a known fold; clustering a set of designs; identifying what a novel structure looks like; comparing a design against its template. DO NOT USE FOR: installing Foldseek (use foldseek-deploy); generating structures (use binder-design); publishing results (use structure-viewer). Requires Foldseek installed — run foldseek-deploy first.'
+description: '**WORKFLOW SKILL** — Compare protein structures with Foldseek: search a query against a set of targets, cluster structures by fold, find reciprocal best hits, or search the PDB database. USE FOR: finding structurally similar proteins; checking whether a designed binder resembles a known fold; clustering a set of designs; identifying what a novel structure looks like; comparing a design against its template; finding what known protein a selected stretch of residues resembles. DO NOT USE FOR: installing Foldseek (use foldseek-deploy); generating structures (use binder-design); publishing results (use structure-viewer); sequence-level motif search (Foldseek is structural — short motifs need a sequence search). Requires Foldseek installed — run foldseek-deploy first.'
 ---
 
 # Structure Comparison
@@ -16,6 +16,7 @@ Compare protein structures with Foldseek and report what matches.
 - "Cluster these designs by fold"
 - "Compare this structure against that one"
 - "What is this novel structure?"
+- "What known protein do these residues I selected look like?"
 
 ## Confirm before running
 
@@ -44,6 +45,11 @@ Pick the target from what the user is actually asking:
 | "Does my design look like any known protein?" | PDB database |
 | "Is this the same as that structure?" | The specific local file |
 | "Did these designs converge on one fold?" | The directory of designs |
+| "What do the residues I selected look like?" | Extracted fragment — check its length first |
+
+> **If the user selected residues in the viewer, check the length before
+> promising anything.** Foldseek cannot search a short motif; see
+> [Search the residues the user selected](#search-the-residues-the-user-selected).
 
 ## Workflow
 
@@ -137,6 +143,56 @@ $FS databases PDB /home/asus_gx10/foldseek-db /home/asus_gx10/foldseek-db/dltmp
 > Then `rm -rf dltmp` to reclaim the ~2.3 GB cached tarball.
 >
 > `skills/foldseek-deploy/scripts/preflight.py` checks all of this.
+
+### Search the residues the user selected
+
+The viewer writes the user's residue clicks to `selection.json`. To ask
+"what known protein looks like this bit?", extract those residues into a
+structure of their own and search with it:
+
+```bash
+PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
+EXT=/home/asus_gx10/biobench/skills/structure-comparison/scripts/extract_selection.py
+
+$PY $EXT --out fragment.cif --context 2
+cd /home/asus_gx10/foldseek-db
+$FS easy-search /path/to/fragment.cif pdb result.m8 tmp \
+  --format-output "query,target,pident,alnlen,evalue,bits"
+```
+
+`--context N` pulls in N residues either side of each selected stretch,
+which usually helps — see the length limit below.
+
+> **Foldseek needs ~60 residues to find anything.** It has no
+> "search only this stretch" option, so a selection has to be written out
+> as a standalone query, and a short query yields nothing. Measured
+> against the PDB database at `-s 9.5`:
+>
+> | Query length | Hits |
+> |---|---|
+> | 10 residues | 0 |
+> | 20 residues | 5 |
+> | 40 residues | 5 |
+> | 60 residues | 840 |
+> | 219 residues | 1000 |
+>
+> Below ~60 residues the 3Di structural alphabet produces too few k-mer
+> seeds to survive prefiltering. This is not tunable — raising sensitivity
+> does not help.
+>
+> So before promising a result, check how long the selection is:
+>
+> ```bash
+> python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/read_selection.py
+> ```
+>
+> - **Selection spans a long chain** → search that whole chain, then filter
+>   hits by whether they cover the selected region (`--cov-mode 2`).
+> - **Selection is a short motif** (< ~60 residues) → Foldseek is the wrong
+>   tool. Say so and suggest a *sequence* search instead, which is far more
+>   sensitive on short motifs.
+> - **Selection is a short chain in a complex** → search the whole complex
+>   with `easy-multimersearch` and report what the complex resembles.
 
 ### Reciprocal best hit
 
@@ -250,6 +306,7 @@ One line per hit, tab-separated, best hits first. Columns are controlled by
 |---------|-------|-----|
 | `foldseek: command not found` | Not on PATH | Use the absolute path, or install via `foldseek-deploy` |
 | Empty result file | Query too short, or no real match | Check `alnlen`; try `-s 9` for higher sensitivity |
+| Empty result on a short query (< 60 residues) | Foldseek's practical length floor | Not fixable — use a sequence search instead |
 | `cannot execute binary file` | Wrong architecture | Install the arm64 build |
 | Very slow on many targets | Single-threaded | Add `--threads 8` |
 | Hits look like noise | Default sensitivity too high | Raise `-e` (stricter e-value) |
