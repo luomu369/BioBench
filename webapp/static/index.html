@@ -270,6 +270,8 @@
     display: none;
   }
   #selection.show { display: block; }
+  /* Two rows: the title, then the mode switch and clear. One row crammed
+     four mode buttons and "clear all" against the title and wrapped. */
   #selection .s-head {
     display: flex;
     justify-content: space-between;
@@ -278,7 +280,12 @@
     text-transform: uppercase;
     letter-spacing: .06em;
     color: var(--muted);
-    margin-bottom: 10px;
+  }
+  #selection .s-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 10px;
   }
   #selection .s-clear {
     background: none;
@@ -289,13 +296,15 @@
     padding: 0;
     text-transform: none;
     letter-spacing: 0;
+    margin-left: auto;
   }
   #selection .s-clear:hover { text-decoration: underline; }
   #selection .s-mode {
     display: inline-flex;
     border: 1px solid var(--line);
-    border-radius: 5px;
+    border-radius: 6px;
     overflow: hidden;
+    flex-shrink: 0;
   }
   #selection .s-mode-btn {
     background: none;
@@ -304,12 +313,13 @@
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: .04em;
-    padding: 2px 7px;
+    padding: 3px 8px;
     cursor: pointer;
+    transition: background .12s, color .12s;
   }
   #selection .s-mode-btn:hover { color: var(--text); }
   #selection .s-mode-btn.on {
-    background: rgba(77,163,255,.16);
+    background: rgba(77,163,255,.18);
     color: var(--accent);
   }
   #selection .s-empty { font-size: 12px; color: var(--muted); line-height: 1.6; }
@@ -483,6 +493,8 @@
   <div id="selection">
     <div class="s-head">
       <span>Selection</span>
+    </div>
+    <div class="s-tools">
       <span class="s-mode" id="sel-mode" title="What a click selects: a residue, a whole chain, a single atom, or a bond">
         <button class="s-mode-btn on" data-mode="res">Res</button>
         <button class="s-mode-btn" data-mode="chain">Chain</button>
@@ -1041,24 +1053,18 @@ function applyStyle() {
   const ligandIds = new Set((currentMeta.chains || [])
     .filter(c => c.ligand).map(c => c.id));
   Object.entries(selection).forEach(([key, item]) => {
-    // A single atom: a sphere in the selection colour, big enough to read
-    // against the backbone style underneath. No stick — one atom has
-    // nothing to connect to, and a stick on a lone atom renders as a dot
-    // the same size as the sphere.
-    if (item.atom) {
+    // A single atom or a bond: keep the geometry exactly as it was and
+    // only shift the element colours toward the selection colour. Scaling
+    // the sphere up made the atom look like a different, larger atom
+    // rather than the same one marked; tinting says "selected" while the
+    // O/N/C readout and the size stay honest.
+    if (item.atom || item.bond) {
+      const map = elementColorsTinted(item.color);
       viewer.setStyle(item.sel, {
-        sphere: { color: item.color, scale: 0.55 },
-        stick: { color: item.color, radius: 0.22 },
-      });
-      return;
-    }
-    // A bond: both atoms as spheres plus the stick between them, all in
-    // the selection colour, so the bond reads as one highlighted unit
-    // rather than two unrelated dots.
-    if (item.bond) {
-      viewer.setStyle(item.sel, {
-        sphere: { color: item.color, scale: 0.45 },
-        stick: { color: item.color, radius: 0.28 },
+        stick: { radius: item.bond ? 0.3 : 0.22,
+                 colorscheme: { prop: "elem", map } },
+        sphere: { scale: item.bond ? 0.42 : 0.32,
+                  colorscheme: { prop: "elem", map } },
       });
       return;
     }
