@@ -687,6 +687,15 @@ function chainColorMap(chains) {
 // magenta/red/white, which clashes with the rest of the palette.
 const SS_BLUE_WHITE = { h: "#0284c7", s: "#7dd3fc", c: "#e0f2fe" };
 
+// Element colours for the per-atom styles (stick, sphere, line). A
+// chain-coloured stick render makes every atom the same colour, which
+// hides the chemistry; these keep O, N and S readable while staying in a
+// cool palette. Jmol's own element colours are the reference here.
+const ELEMENT_COLORS = {
+  C: "#9ca3af", N: "#2563eb", O: "#ef4444", S: "#eab308",
+  H: "#f8fafc", P: "#0ea5e9", SE: "#f59e0b", FE: "#f97316",
+};
+
 // 3Dmol distinguishes two style fields: `color` takes a literal colour
 // ("red", "#ff0000") while `colorscheme` takes the name of a built-in
 // scheme. Passing a scheme name to `color` logs "color not found" for
@@ -695,7 +704,13 @@ const SS_BLUE_WHITE = { h: "#0284c7", s: "#7dd3fc", c: "#e0f2fe" };
 // "spectrum" is the exception — it is a gradient, not an entry in the
 // scheme table, and only works through `color`. Verified by pixel count:
 // color:"spectrum" gives 63% coloured pixels, colorscheme:"spectrum" 13%.
-function colorSpec(scheme, chains) {
+//
+// `perAtom` selects element colours instead of the chain/secondary
+// scheme, for styles that draw individual atoms.
+function colorSpec(scheme, chains, perAtom = false) {
+  if (perAtom) {
+    return { colorscheme: { prop: "elem", map: ELEMENT_COLORS } };
+  }
   switch (scheme) {
     case "chain":
       return { colorscheme: { prop: "chain", map: chainColorMap(chains) } };
@@ -706,7 +721,10 @@ function colorSpec(scheme, chains) {
 }
 
 function styleSpec(kind, scheme, chains) {
-  const color = colorSpec(scheme, chains);
+  // stick/sphere/line draw atoms, so they get element colours; cartoon and
+  // surface draw the fold, so they keep the chain/secondary scheme.
+  const perAtom = (kind === "stick" || kind === "sphere" || kind === "line");
+  const color = colorSpec(scheme, chains, perAtom);
   switch (kind) {
     case "stick":   return { stick: { ...color, radius: 0.18 } };
     case "sphere":  return { sphere: { ...color, scale: 0.5 } };
