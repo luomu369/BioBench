@@ -22,6 +22,7 @@ Exit codes: 0 ok, 1 docking failed, 2 bad input.
 import argparse
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -36,14 +37,17 @@ def sh(cmd, **kw):
 
 
 def prepare_receptor(receptor: Path, work: Path) -> Path:
-    """mmCIF/PDB -> PDB -> PDBQT."""
+    """mmCIF/PDB -> PDB -> PDBQT.
+
+    Always writes ``work/receptor.pdb``, even when the input is already
+    PDB. The complex builder below reads that file, and skipping the copy
+    for PDB input left it missing — the publish then had no complex at all.
+    """
     pdbqt = work / "receptor.pdbqt"
-    if pdbqt.is_file():
-        return pdbqt
+    pdb = work / "receptor.pdb"
 
     # mmCIF -> PDB with gemmi (Vina's tools only read PDB/PDBQT)
     if receptor.suffix in (".cif", ".mmcif"):
-        pdb = work / "receptor.pdb"
         r = sh([DOCK_PY, "-c", f"""
 import gemmi
 st = gemmi.read_structure({str(receptor)!r})
@@ -56,7 +60,9 @@ st.write_pdb({str(pdb)!r})
             print(f"error: mmCIF -> PDB failed\n{r.stderr[-400:]}", file=sys.stderr)
             sys.exit(2)
     else:
-        pdb = receptor
+        # Copy rather than reuse in place: the complex builder needs a
+        # receptor PDB inside the output directory.
+        shutil.copy(receptor, pdb)
 
     r = sh([DOCK_PY, str(MK_RECEPTOR), "--read_pdb", str(pdb),
             "-o", str(work / "receptor"), "-p", "-a", "--default_altloc", "A"])
