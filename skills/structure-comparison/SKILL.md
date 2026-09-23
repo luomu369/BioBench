@@ -1,6 +1,6 @@
 ---
 name: structure-comparison
-description: '**WORKFLOW SKILL** — Compare protein structures with Foldseek: search a query against a set of targets, cluster structures by fold, find reciprocal best hits, or search the PDB database. USE FOR: finding structurally similar proteins; checking whether a designed binder resembles a known fold; clustering a set of designs; identifying what a novel structure looks like; comparing a design against its template; finding what known protein a selected stretch of residues resembles. DO NOT USE FOR: installing Foldseek (use foldseek-deploy); generating structures (use binder-design); publishing results (use structure-viewer); sequence-level motif search (Foldseek is structural — short motifs need a sequence search). Requires Foldseek installed — run foldseek-deploy first.'
+description: '**WORKFLOW SKILL** — Compare protein structures with Foldseek: search a query against a set of targets, cluster structures by fold, find reciprocal best hits, search the PDB database, or superimpose a hit onto the query. USE FOR: finding structurally similar proteins; checking whether a designed binder resembles a known fold; clustering a set of designs; identifying what a novel structure looks like; comparing a design against its template; finding what known protein a selected stretch of residues resembles; overlaying a hit and a query in one view. DO NOT USE FOR: installing Foldseek (use foldseek-deploy); generating structures (use binder-design); publishing results (use structure-viewer); sequence-level motif search (Foldseek is structural — short motifs need a sequence search). Requires Foldseek installed — run foldseek-deploy first.'
 ---
 
 # Structure Comparison
@@ -17,6 +17,7 @@ Compare protein structures with Foldseek and report what matches.
 - "Compare this structure against that one"
 - "What is this novel structure?"
 - "What known protein do these residues I selected look like?"
+- "Overlay this hit on my structure so I can see them together"
 
 ## Confirm before running
 
@@ -58,6 +59,7 @@ Pick the target from what the user is actually asking:
 1. Report progress                    (structure-viewer publisher)
 2. Run the comparison
 3. Interpret and report the results
+4. Publish the hit, and superimpose it if the user wants to compare
 ```
 
 ## Step 1 — Report progress
@@ -330,6 +332,58 @@ python3 $PUB --status --state done --step search --index 3 --total 3 \
   --skill structure-comparison \
   --message "Top 5: 7xwq 100% | 7xwr 99.5% | 4j26 97.3% | 1u9e 97.7% | 1u3r 98.2%"
 ```
+
+## Step 5 — Superimpose the hit onto the query
+
+Publishing a hit replaces the query on screen, so the two can only be
+compared one at a time. To see them together, move the hit into the
+query's coordinate system and publish the pair:
+
+```bash
+PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
+SUP=/home/asus_gx10/biobench/skills/structure-comparison/scripts/superimpose.py
+
+$PY $SUP --query 7XWQ.cif --target hit_4j26.cif \
+  --query-chain B --out superposed.pdb
+```
+
+```
+wrote superposed.pdb
+  alignment: 97.3% id, 225 res, e-value 1.30e-31
+  CA RMSD:   7.91 A
+  chains:    query ['A', 'B', 'C', 'D'] + target {'A': 'X', 'B': 'Z', ...}
+```
+
+The script runs Foldseek itself to get the rotation matrix and translation
+vector, applies them to every target atom, renames the target's chains so
+they cannot collide with the query's, and reports the CA RMSD as a sanity
+check on the fit.
+
+Publish the result with roles that say which is which:
+
+```bash
+python3 $PUB --structure superposed.pdb \
+  --name "7XWQ_vs_4j26" --source foldseek \
+  --roles "B=query,X=hit_A,Z=hit_B" \
+  --metrics '{"pident":97.3,"ca_rmsd_A":7.91}' \
+  --notes "4j26 superimposed onto 7XWQ chain B"
+```
+
+> **`--query-chain` matters for multi-chain queries.** Without it the
+> script aligns on the first chain, which may not be the one the user
+> cares about. Pass the chain that was searched.
+
+> **Chain renaming is by file order**, not by role — the output lists the
+> mapping so the `--roles` argument can be written correctly.
+
+### Reading a superposition
+
+| Observation | Meaning |
+|---|---|
+| Low CA RMSD (< 3 Å) over the core | Same fold, same conformation |
+| Moderate RMSD (3–10 Å) | Same fold, conformational differences — usually loops |
+| High RMSD (> 10 Å) | Check the alignment; may be a domain-level match only |
+| Hit-only chains far from the query | A binding partner the query does not have |
 
 ## Output format
 
