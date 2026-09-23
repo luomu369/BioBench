@@ -50,6 +50,27 @@ def atomic_write(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def sniff_format(text: str) -> str:
+    """Decide PDB vs mmCIF from the file's first meaningful line.
+
+    The viewer's contract file is always named current.cif, so the source
+    suffix says nothing about the content — a .pdb input lands there too.
+    Trusting the suffix made parse_chains run the mmCIF branch over PDB
+    text and return zero chains, which left the viewer with no chain
+    information at all.
+    """
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith(("data_", "_atom_site.", "loop_")):
+            return "cif"
+        if s.startswith(("HEADER", "CRYST1", "ATOM", "HETATM", "MODEL",
+                         "REMARK", "SEQRES", "DBREF")):
+            return "pdb"
+    return "pdb"
+
+
 def parse_chains(path: Path) -> list[dict]:
     """Extract per-chain residue counts from a PDB or mmCIF file.
 
@@ -65,13 +86,14 @@ def parse_chains(path: Path) -> list[dict]:
     residues: dict[str, dict[str, str]] = {}
     ligand_counts: dict[str, int] = {}
     text = path.read_text(errors="replace")
+    is_cif = sniff_format(text) == "cif"
 
     def note(chain: str, resi: str, one: str | None, is_ligand: bool) -> None:
         residues.setdefault(chain, {})[resi] = one or "X"
         if is_ligand:
             ligand_counts[chain] = ligand_counts.get(chain, 0) + 1
 
-    if path.suffix in (".pdb", ".ent"):
+    if not is_cif:
         for line in text.splitlines():
             if not line.startswith(("ATOM", "HETATM")):
                 continue
@@ -119,14 +141,43 @@ def parse_chains(path: Path) -> list[dict]:
     return out
 
 
+def parse_highlight(spec: str) -> list[dict]:
+    """"A:385,A:386,B:12" -> [{"chain": "A", "resi": 385}, ...].
+
+    Residue numbers are ints when they look like one, so the viewer can
+    match them against 3Dmol's numeric resi. Anything unparseable is
+    dropped rather than failing the publish — a highlight is a courtesy,
+    not part of the contract.
+    """
+    out = []
+    for item in (spec or "").split(","):
+        item = item.strip()
+        if ":" not in item:
+            continue
+        chain, _, resi = item.partition(":")
+        chain, resi = chain.strip(), resi.strip()
+        if not chain or not resi:
+            continue
+        out.append({
+            "chain": chain,
+            "resi": int(resi) if resi.lstrip("-").isdigit() else resi,
+        })
+    return out
+
+
 def publish_structure(args) -> int:
     src = Path(args.structure)
     if not src.is_file():
         print(f"error: {src} not found", file=sys.stderr)
         return 2
 
-    fmt = "pdb" if src.suffix in (".pdb", ".ent") else "cif"
+    text = src.read_text(errors="replace")
+    fmt = sniff_format(text)
     chains = parse_chains(src)
+    if not chains:
+        print(f"warning: no chains parsed from {src} (detected {fmt}) — "
+              "the viewer will show the structure without chain info",
+              file=sys.stderr)
 
     # Optional role assignment: "A=target,B=binder"
     roles = {}
@@ -147,8 +198,11 @@ def publish_structure(args) -> int:
         "notes": args.notes or "",
         "updated": datetime.now().isoformat(timespec="seconds"),
     }
+    highlight = parse_highlight(args.highlight)
+    if highlight:
+        meta["highlight"] = highlight
 
-    atomic_write(VIEWER / "current.cif", src.read_text(errors="replace"))
+    atomic_write(VIEWER / "current.cif", text)
     atomic_write(VIEWER / "current.json", json.dumps(meta, indent=2))
     print(f"published structure: {meta['name']} "
           f"({len(chains)} chains, {fmt})")
@@ -185,6 +239,11 @@ def main() -> int:
     ap.add_argument("--notes", help="free-text context")
     ap.add_argument("--roles", help='chain roles, e.g. "A=target,B=binder"')
     ap.add_argument("--metrics", help="JSON object of metrics")
+    ap.add_argument("--highlight",
+                    help='residues to highlight on arrival, e.g. '
+                         '"A:385,A:386,B:12". The viewer selects them as '
+                         'if the user had clicked, so what a skill just '
+                         'changed is visible without hunting for it.')
 
     ap.add_argument("--status", action="store_true", help="also write status")
     ap.add_argument("--state", choices=["idle", "running", "done", "error"])

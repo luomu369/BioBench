@@ -802,7 +802,45 @@ function renderStructure(data, meta) {
   selection = {};
   hiddenChains.clear();
   viewer.removeAllLabels();
+  applyHighlights(meta);
   renderSelectionPanel();
+}
+
+// A skill can ask for residues to be highlighted on publish, so the user
+// sees what was just changed without hunting for it. current.json carries
+//
+//   "highlight": [{"chain": "A", "resi": 385}, ...]
+//
+// and those residues are selected exactly as if the user had clicked them
+// — same colours, same panel rows, same selection.json. The user can then
+// dismiss them individually or clear the lot.
+//
+// Residues that are not in the loaded model are skipped rather than
+// erroring: a skill may name a residue the published structure does not
+// contain (a chain it dropped, a numbering that shifted).
+function applyHighlights(meta) {
+  const wanted = meta.highlight;
+  if (!Array.isArray(wanted) || !wanted.length) return;
+
+  const model = viewer.getModel();
+  if (!model) return;
+  const atoms = model.atoms || [];
+  const byKey = {};
+  atoms.forEach(a => { byKey[selKey(a)] = a; });
+
+  wanted.forEach(w => {
+    if (!w || !w.chain || w.resi === undefined) return;
+    const key = `${w.chain}:${w.resi}`;
+    const atom = byKey[key];
+    if (!atom) return;
+    if (selection[key]) return;
+    selection[key] = {
+      sel: { chain: atom.chain, resi: atom.resi },
+      label: selLabel(atom),
+      color: nextColor(atom.chain),
+    };
+  });
+  applyStyle();
 }
 
 /* ---------------- style controls ---------------- */
@@ -943,18 +981,25 @@ function ligandStyleSpec(kind, thick) {
 // How a selected residue is marked. It has to match the style the protein
 // is drawn in, otherwise the highlight replaces that residue's rendering
 // and looks detached — sticks over a surface float outside the shell.
+//
+// Every case also draws the side chain as sticks. A residue selected in a
+// surface or cartoon view is otherwise just a patch of colour, which says
+// "here" but not "what is here" — and the side chain is what a mutation
+// actually changes. The backbone representation is kept underneath, so the
+// residue stays in context rather than being replaced by loose sticks.
 function selectionHighlightSpec(kind) {
+  const sidechain = { stick: { radius: 0.22, colorscheme: "Jmol" } };
   switch (kind) {
     case "surface":
-      return { cartoon: {}, surface: { opacity: 0.85 } };
+      return { cartoon: {}, surface: { opacity: 0.85 }, ...sidechain };
     case "stick":
-      return { stick: { radius: 0.3 } };
+      return { stick: { radius: 0.3 }, ...sidechain };
     case "sphere":
-      return { sphere: { scale: 0.6 } };
+      return { sphere: { scale: 0.6 }, ...sidechain };
     case "line":
-      return { line: { linewidth: 5 } };
+      return { line: { linewidth: 5 }, ...sidechain };
     default:
-      return { cartoon: {}, stick: { radius: 0.25 } };
+      return { cartoon: {}, stick: { radius: 0.25 }, ...sidechain };
   }
 }
 
@@ -1006,7 +1051,13 @@ function applyStyle() {
     }
     const styled = {};
     for (const [k, v] of Object.entries(highlight)) {
-      styled[k] = { ...v, color: item.color };
+      // The side chain keeps Jmol element colours — blue N, red O, grey C
+      // — so the residue's chemistry stays legible. Only the backbone
+      // representation carries the selection colour, which is what marks
+      // the residue as chosen.
+      styled[k] = k === "stick" && v.colorscheme
+        ? { ...v }
+        : { ...v, color: item.color };
     }
     viewer.setStyle(item.sel, styled);
   });

@@ -138,6 +138,11 @@ def build_complex(docked: Path, receptor_pdb: Path, out: Path,
     name UNL; everything else is a receptor residue whose coordinates Vina
     changed. Those residues are re-emitted over the receptor's own copies
     so the published complex matches the pose that was actually scored.
+
+    The moved residues are spliced back at their original position in the
+    chain, not appended at the end. Appending leaves the file ordered
+    ...498, 295, 297, 298..., and a viewer that draws the chain in file
+    order renders it as two disconnected pieces.
     """
     atoms = read_pdbqt_model(docked, model=1)
     moved: dict[str, list[dict]] = {}
@@ -148,29 +153,48 @@ def build_complex(docked: Path, receptor_pdb: Path, out: Path,
         else:
             moved.setdefault(a["resi"], []).append(a)
 
-    rec_lines = []
-    for line in receptor_pdb.read_text().splitlines():
-        if line.startswith(("ATOM", "HETATM")):
-            if line[22:27].strip() in moved:
-                continue  # replaced below with the moved coordinates
-        if line.strip() == "END":
-            continue
-        rec_lines.append(line)
-
-    serial = 0
-    for line in rec_lines:
-        if line.startswith(("ATOM", "HETATM")):
-            serial = max(serial, int(line[6:11]))
-    for resi in sorted(moved, key=lambda r: int(r)):
+    def moved_block(resi: str, serial: int) -> tuple[list[str], int]:
+        lines = []
         for a in moved[resi]:
             serial += 1
-            rec_lines.append(
+            lines.append(
                 f"ATOM  {serial:5d} {a['name']:<4s} {a['resn']:>3s} "
                 f"{flex_chain}{int(resi):4d}    "
                 f"{a['x']:8.3f}{a['y']:8.3f}{a['z']:8.3f}"
                 f"{'  1.00':>6s}{'  0.00':>6s}          "
                 f"{a['elem']:>2s}"
             )
+        return lines, serial
+
+    rec_lines: list[str] = []
+    serial = 0
+    emitted: set[str] = set()
+    for line in receptor_pdb.read_text().splitlines():
+        if line.startswith(("ATOM", "HETATM")):
+            serial = max(serial, int(line[6:11]))
+            # Match on chain AND residue number. Residue numbers repeat
+            # across chains — 7XWQ has a 298 on both A and B — so matching
+            # on the number alone drops the other chain's copy, and Vina
+            # only ever emitted the flexible chain's version. That silently
+            # deleted 19 residues from chain B and left the chain in
+            # pieces.
+            key = (line[21], line[22:27].strip())
+            if line[21] == flex_chain and key[1] in moved:
+                if key[1] not in emitted:
+                    block, serial = moved_block(key[1], serial)
+                    rec_lines.extend(block)
+                    emitted.add(key[1])
+                continue  # skip the receptor's own copy
+        if line.strip() == "END":
+            continue
+        rec_lines.append(line)
+
+    # any moved residue the receptor file did not contain
+    for resi in sorted(moved, key=lambda r: int(r)):
+        if resi not in emitted:
+            block, serial = moved_block(resi, serial)
+            rec_lines.extend(block)
+            emitted.add(resi)
 
     lig_lines = [
         f"HETATM{i:5d} {a['name']:<4s} {'UNL':>3s} {ligand_chain}{1:4d}    "

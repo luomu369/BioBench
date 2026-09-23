@@ -173,6 +173,34 @@ dropdown shows their purpose.
 Both actions can be combined in one call by passing `--structure` and
 `--status` together.
 
+### Highlighting what you just changed
+
+`--highlight` names residues the viewer should select on arrival, so the
+user sees the result of your work without hunting for it:
+
+```bash
+--highlight "A:385,A:386,A:387,A:388"
+```
+
+Format is `chain:resi`, comma-separated. The viewer selects them exactly as
+if the user had clicked — same colours, same Selection panel rows, same
+`selection.json` — so they can be dismissed individually or cleared in one
+go.
+
+Use it whenever a run changed specific positions:
+
+| Skill | Highlight |
+|-------|-----------|
+| `sequence-design` | the residues you mutated |
+| `molecular-docking` | the flexible residues that moved |
+| `pocket-molecule-design` | the pocket residues that defined the box |
+| `binder-design` | the hotspot residues from the spec |
+
+Residues the published structure does not contain are skipped silently — a
+skill may name a chain it dropped, or numbering that shifted between the
+input and the output. Derive the list from the file you are actually
+publishing, not from the input.
+
 ### `--metrics` and `--notes` are yours to shape
 
 The viewer renders whatever you put in `--metrics` and `--notes` — it keeps
