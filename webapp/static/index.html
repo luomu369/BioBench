@@ -417,8 +417,8 @@
       <option value="white">White</option>
     </select>
     <select id="ligand-style-picker" class="ctl" disabled title="Ligand rendering">
-      <option value="ballstick">Ball &amp; stick</option>
       <option value="stick">Stick</option>
+      <option value="ballstick">Ball &amp; stick</option>
       <option value="spacefill">Space fill</option>
       <option value="line">Line</option>
     </select>
@@ -668,6 +668,21 @@ chainPicker.addEventListener("change", () => {
 
 /* ---------------- style controls ---------------- */
 
+// A blue-white palette, keyed by chain ID. Chains beyond the list fall
+// back to the last entry, so a structure with more chains than colours
+// still renders. Chosen over a gradient because 3Dmol's CustomLinear
+// gradient does not apply to cartoon rendering in this build.
+const BLUE_WHITE = ["#38bdf8", "#7dd3fc", "#bae6fd", "#e0f2fe",
+                    "#0ea5e9", "#f0f9ff", "#60a5fa", "#93c5fd"];
+
+function chainColorMap(chains) {
+  const map = {};
+  chains.forEach((c, i) => {
+    map[c] = BLUE_WHITE[Math.min(i, BLUE_WHITE.length - 1)];
+  });
+  return map;
+}
+
 // 3Dmol distinguishes two style fields: `color` takes a literal colour
 // ("red", "#ff0000") while `colorscheme` takes the name of a built-in
 // scheme. Passing a scheme name to `color` logs "color not found" for
@@ -676,17 +691,18 @@ chainPicker.addEventListener("change", () => {
 // "spectrum" is the exception — it is a gradient, not an entry in the
 // scheme table, and only works through `color`. Verified by pixel count:
 // color:"spectrum" gives 63% coloured pixels, colorscheme:"spectrum" 13%.
-function colorSpec(scheme) {
+function colorSpec(scheme, chains) {
   switch (scheme) {
-    case "chain":     return { colorscheme: "chain" };
+    case "chain":
+      return { colorscheme: { prop: "chain", map: chainColorMap(chains) } };
     case "secondary": return { colorscheme: "ssJmol" };
     case "white":     return { color: "white" };
     default:          return { color: "spectrum" };
   }
 }
 
-function styleSpec(kind, scheme) {
-  const color = colorSpec(scheme);
+function styleSpec(kind, scheme, chains) {
+  const color = colorSpec(scheme, chains);
   switch (kind) {
     case "stick":   return { stick: { ...color, radius: 0.18 } };
     case "sphere":  return { sphere: { ...color, scale: 0.5 } };
@@ -732,7 +748,7 @@ function applyStyle() {
 
   // Every chain keeps the chosen style; picking one only moves the camera
   // onto it, so the rest of the complex stays on screen for context.
-  viewer.setStyle({}, styleSpec(kind, scheme));
+  viewer.setStyle({}, styleSpec(kind, scheme, chains.map(c => c.chain)));
 
   // Ligands (non-amino-acid chains from metadata) get their own rendering
   // style, chosen independently of the protein's, so a small molecule
@@ -832,7 +848,7 @@ function renderSelectionPanel() {
   if (!keys.length) {
     selList.innerHTML =
       '<div class="s-empty">Click residues in the viewer to select them. ' +
-      'Alt-click to remove one.</div>';
+      'Click again to deselect.</div>';
     return;
   }
 
@@ -881,13 +897,15 @@ function addSelection(atom) {
 }
 
 // 3Dmol click handling: nearest atom within a pixel radius.
-// Every click appends to the selection (multi-select by default).
-// Alt/Option + click removes a residue. Use "clear all" to reset.
+// A plain click toggles the residue — click again to deselect it.
+// Alt/Option + click always removes. Use "clear all" to reset.
 function onAtomClick(atom) {
   if (!atom) return;
   const key = selKey(atom);
 
   if (window.event && window.event.altKey) {
+    delete selection[key];
+  } else if (selection[key]) {
     delete selection[key];
   } else {
     addSelection(atom);
