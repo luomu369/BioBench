@@ -179,6 +179,13 @@
   }
   #metrics .m-row .k { color: var(--muted); }
   #metrics .m-row .v { font-variant-numeric: tabular-nums; }
+  /* Unit / direction hint, dimmed so the number still leads. */
+  #metrics .m-hint {
+    color: var(--muted);
+    font-size: 11px;
+    margin-left: 7px;
+    opacity: .8;
+  }
   #metrics .m-notes {
     margin-top: 8px;
     padding-top: 8px;
@@ -686,6 +693,82 @@ function formatMetric(v) {
   return v.toFixed(abs < 1 ? 3 : 1);
 }
 
+// Chinese labels for the metric keys BioBench skills emit, so the panel
+// reads as prose rather than as raw identifiers. Keys not listed fall back
+// to the raw name — a new skill's metrics still show, just unlabelled.
+const METRIC_LABELS = {
+  // docking
+  best_affinity: "结合亲和力",
+  best_affinity_kcal_mol: "结合亲和力",
+  affinity: "结合亲和力",
+  num_modes: "姿态数",
+  exhaustiveness: "搜索强度",
+  flex_residues: "柔性残基",
+  ri_flex: "ri 柔性对接",
+  rj_flex: "rj 柔性对接",
+  rk_flex: "rk 柔性对接",
+  ri_rigid: "ri 刚性对接",
+  rj_rigid: "rj 刚性对接",
+  rk_rigid: "rk 刚性对接",
+  reference_I1M: "参考配体 I1M",
+  num_ligands: "配体数",
+  // structure comparison
+  pident: "序列一致性",
+  alnlen: "比对长度",
+  evalue: "期望值",
+  bits: "比特分数",
+  ca_rmsd_A: "CA RMSD",
+  centroid_offset_A: "质心偏移",
+  hits: "命中数",
+  unique_pdb: "独立条目",
+  rank: "排名",
+  // generation
+  molecules_generated: "生成分子数",
+  pocket_residues: "口袋残基",
+  beam_size: "束搜索宽度",
+  reference: "参考配体",
+  model: "模型",
+  // design
+  designs: "设计数",
+  ipTM: "界面 TM-score",
+  iptm: "界面 TM-score",
+  plddt: "pLDDT",
+  ptm: "TM-score",
+  design_score: "设计得分",
+  sequences: "序列数",
+  best_score: "最佳得分",
+  recovery: "序列回复率",
+};
+
+// Units and the direction that is good, shown next to the value. Without
+// these a bare "-8.55" or "1.4e-30" tells the user nothing.
+const METRIC_HINTS = {
+  best_affinity: "kcal/mol，越负越强",
+  best_affinity_kcal_mol: "kcal/mol，越负越强",
+  affinity: "kcal/mol，越负越强",
+  ri_flex: "kcal/mol，越负越强",
+  rj_flex: "kcal/mol，越负越强",
+  rk_flex: "kcal/mol，越负越强",
+  ri_rigid: "kcal/mol，越负越强",
+  rj_rigid: "kcal/mol，越负越强",
+  rk_rigid: "kcal/mol，越负越强",
+  reference_I1M: "kcal/mol，越负越强",
+  pident: "%，越高越相似",
+  alnlen: "残基",
+  evalue: "越小越可信",
+  bits: "越大越好",
+  ca_rmsd_A: "Å，越小越重合",
+  centroid_offset_A: "Å，越小越重合",
+  ipTM: ">0.7 为好",
+  iptm: ">0.7 为好",
+  plddt: ">70 为好",
+  ptm: "越大越好",
+  best_score: "越低越好",
+  recovery: "%，越高越保守",
+  exhaustiveness: "越高越慢",
+  beam_size: "越大越慢",
+};
+
 function renderMetrics(meta) {
   const m = meta.metrics || {};
   const keys = Object.keys(m);
@@ -697,11 +780,22 @@ function renderMetrics(meta) {
   keys.forEach(k => {
     const row = document.createElement("div");
     row.className = "m-row";
+    const label = METRIC_LABELS[k] || k;
+    const hint = METRIC_HINTS[k];
     row.innerHTML = `<span class="k"></span><span class="v"></span>`;
-    row.querySelector(".k").textContent = k;
-    row.querySelector(".v").textContent = formatMetric(m[k]);
+    row.querySelector(".k").textContent = label;
+    const v = row.querySelector(".v");
+    v.textContent = formatMetric(m[k]);
+    if (hint) {
+      const h = document.createElement("span");
+      h.className = "m-hint";
+      h.textContent = hint;
+      v.appendChild(h);
+    }
     metricsRows.appendChild(row);
   });
+  // notes carries the skill's explanation and suggestion; keep it verbatim
+  // so the wording the skill chose is what the user reads.
   metricsNotes.textContent = meta.notes || "";
   metricsNotes.style.display = meta.notes ? "" : "none";
   metricsPanel.classList.add("show");
