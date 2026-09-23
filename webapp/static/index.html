@@ -296,7 +296,6 @@
     padding: 0;
     text-transform: none;
     letter-spacing: 0;
-    margin-left: auto;
   }
   #selection .s-clear:hover { text-decoration: underline; }
   #selection .s-mode {
@@ -493,6 +492,7 @@
   <div id="selection">
     <div class="s-head">
       <span>Selection</span>
+      <button class="s-clear" id="sel-clear">clear all</button>
     </div>
     <div class="s-tools">
       <span class="s-mode" id="sel-mode" title="What a click selects: a residue, a whole chain, a single atom, or a bond">
@@ -501,7 +501,6 @@
         <button class="s-mode-btn" data-mode="atom">Atom</button>
         <button class="s-mode-btn" data-mode="bond">Bond</button>
       </span>
-      <button class="s-clear" id="sel-clear">clear all</button>
     </div>
     <div id="sel-list"></div>
   </div>
