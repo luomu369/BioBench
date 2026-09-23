@@ -414,7 +414,6 @@
       <option value="chain">By chain</option>
       <option value="spectrum">Spectrum</option>
       <option value="secondary">Secondary</option>
-      <option value="white">White</option>
     </select>
     <select id="ligand-style-picker" class="ctl" disabled title="Ligand rendering">
       <option value="stick">Stick</option>
@@ -683,6 +682,11 @@ function chainColorMap(chains) {
   return map;
 }
 
+// Secondary-structure colours in the same blue-white family: helices the
+// deepest blue, sheets a mid blue, coils the palest. 3Dmol's ssJmol uses
+// magenta/red/white, which clashes with the rest of the palette.
+const SS_BLUE_WHITE = { h: "#0284c7", s: "#7dd3fc", c: "#e0f2fe" };
+
 // 3Dmol distinguishes two style fields: `color` takes a literal colour
 // ("red", "#ff0000") while `colorscheme` takes the name of a built-in
 // scheme. Passing a scheme name to `color` logs "color not found" for
@@ -695,8 +699,8 @@ function colorSpec(scheme, chains) {
   switch (scheme) {
     case "chain":
       return { colorscheme: { prop: "chain", map: chainColorMap(chains) } };
-    case "secondary": return { colorscheme: "ssJmol" };
-    case "white":     return { color: "white" };
+    case "secondary":
+      return { colorscheme: { prop: "ss", map: SS_BLUE_WHITE } };
     default:          return { color: "spectrum" };
   }
 }
