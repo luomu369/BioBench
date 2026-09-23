@@ -671,10 +671,18 @@ chainPicker.addEventListener("change", () => {
 
 let spinning = false;
 
+// 3Dmol distinguishes two style fields: `color` takes a literal colour
+// ("red", "#ff0000") while `colorscheme` takes the name of a built-in
+// scheme. Passing a scheme name to `color` logs "color not found" for
+// every atom and falls back to the default.
+//
+// "spectrum" is the exception — it is a gradient, not an entry in the
+// scheme table, and only works through `color`. Verified by pixel count:
+// color:"spectrum" gives 63% coloured pixels, colorscheme:"spectrum" 13%.
 function colorSpec(scheme) {
   switch (scheme) {
-    case "chain":     return { color: "chain" };
-    case "secondary": return { color: "ssJmol" };
+    case "chain":     return { colorscheme: "chain" };
+    case "secondary": return { colorscheme: "ssJmol" };
     case "white":     return { color: "white" };
     default:          return { color: "spectrum" };
   }
