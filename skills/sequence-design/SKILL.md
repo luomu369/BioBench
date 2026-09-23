@@ -91,6 +91,46 @@ positions to keep:
 --fixed-positions-jsonl fixed.jsonl
 ```
 
+> **Positions are indices into ProteinMPNN's own expansion of the chain,
+> not PDB residue numbers.** `parse_PDB` walks `min_resn..max_resn` and
+> fills every gap with `X`, so a chain numbered 263–498 with 219 residues
+> present has 236 slots, and PDB 385 sits at index 123. Passing PDB
+> numbers either crashes (`IndexError: index 384 is out of bounds for axis
+> 0 with size 236`) or, when the numbers happen to be in range, silently
+> constrains the wrong residues — a run meant to mutate 385–388 instead
+> omitted S/R/F/R at indices 101–104, which are D/R/D/E.
+>
+> Derive the indices from the parser instead of assuming numbering starts
+> at 1:
+>
+> ```bash
+> python3 -c "
+> import sys
+> sys.path.insert(0, '<site-packages>/proteinmpnn')
+> from protein_mpnn_utils import parse_PDB
+> seq = parse_PDB('backbone.pdb')[0]['seq_chain_A']
+> print(len(seq), seq[122:126])   # 236 SRFR
+> "
+> ```
+>
+> The JSONL key is the file stem (`backbone`), not the filename
+> (`backbone.pdb`) — `parse_PDB` strips the extension, and a mismatched key
+> raises `KeyError`.
+
+### Mutating positions rather than fixing them
+
+`--fixed-positions-jsonl` *keeps* the wild-type residue. To force a change,
+omit the wild-type amino acid at that position with `--omit-AA-jsonl`, whose
+format is per-chain and per-position:
+
+```jsonl
+{"backbone": {"A": [[[123], ["S"]], [[124], ["R"]], [[125], ["F"]], [[126], ["R"]]]}}
+```
+
+Each entry is `[[positions], [amino acids to exclude]]`. The model then
+picks freely among the remaining 19. To force a *specific* substitution
+instead, use `--bias-by-res-jsonl` to weight the target residue strongly.
+
 ### Using residues the user selected in the viewer
 
 If the user selected residues and asked to design around / keep them, read
