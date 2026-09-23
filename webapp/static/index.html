@@ -1038,17 +1038,18 @@ function applyStyle() {
     ligandChains.forEach(ch => viewer.setStyle({ chain: ch }, spec));
   }
 
-  // Alpha-sphere clouds from fpocket are a point set, not a molecule: the
-  // atoms have no bonds between them, so a stick render draws nothing but
-  // isolated dots and a ball-and-stick adds stray spheres. Spheres alone
-  // read as the cavity's shape, which is what they are.
-  //
-  // Opacity has to clear two bars at once: high enough that the cloud
-  // reads as a volume against the surface shell, low enough that the
-  // lining residues stay visible through it. 0.55 washed out to nothing.
-  viewer.setStyle({ resn: "STP" }, {
-    sphere: { scale: 0.35, color: "#fbbf24", opacity: 0.85 },
-  });
+// Alpha-sphere clouds from fpocket are a point set, not a molecule: the
+// atoms have no bonds between them, so a stick render draws nothing but
+// isolated dots and a ball-and-stick adds stray spheres. Spheres alone
+// read as the cavity's shape, which is what they are.
+//
+// Opacity has to clear two bars at once: high enough that the cloud
+// reads as a volume against the surface shell, low enough that the
+// lining residues stay visible through it. 0.55 washed out to nothing.
+const POCKET_SPHERE = { scale: 0.35, color: "#fbbf24", opacity: 0.85 };
+const POCKET_SPHERE_FADED = { scale: 0.35, color: "#fbbf24", opacity: 0.15 };
+
+viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
 
   // Hidden chains get an empty style, which removes them from the render
   // without touching the model — so toggling the eye is reversible.
@@ -1064,6 +1065,15 @@ function applyStyle() {
   const ligandIds = new Set((currentMeta.chains || [])
     .filter(c => c.ligand).map(c => c.id));
   Object.entries(selection).forEach(([key, item]) => {
+    // A selected pocket fades rather than recolouring. The cloud is a
+    // volume, not a molecule: tinting it toward the selection colour
+    // destroys the read of what is inside, and the point of selecting a
+    // pocket is to look through it. It still gets a row in the panel and
+    // still seeks to on click, like anything else.
+    if (item.pocket) {
+      viewer.setStyle(item.sel, { sphere: { ...POCKET_SPHERE_FADED } });
+      return;
+    }
     // A single atom or a bond: keep the geometry exactly as it was and
     // only shift the element colours toward the selection colour. Scaling
     // the sphere up made the atom look like a different, larger atom
@@ -1171,8 +1181,16 @@ function persistSelection(keys) {
   const chainSelections = [];
   const atoms = [];
   const bonds = [];
+  const pockets = [];
   keys.forEach(k => {
     const item = selection[k];
+    if (item.pocket) {
+      pockets.push({
+        chain: item.sel.chain,
+        color: item.color,
+      });
+      return;
+    }
     if (item.chain) {
       chainSelections.push({
         chain: item.sel.chain,
@@ -1209,10 +1227,11 @@ function persistSelection(keys) {
   const payload = {
     structure: currentStructure || null,
     count: residues.length + chainSelections.length
-         + atoms.length + bonds.length,
+         + atoms.length + bonds.length + pockets.length,
     residues,
     updated: new Date().toISOString(),
   };
+  if (pockets.length) payload.pockets = pockets;
   if (chainSelections.length) payload.chains = chainSelections;
   if (atoms.length) payload.atoms = atoms;
   if (bonds.length) payload.bonds = bonds;
@@ -1420,6 +1439,23 @@ function nextColor(chainId) {
 function addSelection(atom) {
   const key = selKey(atom);
   if (selection[key]) return;
+  // An alpha-sphere cloud is one pocket, not one residue: every sphere in
+  // it shares residue number 1, so selecting by residue would collapse
+  // 74 spheres into a single entry and fade only one of them. Select the
+  // whole chain instead, and mark it so the styling knows to fade rather
+  // than recolour.
+  if (atom.resn === "STP") {
+    const chainKey = `chain:${atom.chain}`;
+    if (selection[chainKey]) return;
+    selection[chainKey] = {
+      sel: { chain: atom.chain, resn: "STP" },
+      label: `Pocket ${atom.chain}`,
+      color: nextColor(atom.chain),
+      chain: true,
+      pocket: true,
+    };
+    return;
+  }
   selection[key] = {
     sel: { chain: atom.chain, resi: atom.resi },
     label: selLabel(atom),
