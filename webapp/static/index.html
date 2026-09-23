@@ -198,9 +198,11 @@
     -webkit-backdrop-filter: blur(14px);
     box-shadow: 0 8px 32px rgba(0,0,0,.45);
     display: none;
-    flex-shrink: 0;
-    max-height: 220px;
+    /* Taller than the old 220px so a dozen chains fit, but capped so the
+       panel scrolls instead of swallowing the whole left column. */
+    max-height: 420px;
     overflow: auto;
+    flex-shrink: 0;
   }
   #seq-panel.show { display: block; }
   #seq-panel .seq-head {
