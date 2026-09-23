@@ -763,7 +763,6 @@ function renderStructure(data, meta) {
   ligandStylePicker.disabled = ligandChains.length === 0;
   resetBtn.disabled = false;
   selection = {};
-  selCounter = 0;
   hiddenChains.clear();
   viewer.removeAllLabels();
   renderSelectionPanel();
@@ -800,6 +799,36 @@ const ELEMENT_COLORS = {
   H: "#f8fafc", P: "#0ea5e9", SE: "#f59e0b", FE: "#f97316",
 };
 
+// Same hues, lifted in brightness, for a selected ligand. Flattening to a
+// single highlight colour destroys the O/N/C readout, and merely making
+// the sticks thicker looks clumsy — a brighter version of the same palette
+// says "selected" while keeping the chemistry legible.
+const ELEMENT_COLORS_HI = {
+  C: "#e5e7eb", N: "#60a5fa", O: "#fb7185", S: "#fde047",
+  H: "#ffffff", P: "#38bdf8", SE: "#fbbf24", FE: "#fb923c",
+};
+
+// Blend a hex colour toward another by t (0 = base, 1 = target).
+function mixHex(base, target, t) {
+  const b = parseInt(base.slice(1), 16);
+  const g = parseInt(target.slice(1), 16);
+  const r = Math.round(((b >> 16) & 255) * (1 - t) + ((g >> 16) & 255) * t);
+  const gr = Math.round(((b >> 8) & 255) * (1 - t) + ((g >> 8) & 255) * t);
+  const bl = Math.round((b & 255) * (1 - t) + (g & 255) * t);
+  return "#" + ((1 << 24) | (r << 16) | (gr << 8) | bl).toString(16).slice(1);
+}
+
+// Element colours tinted toward the user's selection colour. The molecule
+// keeps its O/N/C identity but visibly carries the selection colour, which
+// is what the swatch in the Selection panel promises.
+function elementColorsTinted(selColor, t = 0.55) {
+  const out = {};
+  for (const [el, hex] of Object.entries(ELEMENT_COLORS)) {
+    out[el] = mixHex(hex, selColor, t);
+  }
+  return out;
+}
+
 // 3Dmol distinguishes two style fields: `color` takes a literal colour
 // ("red", "#ff0000") while `colorscheme` takes the name of a built-in
 // scheme. Passing a scheme name to `color` logs "color not found" for
@@ -829,12 +858,17 @@ function styleSpec(kind, scheme, chains) {
   // surface draw the fold, so they keep the chain/secondary scheme.
   const perAtom = (kind === "stick" || kind === "sphere" || kind === "line");
   const color = colorSpec(scheme, chains, perAtom);
+  // 3Dmol's default lighting is a single hard key light, which carves deep
+  // shadows out of a surface and buries anything inside a pocket. Adding an
+  // ambient term and a little emission lifts the dark side without washing
+  // out the form.
+  const soft = { ...color, ambientColor: "#7f8ea3", emissiveColor: "#2a3542" };
   switch (kind) {
     case "stick":   return { stick: { ...color, radius: 0.18 } };
     case "sphere":  return { sphere: { ...color, scale: 0.5 } };
     case "line":    return { line: { ...color, linewidth: 2 } };
-    case "surface": return { cartoon: color, surface: { opacity: 0.15, color: "white" } };
-    default:        return { cartoon: color, stick: {} };
+    case "surface": return { cartoon: soft, surface: { opacity: 0.15, color: "white", ambientColor: "#7f8ea3" } };
+    default:        return { cartoon: soft, stick: {} };
   }
 }
 
@@ -908,15 +942,24 @@ function applyStyle() {
   // a hidden ligand and undo the hide.
   hiddenChains.forEach(ch => viewer.setStyle({ chain: ch }, {}));
 
-  // Re-apply selection highlights on top. The highlight has to follow the
-  // main style: a stick highlight drawn over a surface replaces that
-  // residue's surface, so the sticks appear to float outside the shell.
-  // Under surface/cartoon the highlight tints the surface instead.
-  //
-  // The colour has to go inside each sub-style — 3Dmol reads
-  // {cartoon: {color}}, not a top-level {color}, which it silently ignores.
+  // A selected ligand keeps exactly the geometry it already had; only the
+  // element colours change, each tinted toward the user's selection colour.
+  // Overwriting with one flat tone would destroy the O/N/C readout, and
+  // changing the radius makes the molecule look fatter than its neighbours.
   const highlight = selectionHighlightSpec(kind);
+  const ligandIds = new Set((currentMeta.chains || [])
+    .filter(c => c.ligand).map(c => c.id));
   Object.entries(selection).forEach(([key, item]) => {
+    if (ligandIds.has(item.sel.chain)) {
+      const spec = ligandStyleSpec(ligandStylePicker.value, kind === "surface");
+      const map = elementColorsTinted(item.color);
+      const styled = {};
+      for (const [k, v] of Object.entries(spec)) {
+        styled[k] = { ...v, colorscheme: { prop: "elem", map } };
+      }
+      viewer.setStyle(item.sel, styled);
+      return;
+    }
     const styled = {};
     for (const [k, v] of Object.entries(highlight)) {
       styled[k] = { ...v, color: item.color };
@@ -945,7 +988,6 @@ const selClear = document.getElementById("sel-clear");
 
 // key → { sel, label, color, chain? }
 let selection = {};
-let selCounter = 0;
 // "res" — a click selects the single residue under the cursor.
 // "chain" — a click selects that residue's whole chain.
 let selMode = "res";
@@ -1118,32 +1160,40 @@ function renderSelectionPanel() {
   });
 }
 
-// A selection entry is either a single residue or a whole chain. Chain
-// entries carry `chain: true` so the panel and selection.json can tell
-// them apart, and skills can act on "the user picked this chain" without
-// expanding it into hundreds of residues.
+// Colour for the next selection. Derived from how many things are already
+// selected rather than from a running counter, so the sequence is stable:
+// selecting the same residues in the same order always yields the same
+// colours, and cancelling one in the middle does not shift the rest.
+//
+// Residues on the same chain share a colour, which keeps a multi-residue
+// selection on one chain visually coherent.
+function nextColor(chainId) {
+  const used = new Set(Object.values(selection).map(s => s.color));
+  const sameChain = Object.values(selection).find(
+    s => s.sel && s.sel.chain === chainId);
+  if (sameChain) return sameChain.color;
+  const free = PALETTE.find(c => !used.has(c));
+  return free || PALETTE[Object.keys(selection).length % PALETTE.length];
+}
+
 function addSelection(atom) {
   const key = selKey(atom);
   if (selection[key]) return;
-  const color = PALETTE[selCounter % PALETTE.length];
-  selCounter += 1;
   selection[key] = {
     sel: { chain: atom.chain, resi: atom.resi },
     label: selLabel(atom),
-    color,
+    color: nextColor(atom.chain),
   };
 }
 
 function addChainSelection(chainId) {
   const key = `chain:${chainId}`;
   if (selection[key]) return;
-  const color = PALETTE[selCounter % PALETTE.length];
-  selCounter += 1;
   const info = chains.find(c => c.chain === chainId);
   selection[key] = {
     sel: { chain: chainId },
     label: `Chain ${chainId}${info ? ` (${info.seq.length} aa)` : ""}`,
-    color,
+    color: nextColor(chainId),
     chain: true,
   };
 }
@@ -1188,7 +1238,6 @@ document.querySelectorAll("#sel-mode .s-mode-btn").forEach(btn => {
 
 selClear.addEventListener("click", () => {
   selection = {};
-  selCounter = 0;
   applyStyle();
   renderSelectionPanel();
 });
