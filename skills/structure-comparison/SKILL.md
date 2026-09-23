@@ -344,37 +344,46 @@ PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
 SUP=/home/asus_gx10/biobench/skills/structure-comparison/scripts/superimpose.py
 
 $PY $SUP --query 7XWQ.cif --target hit_4j26.cif \
-  --query-chain B --out superposed.pdb
+  --query-chain B --out superposed.cif
 ```
 
 ```
-wrote superposed.pdb
+wrote superposed.cif
   alignment: 97.3% id, 225 res, e-value 1.30e-31
   CA RMSD:   7.91 A
-  chains:    query ['A', 'B', 'C', 'D'] + target {'A': 'X', 'B': 'Z', ...}
+  query  chains (unchanged IDs): ['A', 'B', 'C', 'D']
+  target chains (prefixed 'h'):  {'A': 'hA', 'I': 'hI', 'B': 'hB', 'J': 'hJ'}
+  → in the viewer, plain IDs are 7XWQ, 'h' IDs are hit_4j26
 ```
 
 The script runs Foldseek itself to get the rotation matrix and translation
-vector, applies them to every target atom, renames the target's chains so
-they cannot collide with the query's, and reports the CA RMSD as a sanity
-check on the fit.
+vector, applies them to every target atom, and reports the CA RMSD as a
+sanity check on the fit.
 
-Publish the result with roles that say which is which:
+### Telling the two structures apart
+
+The query keeps its chain IDs; the target's get an `h` prefix. So in the
+viewer's chain list, `A`–`D` are the query and `hA`–`hJ` are the hit —
+no `--roles` needed to know which is which.
+
+> **Write `.cif`, not `.pdb`.** PDB chain IDs are a single character, so
+> `hA` is silently truncated to `A` and the two structures become
+> indistinguishable again. mmCIF has no such limit.
+
+Publish with roles that spell it out anyway, since the Metrics panel and
+chain dropdown both show them:
 
 ```bash
-python3 $PUB --structure superposed.pdb \
+python3 $PUB --structure superposed.cif \
   --name "7XWQ_vs_4j26" --source foldseek \
-  --roles "B=query,X=hit_A,Z=hit_B" \
+  --roles "B=query_7XWQ,hA=hit_4j26_A,hB=hit_4j26_B,hI=peptide_I,hJ=peptide_J" \
   --metrics '{"pident":97.3,"ca_rmsd_A":7.91}' \
-  --notes "4j26 superimposed onto 7XWQ chain B"
+  --notes "4j26 onto 7XWQ chain B. Plain IDs = query, h-prefixed = hit."
 ```
 
 > **`--query-chain` matters for multi-chain queries.** Without it the
 > script aligns on the first chain, which may not be the one the user
 > cares about. Pass the chain that was searched.
-
-> **Chain renaming is by file order**, not by role — the output lists the
-> mapping so the `--roles` argument can be written correctly.
 
 ### Reading a superposition
 

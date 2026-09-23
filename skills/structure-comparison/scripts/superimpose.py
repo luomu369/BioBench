@@ -29,11 +29,6 @@ import gemmi
 
 FOLDSEEK = Path("/home/asus_gx10/tools/foldseek/bin/foldseek")
 
-# Target chains are renamed so they cannot collide with the query's. PDB
-# chain IDs are single characters, so a structure with more than ~40
-# distinct chains would overflow — fine for any realistic complex.
-RENAME = list("XYZWVUTSRQNMLKJHGFEDCBAzyxwvutsrqponmlkjihgfedcba0123456789")
-
 
 def read_structure(path: Path) -> gemmi.Structure:
     """Read PDB or mmCIF, honouring the viewer's format metadata."""
@@ -164,15 +159,20 @@ def main():
     out.cell = ref.cell
     out.add_model(gemmi.Model("1"))
 
+    # Chain IDs carry the origin: the query keeps its own IDs, the target's
+    # get an "h" prefix (hit). Without this the two structures are
+    # indistinguishable once merged — the viewer shows one flat list of
+    # chains and the user cannot tell which came from where.
     for ch in ref[0]:
         out[0].add_chain(ch)
 
-    # Rename target chains, skipping any ID the query already uses.
     used = {c.name for c in ref[0]}
-    pool = [c for c in RENAME if c not in used]
     mapping = {}
-    for i, ch in enumerate(mov[0]):
-        new_name = pool[i] if i < len(pool) else f"{i}"
+    for ch in mov[0]:
+        new_name = f"h{ch.name}"
+        while new_name in used:
+            new_name = "h" + new_name
+        used.add(new_name)
         mapping[ch.name] = new_name
         new = gemmi.Chain(new_name)
         for res in ch:
@@ -216,8 +216,9 @@ def main():
     print(f"  alignment: {pident:.1f}% id, {alnlen} res, e-value {evalue:.2e}")
     if rmsd is not None:
         print(f"  CA RMSD:   {rmsd:.2f} A")
-    print(f"  chains:    query {[c.name for c in ref[0]]} + "
-          f"target {mapping}")
+    print(f"  query  chains (unchanged IDs): {[c.name for c in ref[0]]}")
+    print(f"  target chains (prefixed 'h'):  {mapping}")
+    print(f"  → in the viewer, plain IDs are {q.stem}, 'h' IDs are {t.stem}")
     return 0
 
 
