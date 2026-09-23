@@ -1038,6 +1038,18 @@ function applyStyle() {
     ligandChains.forEach(ch => viewer.setStyle({ chain: ch }, spec));
   }
 
+  // Alpha-sphere clouds from fpocket are a point set, not a molecule: the
+  // atoms have no bonds between them, so a stick render draws nothing but
+  // isolated dots and a ball-and-stick adds stray spheres. Spheres alone
+  // read as the cavity's shape, which is what they are.
+  //
+  // Opacity has to clear two bars at once: high enough that the cloud
+  // reads as a volume against the surface shell, low enough that the
+  // lining residues stay visible through it. 0.55 washed out to nothing.
+  viewer.setStyle({ resn: "STP" }, {
+    sphere: { scale: 0.35, color: "#fbbf24", opacity: 0.85 },
+  });
+
   // Hidden chains get an empty style, which removes them from the render
   // without touching the model — so toggling the eye is reversible.
   // This has to come last: the ligand block above would otherwise re-style

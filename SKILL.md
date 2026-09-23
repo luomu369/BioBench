@@ -64,6 +64,8 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "what could bind here" / "propose ligands for these residues" | `pocket-molecule-design` | Reads `selection.json`, generates for that pocket |
 | "does my design look like a known fold?" | `structure-comparison` | Foldseek search; matches reported |
 | "cluster these structures" | `structure-comparison` | Foldseek clustering |
+| "where could a drug bind?" / "find the pockets" | `pocket-detection` | fpocket ranks cavities by drug-likeness |
+| "I have an apo structure, where do I dock?" | `pocket-detection` | Pocket centroids become docking boxes |
 | "install GenMol" | `genmol-deploy` | Environment + weights setup |
 | "install ResGen" | `resgen-deploy` | Repo + Google Drive weights + 3 patches |
 | "install Foldseek" | `foldseek-deploy` | Static binary install |
