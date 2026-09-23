@@ -245,6 +245,26 @@ python3 $PUB \
   --skill sequence-design --message "8 sequences designed"
 ```
 
+### Highlight the positions you changed
+
+If you constrained specific positions — omitted the wild type to force a
+mutation, or fixed residues to hold them — pass them with `--highlight` so
+the viewer selects them on arrival:
+
+```bash
+  --highlight "A:385,A:386,A:387,A:388"
+```
+
+The viewer draws those residues with their side chains visible, in the
+selection colour, on top of the normal backbone style. Without it the user
+has to find the changed positions by reading the sequence panel against
+the wild type.
+
+Build the list from the **PDB residue numbers of the file you are
+publishing**, not from the ProteinMPNN indices you used in
+`--omit-AA-jsonl` — the two are different numberings (see the index note
+above).
+
 Adjust `--roles` to the actual chain IDs in your PDB.
 
 ### Writing `--notes`

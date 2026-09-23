@@ -109,6 +109,10 @@ chain. See `binder-design` for the full spec format.
     "rmsd": 1.9
   },
   "notes": "Designed against NK2R (7xwo) chain A",
+  "highlight": [
+    {"chain": "A", "resi": 145},
+    {"chain": "A", "resi": 146}
+  ],
   "updated": "2026-09-22T12:30:00"
 }
 ```
@@ -121,6 +125,7 @@ chain. See `binder-design` for the full spec format.
 | `chains` | no | Chain list; drives the chain dropdown |
 | `metrics` | no | Key numbers shown in the metrics panel |
 | `notes` | no | Free-text context for the user |
+| `highlight` | no | Residues to select on arrival; see below |
 | `updated` | yes | ISO timestamp; the viewer's change detector |
 
 ## Progress reporting
@@ -266,13 +271,19 @@ def publish(cif_text: str, meta: dict, viewer: Path):
 2. **Always bump `updated`** — the viewer uses it to detect changes; a stale
    timestamp means the viewer ignores your update.
 3. **`format` must match the file** — the viewer passes `mmcif` or `pdb` to
-   3Dmol.js based on this field. A mismatch renders nothing.
+   3Dmol.js based on this field. `publish.py` detects it from the file's
+   first line rather than its name, since the contract file is always
+   called `current.cif` even when it holds PDB text.
 4. **Clean up on failure** — set `status.json` state to `error` with a message
    so the user sees why nothing appeared.
 5. **Keep structures under ~5 MB** — larger files slow the browser. If a
    structure is huge, publish a representative chain instead and note it.
 6. **`--notes` is free text** — the viewer shows it verbatim. Use it for
    whatever the numbers alone don't say; there is no required format.
+7. **Highlight what you changed** — if the run touched specific residues,
+   pass them with `--highlight`. The viewer selects them on arrival with
+   their side chains drawn, so the user sees the result instead of hunting
+   for it. Derive the list from the file you are publishing.
 
 ## Example: publishing a BoltzGen result
 

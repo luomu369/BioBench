@@ -311,6 +311,25 @@ a better score by moving. Compare flexible against flexible.
 > was fine. `dock_flex.py` writes `complex.pdb` with the moved residues
 > written back over the receptor's copies; publish that.
 
+> **Highlight the flexible residues.** They are the part of the result a
+> rigid run could not have produced, and the viewer draws them with their
+> side chains out so the rearrangement is visible:
+>
+> ```bash
+> FLEX=$(python3 -c "
+> import json, re
+> s = json.load(open('flex_out/summary.json'))
+> print(','.join(f\"{s['flex_chain']}:{re.match(r'\d+', r).group()}\"
+>                for r in s['flex_residues']))
+> ")
+> python3 $PUB --structure flex_out/complex.pdb --highlight "$FLEX" ...
+> ```
+>
+> `summary.json` lists them as `298LEU`, `336MET` — take the leading digits
+> for the number. A flexible run with 20 residues highlights 20; that is
+> the point, but if the list is long consider highlighting only the ones
+> that moved most.
+
 ### Publishing a flexible-docking result
 
 The output PDBQT contains the ligand **and** the moved side chains, so

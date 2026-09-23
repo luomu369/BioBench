@@ -196,6 +196,43 @@ python3 $PUB --structure /tmp/combined.cif \
   --skill pocket-molecule-design --message "生成完成：11 个口袋适配分子"
 ```
 
+> **Highlight the pocket residues.** They are what defined the generation,
+> and the viewer draws them with side chains out so the user can see the
+> cavity the molecules were built for. 87 residues is a lot to select by
+> hand:
+>
+> ```bash
+> POCKET=$(python3 -c "
+> import gemmi, math, sys
+> st = gemmi.read_structure(sys.argv[1]); st.setup_entities()
+> # centroid of the reference ligand
+> xs, ys, zs = [], [], []
+> for ch in st[0]:
+>     for res in ch:
+>         if res.name == 'I1M':
+>             for a in res:
+>                 xs.append(a.pos.x); ys.append(a.pos.y); zs.append(a.pos.z)
+> if not xs:
+>     raise SystemExit('reference ligand I1M not found')
+> c = (sum(xs)/len(xs), sum(ys)/len(ys), sum(zs)/len(zs))
+> out = []
+> for ch in st[0]:
+>     for res in ch:
+>         if gemmi.find_tabulated_residue(res.name) is None: continue
+>         pts = [(a.pos.x, a.pos.y, a.pos.z) for a in res]
+>         m = [sum(p[i] for p in pts)/len(pts) for i in range(3)]
+>         if math.dist(m, c) < 10.0:
+>             out.append(f'{ch.name}:{res.seqid.num}')
+> print(','.join(out))
+> " structures/7XWQ.cif)
+> python3 $PUB --structure /tmp/combined.cif --highlight "$POCKET" ...
+> ```
+>
+> 7XWQ carries I1M on both A and B; the snippet averages every copy into
+> one centre, which lands between the two pockets. If the target is a
+> single chain, filter on `ch.name` so the centre comes from that chain's
+> ligand only.
+
 ### Writing `--notes`
 
 The viewer shows `--notes` verbatim, so write whatever the numbers alone

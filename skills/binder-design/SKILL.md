@@ -260,6 +260,18 @@ python3 $PUB \
 **Check the chain IDs in the generated `.cif` before setting `--roles`** —
 BoltzGen does not preserve the IDs from your spec.
 
+> **Highlight the hotspots.** If the spec constrained specific target
+> residues, pass them so the viewer shows where the binder was designed to
+> sit:
+>
+> ```bash
+>   --highlight "B:145,B:146,B:149"
+> ```
+>
+> The viewer draws them with side chains out in the selection colour, so
+> the user can see the interface the design was built around rather than
+> guessing which residues the spec named.
+
 ### Writing `--notes`
 
 The viewer shows `--notes` verbatim, so write whatever the numbers alone
