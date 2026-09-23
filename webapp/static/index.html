@@ -559,6 +559,11 @@ const stylePicker = document.getElementById("style-picker");
 const colorPicker = document.getElementById("color-picker");
 const spinBtn = document.getElementById("spin-btn");
 const resetBtn = document.getElementById("reset-btn");
+// Declared here, above renderStructure(), which enables/disables it. A
+// `const` further down would still be in its temporal dead zone when the
+// first poll calls renderStructure, and the ReferenceError would be
+// swallowed by poll()'s try/catch.
+const ligandBtn = document.getElementById("ligand-btn");
 
 function renderStructure(data, meta) {
   currentMeta = meta;
@@ -694,7 +699,7 @@ function styleSpec(kind, scheme) {
     case "stick":   return { stick: { ...color, radius: 0.18 } };
     case "sphere":  return { sphere: { ...color, scale: 0.5 } };
     case "line":    return { line: { ...color, linewidth: 2 } };
-    case "surface": return { cartoon: color, surface: { opacity: 0.25, color: "white" } };
+    case "surface": return { cartoon: color, surface: { opacity: 0.15, color: "white" } };
     default:        return { cartoon: color, stick: {} };
   }
 }
@@ -727,16 +732,30 @@ function applyStyle() {
   // ball-and-stick so they stay visible under surface/cartoon styles.
   // A small molecule is a handful of atoms in a structure of thousands,
   // so it gets a thick, high-contrast style rather than a subtle one.
+  //
+  // Under "surface" the protein is wrapped in an opaque depth-sorted
+  // shell that hides anything inside the pocket, so the shell is made
+  // more transparent and the ligand is drawn on top of it.
+  // current.json chains carry "id", not "chain" — see publish.py.
   const ligandChains = (currentMeta.chains || [])
     .filter(c => c.ligand)
-    .map(c => c.chain);
+    .map(c => c.id);
   if (ligandChains.length) {
-    ligandChains.forEach(ch => {
-      viewer.setStyle({ chain: ch }, {
-        stick: { radius: 0.35, color: "orange" },
-        sphere: { scale: 0.5, color: "orange" }
+    if (kind === "surface") {
+      ligandChains.forEach(ch => {
+        viewer.setStyle({ chain: ch }, {
+          stick: { radius: 0.4, color: "orange" },
+          sphere: { scale: 0.6, color: "orange" }
+        });
       });
-    });
+    } else {
+      ligandChains.forEach(ch => {
+        viewer.setStyle({ chain: ch }, {
+          stick: { radius: 0.35, color: "orange" },
+          sphere: { scale: 0.5, color: "orange" }
+        });
+      });
+    }
   }
 
   // Re-apply selection highlights on top
@@ -766,12 +785,11 @@ resetBtn.addEventListener("click", () => {
 
 /* ---------------- ligand focus ---------------- */
 
-const ligandBtn = document.getElementById("ligand-btn");
-
 function ligandChainIds() {
+  // current.json chains carry "id", not "chain" — see publish.py.
   return (currentMeta.chains || [])
     .filter(c => c.ligand)
-    .map(c => c.chain);
+    .map(c => c.id);
 }
 
 // Zoom to the first ligand and select it in the dropdown, so the pose is
