@@ -173,28 +173,35 @@ dropdown shows their purpose.
 Both actions can be combined in one call by passing `--structure` and
 `--status` together.
 
-### `--notes` is mandatory, and must explain the numbers
+### `--metrics` and `--notes` are yours to shape
 
-The Metrics panel renders `metrics` as bare key-value rows with no
-context. `--notes` is the only place the user learns what a number means,
-so **every publish that carries metrics must also carry notes** covering
-two things, in this order:
+The viewer renders whatever you put in `--metrics` and `--notes` — it keeps
+no vocabulary of its own, so nothing is translated or reformatted. You
+decide what the user sees.
 
-1. **What each metric means** — name it, give the value, and say which
-   direction is good
-2. **A suggestion** — one concrete next step derived from the result
+A metric is either a bare value or an object you write yourself:
 
 ```bash
-# bad — the user sees "best_affinity: -8.55" and has to guess
---notes "docking done"
+# bare — the key is shown as-is
+--metrics '{"best_affinity": -8.55}'
 
-# good — glossed, then actionable
---notes "亲和力 -8.55 kcal/mol（越负越强，-10 以下为强结合），5 个姿态。
-建议：结合较强，可用更高 exhaustiveness 复核，并与共晶配体对比。"
+# labelled — you name it and say which way is good
+--metrics '{"best_affinity": {"label": "结合亲和力", "value": -8.55, "hint": "kcal/mol，越负越强"}}'
 ```
 
-A publish with metrics but no notes is incomplete — the numbers are
-meaningless without them.
+`label` replaces the key, `hint` is dimmed text after the number. Both are
+optional; a bare number still renders.
+
+`--notes` is free text shown under the rows. Use it for whatever the numbers
+alone don't say — what the run did, what the result means, what to try next.
+There is no required structure:
+
+```bash
+--notes "亲和力 -8.55 kcal/mol，5 个姿态。建议：与共晶配体对比打分。"
+```
+
+Write as much or as little as the result deserves. A quick progress publish
+can carry metrics alone; a final result usually wants a sentence or two.
 
 ## Writing these files
 
@@ -236,9 +243,8 @@ def publish(cif_text: str, meta: dict, viewer: Path):
    so the user sees why nothing appeared.
 5. **Keep structures under ~5 MB** — larger files slow the browser. If a
    structure is huge, publish a representative chain instead and note it.
-6. **`--notes` must gloss every metric and end with a suggestion** — the
-   Metrics panel shows raw numbers only; without notes the user cannot
-   tell whether a result is good or what to do next.
+6. **`--notes` is free text** — the viewer shows it verbatim. Use it for
+   whatever the numbers alone don't say; there is no required format.
 
 ## Example: publishing a BoltzGen result
 

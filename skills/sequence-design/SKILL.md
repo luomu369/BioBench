@@ -197,7 +197,7 @@ python3 $PUB \
   --name "$(basename backbone.pdb .pdb)_designed" \
   --source proteinmpnn \
   --roles "A=designed,B=fixed" \
-  --metrics '{"sequences": 8, "best_score": 0.8758}' \
+  --metrics '{"sequences": {"label": "序列数", "value": 8}, "best_score": {"label": "最佳得分", "value": 0.8758, "hint": "负对数似然，越低越好"}}' \
   --notes "设计 8 条序列（模型产出的候选数量），最佳得分 0.876
 （ProteinMPNN 的负对数似然，越低越好，表示序列与骨架越匹配）。
 建议：得分良好，可挑选前 3 条用结构预测验证折叠。" \
@@ -209,22 +209,17 @@ Adjust `--roles` to the actual chain IDs in your PDB.
 
 ### Writing `--notes`
 
-The Metrics panel shows raw numbers with no context. `--notes` is the only
-place to explain them, so **every publish must spell out what the numbers
-mean and what to do next**:
+The viewer shows `--notes` verbatim, so write whatever the numbers alone
+don't say. No required structure. Reference material if you want it:
 
-1. **What each metric means** — name it, give the value, say which
-   direction is good
-2. **A suggestion** — one concrete next step based on the result
-
-| Metric | How to gloss it |
-|--------|-----------------|
+| Metric | What it is |
+|--------|------------|
 | `sequences` | 设计的候选序列数量 |
 | `best_score` | 负对数似然，**越低越好** |
 | `recovery` | 与天然序列的一致比例，越高越好 |
 
-| Result | Suggest |
-|--------|---------|
+| Result | Usually means |
+|--------|---------------|
 | best_score < 1.0 | 序列与骨架匹配良好；挑前几条做结构预测 |
 | best_score > 1.5 | 匹配较差；检查骨架质量或提高采样温度 |
 | recovery > 50% | 与天然序列高度一致，设计偏保守 |

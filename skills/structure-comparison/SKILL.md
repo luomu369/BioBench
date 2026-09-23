@@ -307,7 +307,7 @@ curl -s "https://files.rcsb.org/download/${HIT}.cif" -o hit_${HIT}.cif
 python3 $PUB --structure hit_${HIT}.cif \
   --name "hit_${HIT}" --source foldseek \
   --roles "A=hit" \
-  --metrics '{"pident":100.0,"alnlen":225,"evalue":1.4e-30,"bits":1516,"hits":1000,"unique_pdb":616}' \
+  --metrics '{"pident": {"label": "序列一致性", "value": 100.0, "hint": "%，越高越相似"}, "alnlen": {"label": "比对长度", "value": 225, "hint": "残基"}, "evalue": {"label": "期望值", "value": 1.4e-30, "hint": "越小越可信"}, "bits": {"label": "比特分数", "value": 1516, "hint": "越大越好"}, "hits": {"label": "命中数", "value": 1000}, "unique_pdb": {"label": "独立条目", "value": 616}}' \
   --notes "序列一致性 100%（比对区域内序列相同的比例），比对 225 个残基，
 e-value 1.4e-30（越小越可信，此值几乎不可能是偶然），比特分数 1516（越大越好）。
 共 1000 个命中、616 个独立 PDB 条目。
@@ -323,18 +323,11 @@ panel, and the status bar reads done.
 
 ### Writing `--notes`
 
-The Metrics panel shows raw numbers with no context. `--notes` is the only
-place to explain them, so **every publish must spell out what the numbers
-mean and what to do next**. Two parts, in this order:
+The viewer shows `--notes` verbatim, so write whatever the numbers alone
+don't say. No required structure. Reference material if you want it:
 
-1. **What each metric means** — name it, give the value, say which
-   direction is good
-2. **A suggestion** — one concrete next step based on the result
-
-Match the advice to the number:
-
-| Result | Suggest |
-|--------|---------|
+| Result | Usually means |
+|--------|---------------|
 | e-value > 1e-3 | Not significant; raise `-s 9.5` or try a sequence search |
 | e-value < 1e-30, pident > 95% | Same protein; look at conformational differences |
 | pident < 30% but strong e-value | Shared fold, diverged sequence — report the fold |
