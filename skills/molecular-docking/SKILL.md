@@ -1,6 +1,6 @@
 ---
 name: molecular-docking
-description: '**WORKFLOW SKILL** — Dock a small-molecule ligand into a protein receptor with AutoDock Vina, and report the predicted binding poses and affinities. USE FOR: predicting how a drug-like molecule binds a protein; finding a binding site; scoring binding affinity; comparing poses of several ligands; virtual screening a molecule library against a target. DO NOT USE FOR: installing Vina (use vina-deploy); designing a protein to bind a ligand (use ligand-binding-design); generating the ligand itself (use molecule-generation); publishing structures (use structure-viewer). Requires Vina installed — run vina-deploy first.'
+description: '**WORKFLOW SKILL** — Dock a small-molecule ligand into a protein receptor with AutoDock Vina, rigid or with flexible receptor side chains, and report the predicted binding poses and affinities. USE FOR: predicting how a drug-like molecule binds a protein; finding a binding site; scoring binding affinity; comparing poses of several ligands; virtual screening a molecule library against a target; docking when the pocket must rearrange to fit the ligand. DO NOT USE FOR: installing Vina (use vina-deploy); designing a protein to bind a ligand (use ligand-binding-design); generating the ligand itself (use molecule-generation or pocket-molecule-design); publishing structures (use structure-viewer). Requires Vina installed — run vina-deploy first.'
 ---
 
 # Molecular Docking
@@ -18,6 +18,7 @@ poses.
 - "Score the binding affinity of these ligands"
 - "Screen this library against the target"
 - "Predict the binding pose"
+- "Dock this letting the pocket move" / "flexible docking"
 
 ## Confirm before running
 
@@ -200,6 +201,75 @@ $PY $PUB --structure docking_out/complex.pdb \
 The viewer renders ligand chains as orange ball-and-stick on top of the
 protein style, so the pose stays visible under cartoon/surface views.
 
+### Flexible-residue docking
+
+The default is a rigid receptor. When the pocket has to rearrange to take
+a new ligand, let the side chains move:
+
+```bash
+PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
+
+$PY skills/molecular-docking/scripts/dock_flex.py \
+  --receptor 7XWQ.cif --ligand "CCO" \
+  --center -3.3 -7.6 -39.7 --size 20 20 20 \
+  --flex-chain A --flex-cutoff 8.0 \
+  --num-modes 5 --exhaustiveness 16 --out flex_out
+```
+
+`--flex-cutoff` picks every amino-acid residue of `--flex-chain` whose
+centroid is within that distance of the box centre; `--flex-residues
+298,302` overrides it with an explicit list.
+
+Flexible docking is slower (roughly 10× rigid) and the scores are not
+directly comparable to a rigid run — a flexible receptor can always reach
+a better score by moving. Compare flexible against flexible.
+
+> **It does search conformations.** `Exhaustiveness` and a random seed
+> appear in the log exactly as in rigid docking; the Monte Carlo search
+> covers ligand pose *and* the flexible side-chain torsions. Nothing is
+> placed directly.
+
+### Publishing a flexible-docking result
+
+The output PDBQT contains the ligand **and** the moved side chains, so
+extracting the ligand needs care:
+
+```bash
+python3 -c "
+import gemmi
+
+def read_pdbqt_model(path, model=1):
+    atoms, in_model = [], False
+    for line in open(path):
+        if line.startswith('MODEL'):
+            in_model = (int(line.split()[1]) == model); continue
+        if line.startswith('ENDMDL'):
+            if in_model: break
+            continue
+        if not in_model: continue
+        if line.startswith(('ATOM', 'HETATM')):
+            raw = line[76:78].strip()
+            if raw.upper() == 'A': raw = 'C'   # aromatic carbon
+            atoms.append({'name': line[12:16].strip(),
+                          'resn': line[17:20].strip(),
+                          'x': float(line[30:38]), 'y': float(line[38:46]),
+                          'z': float(line[46:54]),
+                          'elem': raw or line[12:16].strip()[0]})
+    return atoms
+"
+```
+
+Three things bite here, all of which cost a round trip:
+
+- **meeko names the ligand `UNL`, not `LIG`.** Filtering on `LIG` yields
+  zero atoms and a silently empty chain.
+- **AutoDock writes `A` for aromatic carbon.** It is not an element
+  symbol, so parsers record `X` and 3Dmol falls back to magenta for the
+  whole molecule. Map `A` → `C`.
+- **Call `setup_entities()` before `make_mmcif_document()`.** Without it
+  gemmi drops hand-built chains when writing mmCIF, and the publish
+  reports fewer chains than expected.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -212,6 +282,11 @@ protein style, so the pose stays visible under cartoon/surface views.
 | Affinities look too good | Exhaustiveness too low, or box too large | Raise `--exhaustiveness`, shrink the box |
 | Ligand has no 3D conformer | RDKit embedding failed | Check the SMILES; try a different tautomer |
 | Ligand invisible in the viewer | PDBQT written with an empty chain ID | `pdbqt_to_pdb()` assigns chain `L`; republish `complex.pdb` |
+| Ligand renders magenta | Element column read as `X` | AutoDock's `A` (aromatic C) is not an element; map it to `C` |
+| `Unknown or inappropriate tag found in flex residue` | Hand-built flex PDBQT lacks the torsion tree | Let `mk_prepare_receptor.py -f` write it; it emits `BRANCH`/`ENDBRANCH` |
+| `option --read_with_prody requires Prody` | `-i` defaults to the ProDy reader | Use `--read_pdb` instead |
+| Flexible run finds 0 flexible residues | Box centre is on the wrong chain | Check which chain the reference ligand actually binds |
+| Published structure missing the ligand chains | mmCIF written without `setup_entities()` | Call it before `make_mmcif_document()` |
 
 ## References
 
