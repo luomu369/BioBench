@@ -65,9 +65,12 @@ Pick the target from what the user is actually asking:
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step search --index 1 --total 2 \
+python3 $PUB --status --state running --step search --index 1 --total 3 \
   --skill structure-comparison --message "正在比对结构"
 ```
+
+The viewer's status bar shows this, so keep it moving — a search that
+takes a minute with a stale "running 1/3" looks hung.
 
 ## Step 2 — Run
 
@@ -288,11 +291,44 @@ Searched the NK1R binder against the PDB (324 k representatives):
     different conformational state, 1u3r a close homologue.
 ```
 
-Mark the task done:
+## Step 4 — Publish the hit and the report
+
+A search result is only useful if the user can see it. Download the top
+hit, publish it to the viewer, and put the numbers in the metrics panel.
 
 ```bash
-python3 $PUB --status --state done --step search --index 2 --total 2 \
-  --skill structure-comparison --message "比对完成"
+# 1. Fetch the top hit (strip the -assembly1_A suffix foldseek appends)
+HIT=7xwr
+curl -s "https://files.rcsb.org/download/${HIT}.cif" -o hit_${HIT}.cif
+
+# 2. Publish it, with the search numbers as metrics
+python3 $PUB --structure hit_${HIT}.cif \
+  --name "hit_${HIT}" --source foldseek \
+  --roles "A=hit" \
+  --metrics '{"pident":100.0,"alnlen":225,"evalue":1.4e-30,"bits":1516,"hits":1000,"unique_pdb":616}' \
+  --notes "Top Foldseek hit for chain B (225 aa) against the PDB database"
+
+# 3. Close out the status bar
+python3 $PUB --status --state done --step search --index 3 --total 3 \
+  --skill structure-comparison --message "比对完成：1000 命中，最佳 7xwr (100%)"
+```
+
+The viewer then shows the hit structure with the scores in the Metrics
+panel, and the status bar reads done.
+
+> **Publishing replaces what is on screen.** The viewer holds one
+> structure at a time, so the hit replaces the query. If the user wants to
+> compare the two, say so and publish the query back afterwards — or
+> download both and publish a combined file.
+
+### Reporting several hits
+
+For a shortlist, publish the best hit and list the rest in the message:
+
+```bash
+python3 $PUB --status --state done --step search --index 3 --total 3 \
+  --skill structure-comparison \
+  --message "Top 5: 7xwq 100% | 7xwr 99.5% | 4j26 97.3% | 1u9e 97.7% | 1u3r 98.2%"
 ```
 
 ## Output format

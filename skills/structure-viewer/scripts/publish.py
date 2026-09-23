@@ -53,12 +53,23 @@ def atomic_write(path: Path, text: str) -> None:
 def parse_chains(path: Path) -> list[dict]:
     """Extract per-chain residue counts from a PDB or mmCIF file.
 
-    Both amino-acid residues and HETATM ligands are counted. Ligands get
-    ``"ligand": true`` so the viewer can style them differently.
+    Both amino-acid residues and HETATM ligands are counted. A chain whose
+    residues are mostly non-amino-acid gets ``"ligand": true`` so the viewer
+    can style it differently.
+
+    The test is "mostly", not "any": mmCIF files routinely put a small
+    molecule in the same auth_asym_id as the protein it binds (7xwr has
+    its ligand I2B inside chains A and B). Marking such a chain as a
+    ligand would restyle the whole protein.
     """
     residues: dict[str, dict[str, str]] = {}
-    ligands: dict[str, bool] = {}
+    ligand_counts: dict[str, int] = {}
     text = path.read_text(errors="replace")
+
+    def note(chain: str, resi: str, one: str | None, is_ligand: bool) -> None:
+        residues.setdefault(chain, {})[resi] = one or "X"
+        if is_ligand:
+            ligand_counts[chain] = ligand_counts.get(chain, 0) + 1
 
     if path.suffix in (".pdb", ".ent"):
         for line in text.splitlines():
@@ -69,10 +80,7 @@ def parse_chains(path: Path) -> list[dict]:
             is_ligand = one is None
             if is_ligand and resname in ("HOH", "WAT", "DOD"):
                 continue  # skip water
-            chain = line[21] or "_"
-            residues.setdefault(chain, {})[line[22:27].strip()] = one or "X"
-            if is_ligand:
-                ligands[chain] = True
+            note(line[21] or "_", line[22:27].strip(), one, is_ligand)
     else:
         cols: dict[str, int] = {}
         in_loop = False
@@ -96,14 +104,19 @@ def parse_chains(path: Path) -> list[dict]:
                                        cols.get("label_asym_id", 0))]
                 resi = parts[cols.get("auth_seq_id",
                                       cols.get("label_seq_id", 0))]
-                residues.setdefault(chain, {})[resi] = one or "X"
-                if is_ligand:
-                    ligands[chain] = True
+                note(chain, resi, one, is_ligand)
 
-    return [
-        {"id": c, "residues": len(r), **({"ligand": True} if c in ligands else {})}
-        for c, r in residues.items()
-    ]
+    out = []
+    for c, r in residues.items():
+        n_lig = ligand_counts.get(c, 0)
+        # A chain is a ligand chain only when ligands are the majority of
+        # its residues — a protein with a bound small molecule is still a
+        # protein chain.
+        if n_lig and n_lig * 2 > len(r):
+            out.append({"id": c, "residues": len(r), "ligand": True})
+        else:
+            out.append({"id": c, "residues": len(r)})
+    return out
 
 
 def publish_structure(args) -> int:

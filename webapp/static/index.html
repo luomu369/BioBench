@@ -237,6 +237,27 @@
     letter-spacing: 0;
   }
   #selection .s-clear:hover { text-decoration: underline; }
+  #selection .s-mode {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  #selection .s-mode-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: 2px 7px;
+    cursor: pointer;
+  }
+  #selection .s-mode-btn:hover { color: var(--text); }
+  #selection .s-mode-btn.on {
+    background: rgba(77,163,255,.16);
+    color: var(--accent);
+  }
   #selection .s-empty { font-size: 12px; color: var(--muted); line-height: 1.6; }
   #selection .s-row {
     display: flex;
@@ -429,6 +450,10 @@
   <div id="selection">
     <div class="s-head">
       <span>Selection</span>
+      <span class="s-mode" id="sel-mode" title="Click a residue to select just it, or the whole chain">
+        <button class="s-mode-btn on" data-mode="res">Res</button>
+        <button class="s-mode-btn" data-mode="chain">Chain</button>
+      </span>
       <button class="s-clear" id="sel-clear">clear all</button>
     </div>
     <div id="sel-list"></div>
@@ -532,6 +557,19 @@ function renderSequence(chainInfo) {
   seqPanel.classList.add("show");
 }
 
+// Metrics come from many tools and span wildly different scales — an
+// e-value of 1.4e-30 and a bit score of 1516 both have to stay readable.
+// toFixed(3) turns the former into "0.000", so very small and very large
+// magnitudes fall back to exponential / compact notation.
+function formatMetric(v) {
+  if (typeof v !== "number") return String(v);
+  if (v === 0) return "0";
+  const abs = Math.abs(v);
+  if (abs < 0.001 || abs >= 1e6) return v.toExponential(2);
+  if (Number.isInteger(v)) return String(v);
+  return v.toFixed(abs < 1 ? 3 : 1);
+}
+
 function renderMetrics(meta) {
   const m = meta.metrics || {};
   const keys = Object.keys(m);
@@ -543,10 +581,9 @@ function renderMetrics(meta) {
   keys.forEach(k => {
     const row = document.createElement("div");
     row.className = "m-row";
-    const v = typeof m[k] === "number" ? m[k].toFixed(3) : String(m[k]);
     row.innerHTML = `<span class="k"></span><span class="v"></span>`;
     row.querySelector(".k").textContent = k;
-    row.querySelector(".v").textContent = v;
+    row.querySelector(".v").textContent = formatMetric(m[k]);
     metricsRows.appendChild(row);
   });
   metricsNotes.textContent = meta.notes || "";
@@ -758,6 +795,24 @@ function ligandStyleSpec(kind, thick) {
   }
 }
 
+// How a selected residue is marked. It has to match the style the protein
+// is drawn in, otherwise the highlight replaces that residue's rendering
+// and looks detached — sticks over a surface float outside the shell.
+function selectionHighlightSpec(kind) {
+  switch (kind) {
+    case "surface":
+      return { cartoon: {}, surface: { opacity: 0.85 } };
+    case "stick":
+      return { stick: { radius: 0.3 } };
+    case "sphere":
+      return { sphere: { scale: 0.6 } };
+    case "line":
+      return { line: { linewidth: 5 } };
+    default:
+      return { cartoon: {}, stick: { radius: 0.25 } };
+  }
+}
+
 function applyStyle() {
   const kind = stylePicker.value;
   const scheme = colorPicker.value;
@@ -784,11 +839,20 @@ function applyStyle() {
     ligandChains.forEach(ch => viewer.setStyle({ chain: ch }, spec));
   }
 
-  // Re-apply selection highlights on top
+  // Re-apply selection highlights on top. The highlight has to follow the
+  // main style: a stick highlight drawn over a surface replaces that
+  // residue's surface, so the sticks appear to float outside the shell.
+  // Under surface/cartoon the highlight tints the surface instead.
+  //
+  // The colour has to go inside each sub-style — 3Dmol reads
+  // {cartoon: {color}}, not a top-level {color}, which it silently ignores.
+  const highlight = selectionHighlightSpec(kind);
   Object.entries(selection).forEach(([key, item]) => {
-    viewer.setStyle(item.sel, {
-      [item.style]: { color: item.color, radius: item.radius || 0.25 }
-    });
+    const styled = {};
+    for (const [k, v] of Object.entries(highlight)) {
+      styled[k] = { ...v, color: item.color };
+    }
+    viewer.setStyle(item.sel, styled);
   });
 
   // Centre the camera on the picked chain without hiding the others.
@@ -817,9 +881,12 @@ const selectionPanel = document.getElementById("selection");
 const selList = document.getElementById("sel-list");
 const selClear = document.getElementById("sel-clear");
 
-// key → { sel, label, color, style, radius }
+// key → { sel, label, color, chain? }
 let selection = {};
 let selCounter = 0;
+// "res" — a click selects the single residue under the cursor.
+// "chain" — a click selects that residue's whole chain.
+let selMode = "res";
 const PALETTE = ["#ff6b6b", "#4ecdc4", "#ffe66d", "#a78bfa",
                  "#fb923c", "#34d399", "#f472b6", "#60a5fa"];
 
@@ -829,24 +896,39 @@ function selKey(atom) {
 
 // Persist the current selection so an agent can read it.
 // Written to static/selection.json — see the structure-viewer skill.
+// Chain-level selections are written as {"chain": "B", "whole_chain": true}
+// so a skill can act on them without expanding hundreds of residues.
 function persistSelection(keys) {
-  const residues = keys.map(k => {
+  const residues = [];
+  const chainSelections = [];
+  keys.forEach(k => {
     const item = selection[k];
+    if (item.chain) {
+      chainSelections.push({
+        chain: item.sel.chain,
+        whole_chain: true,
+        color: item.color,
+      });
+      return;
+    }
     const [chain, resi] = k.split(":");
-    return {
+    residues.push({
       chain,
       resi: isNaN(Number(resi)) ? resi : Number(resi),
       resn: item.label.split(" ")[0],
       color: item.color,
-    };
+    });
   });
 
   const payload = {
     structure: currentStructure || null,
-    count: residues.length,
+    count: residues.length + chainSelections.length,
     residues,
     updated: new Date().toISOString(),
   };
+  if (chainSelections.length) {
+    payload.chains = chainSelections;
+  }
 
   // Fire-and-forget: the viewer must not block on this write.
   fetch("selection.json", {
@@ -870,7 +952,8 @@ function renderSelectionPanel() {
   if (!keys.length) {
     selList.innerHTML =
       '<div class="s-empty">Click residues in the viewer to select them. ' +
-      'Click again to deselect.</div>';
+      'Click again to deselect. Switch to <b>Chain</b> to select a ' +
+      'whole chain at once.</div>';
     return;
   }
 
@@ -902,6 +985,10 @@ function renderSelectionPanel() {
   });
 }
 
+// A selection entry is either a single residue or a whole chain. Chain
+// entries carry `chain: true` so the panel and selection.json can tell
+// them apart, and skills can act on "the user picked this chain" without
+// expanding it into hundreds of residues.
 function addSelection(atom) {
   const key = selKey(atom);
   if (selection[key]) return;
@@ -911,30 +998,60 @@ function addSelection(atom) {
     sel: { chain: atom.chain, resi: atom.resi },
     label: selLabel(atom),
     color,
-    // Always highlight with sticks — following the main style breaks
-    // surface/line rendering (opacity and radius are not portable).
-    style: "stick",
-    radius: 0.3,
+  };
+}
+
+function addChainSelection(chainId) {
+  const key = `chain:${chainId}`;
+  if (selection[key]) return;
+  const color = PALETTE[selCounter % PALETTE.length];
+  selCounter += 1;
+  const info = chains.find(c => c.chain === chainId);
+  selection[key] = {
+    sel: { chain: chainId },
+    label: `Chain ${chainId}${info ? ` (${info.seq.length} aa)` : ""}`,
+    color,
+    chain: true,
   };
 }
 
 // 3Dmol click handling: nearest atom within a pixel radius.
-// A plain click toggles the residue — click again to deselect it.
-// Alt/Option + click always removes. Use "clear all" to reset.
+// What a click selects depends on the Res/Chain toggle in the Selection
+// panel: in "res" mode it toggles the single residue, in "chain" mode it
+// toggles that residue's whole chain. Clicking an already-selected target
+// deselects it. Alt/Option + click always removes.
 function onAtomClick(atom) {
   if (!atom) return;
-  const key = selKey(atom);
 
-  if (window.event && window.event.altKey) {
-    delete selection[key];
-  } else if (selection[key]) {
-    delete selection[key];
+  if (selMode === "chain") {
+    const key = `chain:${atom.chain}`;
+    if (selection[key]) {
+      delete selection[key];
+    } else {
+      addChainSelection(atom.chain);
+    }
   } else {
-    addSelection(atom);
+    const key = selKey(atom);
+    if (window.event && window.event.altKey) {
+      delete selection[key];
+    } else if (selection[key]) {
+      delete selection[key];
+    } else {
+      addSelection(atom);
+    }
   }
   applyStyle();
   renderSelectionPanel();
 }
+
+// Res/Chain toggle
+document.querySelectorAll("#sel-mode .s-mode-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    selMode = btn.dataset.mode;
+    document.querySelectorAll("#sel-mode .s-mode-btn")
+      .forEach(b => b.classList.toggle("on", b === btn));
+  });
+});
 
 selClear.addEventListener("click", () => {
   selection = {};
@@ -987,6 +1104,11 @@ const STEP_LABELS = {
   inverse_folding:  "为骨架设计氨基酸序列",
   // ProteinMPNN
   sequence_design:  "设计氨基酸序列",
+  // Foldseek / structure comparison
+  search:           "搜索结构数据库",
+  cluster:          "聚类结构",
+  rbh:              "双向最佳匹配",
+  multimer_search:  "复合物结构搜索",
   // generic
   publish:          "发布结果",
   init:             "初始化",
