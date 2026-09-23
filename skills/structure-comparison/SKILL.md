@@ -308,7 +308,10 @@ python3 $PUB --structure hit_${HIT}.cif \
   --name "hit_${HIT}" --source foldseek \
   --roles "A=hit" \
   --metrics '{"pident":100.0,"alnlen":225,"evalue":1.4e-30,"bits":1516,"hits":1000,"unique_pdb":616}' \
-  --notes "Top Foldseek hit for chain B (225 aa) against the PDB database"
+  --notes "序列一致性 100%（比对区域内序列相同的比例），比对 225 个残基，
+e-value 1.4e-30（越小越可信，此值几乎不可能是偶然），比特分数 1516（越大越好）。
+共 1000 个命中、616 个独立 PDB 条目。
+建议：该折叠很常见，取 Top 20 按 e-value 排序后去重分析。"
 
 # 3. Close out the status bar
 python3 $PUB --status --state done --step search --index 3 --total 3 \
@@ -317,6 +320,27 @@ python3 $PUB --status --state done --step search --index 3 --total 3 \
 
 The viewer then shows the hit structure with the scores in the Metrics
 panel, and the status bar reads done.
+
+### Writing `--notes`
+
+The Metrics panel shows raw numbers with no context. `--notes` is the only
+place to explain them, so **every publish must spell out what the numbers
+mean and what to do next**. Two parts, in this order:
+
+1. **What each metric means** — name it, give the value, say which
+   direction is good
+2. **A suggestion** — one concrete next step based on the result
+
+Match the advice to the number:
+
+| Result | Suggest |
+|--------|---------|
+| e-value > 1e-3 | Not significant; raise `-s 9.5` or try a sequence search |
+| e-value < 1e-30, pident > 95% | Same protein; look at conformational differences |
+| pident < 30% but strong e-value | Shared fold, diverged sequence — report the fold |
+| hits ≥ 1000 | Very common fold; take the top 20 and deduplicate |
+| unique_pdb small (< 10) | Rare fold — worth a closer look |
+| CA RMSD > 10 Å (after superposition) | Domain-level match only; check the aligned region |
 
 > **Publishing replaces what is on screen.** The viewer holds one
 > structure at a time, so the hit replaces the query. If the user wants to

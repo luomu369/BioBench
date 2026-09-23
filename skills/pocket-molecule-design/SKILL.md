@@ -172,10 +172,36 @@ python3 $PUB --structure /tmp/combined.cif \
   --name "receptor_with_designs" --source resgen \
   --roles "A=receptor,B=receptor,ra=gen_1,rb=gen_2" \
   --metrics '{"molecules_generated":11,"pocket_residues":87,"reference":"I1M","beam_size":20}' \
-  --notes "ResGen pocket-aware generation. r-prefixed chains are the designs." \
+  --notes "生成 11 个分子（模型成功产出的数量），口袋由 87 个残基界定
+（距参考配体 10 A 内的受体残基），参考配体 I1M 仅用于定位口袋中心，
+束搜索宽度 20（每步保留的候选数，越大越慢）。
+建议：分子数量充足，挑选 3–5 个用分子对接验证结合能力。" \
   --status --state done --step generation --index 3 --total 3 \
   --skill pocket-molecule-design --message "生成完成：11 个口袋适配分子"
 ```
+
+### Writing `--notes`
+
+The Metrics panel shows raw numbers with no context. `--notes` is the only
+place to explain them, so **every publish must spell out what the numbers
+mean and what to do next**. Two parts, in this order:
+
+1. **What each metric means** — name it, give the value, say what it
+   controls
+2. **A suggestion** — one concrete next step based on the result
+
+Match the advice to the number:
+
+| Result | Suggest |
+|--------|---------|
+| molecules_generated ≥ 10 | Enough; pick 3–5 for docking validation |
+| molecules_generated < 5 | Too few; raise `beam_size` or loosen the pocket |
+| pocket_residues > 150 | Pocket may be too large; tighten the cutoff |
+| pocket_residues < 20 | Pocket may be too tight to fit a drug-like molecule |
+| Molecules share one scaffold | The model converged; try a different seed or reference |
+
+Also state what the reference ligand does and does not constrain — it
+only sets the box centre, the designs are free to differ from it.
 
 > **Write `.cif`, not `.pdb`.** PDB chain IDs are one character, so `ra`
 > is silently truncated to `a` and the designs become indistinguishable

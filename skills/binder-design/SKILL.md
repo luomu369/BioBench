@@ -249,14 +249,39 @@ python3 $PUB \
   --name "$(basename "$BEST" .cif)" \
   --source boltzgen \
   --roles "A=binder,B=target" \
-  --metrics '{"designs": 4}' \
-  --notes "BoltzGen binder design against <target>" \
+  --metrics '{"designs": 4, "ipTM": 0.43}' \
+  --notes "生成 4 个设计（模型产出的候选数量），界面预测 TM-score 0.43
+（复合物界面置信度，>0.7 为好，当前值说明界面可信度中等）。
+建议：增加设计数量或调整约束残基以提升界面置信度。" \
   --status --state done --step filtering --index 5 --total 5 \
   --skill binder-design --message "Published $(basename "$BEST")"
 ```
 
 **Check the chain IDs in the generated `.cif` before setting `--roles`** —
 BoltzGen does not preserve the IDs from your spec.
+
+### Writing `--notes`
+
+The Metrics panel shows raw numbers with no context. `--notes` is the only
+place to explain them, so **every publish must spell out what the numbers
+mean and what to do next**:
+
+1. **What each metric means** — name it, give the value, say which
+   direction is good
+2. **A suggestion** — one concrete next step based on the result
+
+| Metric | How to gloss it |
+|--------|-----------------|
+| `designs` | 生成的候选数量 |
+| `ipTM` | 界面预测 TM-score，复合物界面置信度，>0.7 为好 |
+| `plddt` | 单残基置信度，>70 为好 |
+| `ptm` | 整体折叠置信度 |
+
+| Result | Suggest |
+|--------|---------|
+| ipTM < 0.5 | 界面置信度偏低；增加设计数量或调整约束残基 |
+| ipTM > 0.8 | 界面可信；可进入序列设计阶段 |
+| plddt < 70 | 折叠本身不可靠，需重新设计 |
 
 ## Output layout
 

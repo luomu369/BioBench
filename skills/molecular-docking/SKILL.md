@@ -201,6 +201,35 @@ $PY $PUB --structure docking_out/complex.pdb \
 The viewer renders ligand chains as orange ball-and-stick on top of the
 protein style, so the pose stays visible under cartoon/surface views.
 
+### Writing `--notes`
+
+The Metrics panel shows raw numbers with no context. `--notes` is the only
+place to explain them, so **every publish must spell out what the numbers
+mean and what to do next**. Two parts, in this order:
+
+1. **What each metric means** — name it, give the value, say which
+   direction is good
+2. **A suggestion** — one concrete next step based on the result
+
+```
+--notes "亲和力 -8.55 kcal/mol（越负越强，-10 以下为强结合），5 个姿态。
+建议：结合较强，可用更高 exhaustiveness 复核，并与共晶配体对比打分。"
+```
+
+Match the advice to the number:
+
+| Result | Suggest |
+|--------|---------|
+| affinity < -10 | Strong; verify with higher exhaustiveness |
+| affinity -7 to -10 | Moderate candidate; compare against a known ligand |
+| affinity > -5 | Weak; check the box centre, or try flexible docking |
+| Flexible beats rigid by > 2 kcal/mol | The pocket rearranges; report both numbers |
+| All modes within 1 kcal/mol | Well-determined binding mode |
+| Modes spread over > 3 kcal/mol | Ambiguous; raise exhaustiveness |
+
+Never publish a bare number. `{"best_affinity":-8.55}` with no notes
+leaves the user guessing whether that is good.
+
 ### Flexible-residue docking
 
 The default is a rigid receptor. When the pocket has to rearrange to take
