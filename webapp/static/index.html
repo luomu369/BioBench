@@ -1043,10 +1043,15 @@ function applyStyle() {
 // isolated dots and a ball-and-stick adds stray spheres. Spheres alone
 // read as the cavity's shape, which is what they are.
 //
+// White rather than a hue: the cloud sits on top of a protein already
+// coloured by chain, and a saturated default competes with it. White reads
+// as "cavity" without taking a side, and leaves the selection colours
+// free to mean "chosen".
+//
 // Opacity has to clear two bars at once: high enough that the cloud
 // reads as a volume against the surface shell, low enough that the
 // lining residues stay visible through it. 0.55 washed out to nothing.
-const POCKET_SPHERE = { scale: 0.35, color: "#fbbf24", opacity: 0.85 };
+const POCKET_SPHERE = { scale: 0.35, color: "#ffffff", opacity: 0.85 };
 
 viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
 
