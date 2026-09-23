@@ -508,11 +508,34 @@
 </div>
 
 <script>
+// A browser caps the number of live WebGL contexts (~16 in Chrome). Each
+// 3Dmol viewer holds one, so a page that has created and abandoned many
+// viewers — or several tabs of this app — eventually gets null back from
+// getContext and the canvas stays blank with no explanation. Detect that
+// and say so, with the fix.
+function webglAvailable() {
+  try {
+    const c = document.createElement("canvas");
+    return !!(c.getContext("webgl2") || c.getContext("webgl"));
+  } catch (e) {
+    return false;
+  }
+}
+
 const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "0b0f14" });
 let chains = [];
 let currentMeta = {};
 let lastUpdated = null;
 let currentStructure = null;
+
+if (!webglAvailable()) {
+  const hint = document.getElementById("viewer-hint");
+  hint.classList.remove("hidden");
+  hint.innerHTML =
+    '<div class="big">3D 渲染不可用</div>' +
+    '<div class="small">浏览器已达到 WebGL 上下文上限。' +
+    '关闭其他标签页后刷新此页面即可恢复。</div>';
+}
 
 const hint = document.getElementById("viewer-hint");
 const label = document.getElementById("structure-label");

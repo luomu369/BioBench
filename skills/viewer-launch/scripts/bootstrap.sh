@@ -202,6 +202,53 @@ else
     }
 fi
 
+# ---------------------------------------------------------------- resgen
+head_ "resgen"
+RG="$HOME/tools/ResGen"
+if [[ -d "$RG" && -f "$RG/gen.py" ]]; then
+    ok "repo present ($RG)"
+    if [[ -f "$RG/ckpt/val_172.pt" ]]; then
+        # PyTorch checkpoints are zip archives; HTML means the Google Drive
+        # interstitial was saved instead of the weights.
+        if [[ "$(head -c2 "$RG/ckpt/val_172.pt")" == "PK" ]]; then
+            ok "checkpoint val_172.pt ($(du -sh "$RG/ckpt/val_172.pt" | cut -f1))"
+        else
+            bad "val_172.pt is not a checkpoint (HTML from Google Drive?)"
+            [[ $FIX -eq 1 ]] && {
+                echo "         fixing: re-downloading with the confirm/uuid handshake"
+                curl -sL "https://drive.google.com/uc?export=download&id=1RoVnHBLuPGFh2qGlCMoCRKtY-Rribp0j" -o /tmp/gd.html
+                UUID=$(grep -oE 'name="uuid" value="[^"]+' /tmp/gd.html | cut -d'"' -f4)
+                curl -sL "https://drive.usercontent.google.com/download?id=1RoVnHBLuPGFh2qGlCMoCRKtY-Rribp0j&export=download&confirm=t&uuid=$UUID" \
+                    -o "$RG/ckpt/val_172.pt" && rm -f /tmp/gd.html
+                [[ "$(head -c2 "$RG/ckpt/val_172.pt")" == "PK" ]] && ok "re-downloaded checkpoint"
+            }
+        fi
+    else
+        bad "checkpoint missing: $RG/ckpt/val_172.pt"
+        echo "         see skills/resgen-deploy/SKILL.md for the download"
+    fi
+    # ResGen has no env of its own — it runs in any env with torch+CUDA
+    for e in boltzgen genmol resgen; do
+        PY="$CONDA/envs/$e/bin/python"
+        if [[ -x "$PY" ]] && "$PY" -c "import torch" 2>/dev/null; then
+            if "$PY" -c "import torch_scatter, torch_cluster, torch_geometric" 2>/dev/null; then
+                ok "dependencies resolve in env '$e'"
+            else
+                warn "env '$e' lacks torch_scatter/torch_cluster (see resgen-deploy)"
+            fi
+            break
+        fi
+    done
+else
+    warn "resgen not installed (optional — needed for pocket-molecule-design)"
+    [[ $FIX -eq 1 ]] && {
+        echo "         fixing: cloning the repo"
+        mkdir -p "$HOME/tools"
+        git clone --depth 1 https://github.com/OdinZhang/ResGen.git "$RG" \
+            && ok "cloned to $RG (weights + patches still needed — see resgen-deploy)"
+    }
+fi
+
 # ---------------------------------------------------------------- viewer assets
 head_ "viewer assets"
 for f in index.html 3Dmol-min.js; do

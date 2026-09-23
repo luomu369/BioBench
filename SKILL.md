@@ -21,6 +21,8 @@ biobench/
     ├── sequence-design/      design sequences for a fixed backbone
     ├── genmol-deploy/        install GenMol and its weights
     ├── molecule-generation/  generate small molecules with GenMol
+    ├── resgen-deploy/        install ResGen and its weights
+    ├── pocket-molecule-design/ design molecules for a binding pocket
     ├── foldseek-deploy/      install Foldseek
     └── structure-comparison/ compare structures with Foldseek
 ```
@@ -58,9 +60,12 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "design a sequence for this backbone" | `sequence-design` | ProteinMPNN runs locally; backbone published |
 | "generate some molecules" | `molecule-generation` | GenMol runs locally; SMILES reported |
 | "grow this fragment" / "link these fragments" | `molecule-generation` | GenMol fragment modes |
+| "design a molecule for this pocket" | `pocket-molecule-design` | ResGen pocket-aware generation |
+| "what could bind here" / "propose ligands for these residues" | `pocket-molecule-design` | Reads `selection.json`, generates for that pocket |
 | "does my design look like a known fold?" | `structure-comparison` | Foldseek search; matches reported |
 | "cluster these structures" | `structure-comparison` | Foldseek clustering |
 | "install GenMol" | `genmol-deploy` | Environment + weights setup |
+| "install ResGen" | `resgen-deploy` | Repo + Google Drive weights + 3 patches |
 | "install Foldseek" | `foldseek-deploy` | Static binary install |
 | "install BoltzGen" / "weights missing" | `boltzgen-deploy` | Environment + weights setup |
 | "install ProteinMPNN" | `proteinmpnn-deploy` | Environment setup |

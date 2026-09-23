@@ -162,13 +162,23 @@ def pdbqt_to_pdb(src: Path, dst: Path, model: int = 1,
             # PDB fixed-column layout: name, resName, chainID, resSeq, coords
             name = line[12:16].strip()
             x, y, z = line[30:38], line[38:46], line[46:54]
-            elem = (line[76:78].strip() or name[0])[:2].rjust(2)
+            # Vina's PDBQT puts the element at cols 77-78, after the partial
+            # charge. AutoDock uses "A" for aromatic carbon, which is not a
+            # real element symbol — parsers read it as unknown and the atom
+            # loses its identity. Map it back to carbon.
+            raw = line[76:78].strip()
+            if raw.upper() == "A":
+                raw = "C"
+            elem = (raw or name[0])[:2].rjust(2)
             # cols: 1-6 HETATM, 7-11 serial, 13-16 name, 18-20 resName,
-            #       22 chainID, 23-26 resSeq, 31-38/39-46/47-54 x/y/z
+            #       22 chainID, 23-26 resSeq, 31-38/39-46/47-54 x/y/z,
+            #       77-78 element. Nothing goes past column 78 — PDB lines
+            #       are 80 columns and a trailing field makes parsers
+            #       mis-read the element.
             lines.append(
                 f"HETATM{serial:5d} {name:<4s} {'UNL':>3s} {chain_id}{1:4d}    "
                 f"{x}{y}{z}{'  1.00':>6s}{'  0.00':>6s}          "
-                f"{elem:>2s}{'L':>2s}"
+                f"{elem:>2s}"
             )
             seen_any = True
     if not seen_any:
