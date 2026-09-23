@@ -772,10 +772,17 @@ function renderStructure(data, meta) {
 
 // A blue-white palette, keyed by chain ID. Chains beyond the list fall
 // back to the last entry, so a structure with more chains than colours
-// still renders. Chosen over a gradient because 3Dmol's CustomLinear
-// gradient does not apply to cartoon rendering in this build.
-const BLUE_WHITE = ["#38bdf8", "#7dd3fc", "#bae6fd", "#e0f2fe",
-                    "#0ea5e9", "#f0f9ff", "#60a5fa", "#93c5fd"];
+// A blue-to-white ramp, keyed by chain ID. Chains beyond the list fall back
+// to the last entry, so a structure with more chains than colours still
+// renders. Chosen over a 3Dmol gradient because CustomLinear does not apply
+// to cartoon rendering in this build.
+//
+// The ramp starts light and ends white. A ramp that begins at a saturated
+// navy looks uniformly dark on a two- or three-chain complex, since those
+// only ever use the first few entries — the pale end has to be reachable
+// from the start, not reserved for the eighth chain.
+const BLUE_WHITE = ["#7dd3fc", "#bae6fd", "#e0f2fe", "#f0f9ff",
+                    "#ffffff", "#ffffff", "#ffffff", "#ffffff"];
 
 function chainColorMap(chains) {
   const map = {};
@@ -785,10 +792,9 @@ function chainColorMap(chains) {
   return map;
 }
 
-// Secondary-structure colours in the same blue-white family: helices the
-// deepest blue, sheets a mid blue, coils the palest. 3Dmol's ssJmol uses
-// magenta/red/white, which clashes with the rest of the palette.
-const SS_BLUE_WHITE = { h: "#0284c7", s: "#7dd3fc", c: "#e0f2fe" };
+// Secondary structure follows the same ramp: helices deepest, sheets mid,
+// coils the palest — so the fold is legible without leaving the palette.
+const SS_BLUE_WHITE = { h: "#38bdf8", s: "#bae6fd", c: "#f0f9ff" };
 
 // Element colours for the per-atom styles (stick, sphere, line). A
 // chain-coloured stick render makes every atom the same colour, which
@@ -859,10 +865,11 @@ function styleSpec(kind, scheme, chains) {
   const perAtom = (kind === "stick" || kind === "sphere" || kind === "line");
   const color = colorSpec(scheme, chains, perAtom);
   // 3Dmol's default lighting is a single hard key light, which carves deep
-  // shadows out of a surface and buries anything inside a pocket. Adding an
-  // ambient term and a little emission lifts the dark side without washing
-  // out the form.
-  const soft = { ...color, ambientColor: "#7f8ea3", emissiveColor: "#2a3542" };
+  // shadows out of a surface and buries anything inside a pocket. A strong
+  // ambient term lifts the shadow side to a mid tone rather than black, and
+  // the emission keeps the pale end of the ramp reading as white instead of
+  // grey.
+  const soft = { ...color, ambientColor: "#c8d6e8", emissiveColor: "#5b6b80" };
   switch (kind) {
     case "stick":   return { stick: { ...color, radius: 0.18 } };
     case "sphere":  return { sphere: { ...color, scale: 0.5 } };
