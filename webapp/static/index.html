@@ -1064,13 +1064,14 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
   const ligandIds = new Set((currentMeta.chains || [])
     .filter(c => c.ligand).map(c => c.id));
   Object.entries(selection).forEach(([key, item]) => {
-    // A selected pocket takes the selection colour and fades. The colour
-    // has to match the swatch in the panel or the row says one thing and
-    // the view says another; the fade is what keeps the cavity readable,
-    // not a reason to keep the default hue.
+    // A selected pocket takes the selection colour and grows slightly.
+    // Opacity stays put: changing it reorders 3Dmol's transparent pass and
+    // the other pockets fade with it, which reads as "selecting one dims
+    // them all". A slightly larger sphere in the selection colour marks
+    // the chosen one without touching the render queue.
     if (item.pocket) {
       viewer.setStyle(item.sel, {
-        sphere: { scale: 0.35, color: item.color, opacity: 0.3 },
+        sphere: { scale: 0.45, color: item.color, opacity: 0.85 },
       });
       return;
     }
