@@ -232,11 +232,15 @@
     border: none;
     padding: 0;
     cursor: pointer;
-    font-size: 12px;
     line-height: 1;
-    opacity: .75;
+    color: #ffffff;
+    opacity: .55;
+    display: inline-flex;
+    align-items: center;
   }
-  #seq-panel .seq-eye:hover { opacity: 1; transform: scale(1.15); }
+  #seq-panel .seq-eye svg { width: 13px; height: 13px; fill: currentColor; }
+  #seq-panel .seq-eye:hover { opacity: 1; }
+  #seq-panel .seq-eye.off { color: var(--muted); opacity: .8; }
   #seq-panel .seq-chain-seq { color: var(--text); }
 
   /* ---------- selection panel ---------- */
@@ -588,6 +592,13 @@ function chainHidden(chainId) {
   return hiddenChains.has(chainId);
 }
 
+// Eye / eye-off icons. Inline SVG rather than emoji so the colour can be
+// controlled and the glyph stays crisp at 13px.
+const EYE_ON =
+  '<svg viewBox="0 0 24 24"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm0-6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>';
+const EYE_OFF =
+  '<svg viewBox="0 0 24 24"><path d="M2 4.3 3.4 3 21 20.6 19.6 22l-3.1-3.1A11 11 0 0 1 12 19c-5 0-9.3-3.1-11-7a12.6 12.6 0 0 1 4.2-5.2L2 4.3zM12 7a5 5 0 0 1 4.7 6.7l-2-2A3 3 0 0 0 10.3 9.3l-2-2A5 5 0 0 1 12 7zm10 5c-.6 1.4-1.6 2.7-2.9 3.8l-1.5-1.5A9.9 9.9 0 0 0 19.4 12a9.8 9.8 0 0 0-4.4-4.3l-1.5-1.5A11 11 0 0 1 12 5c5 0 9.3 3.1 11 7z"/></svg>';
+
 // One row per chain: an eye toggle on the left, the chain name, and the
 // sequence underneath. Clicking the eye hides that chain in the 3D view.
 function chainRow(chainId, label, seqText) {
@@ -597,11 +608,12 @@ function chainRow(chainId, label, seqText) {
   const head = document.createElement("div");
   head.className = "seq-chain-head";
 
+  const hidden = chainHidden(chainId);
   const eye = document.createElement("button");
-  eye.className = "seq-eye";
+  eye.className = "seq-eye" + (hidden ? " off" : "");
   eye.type = "button";
-  eye.title = chainHidden(chainId) ? "Show this chain" : "Hide this chain";
-  eye.textContent = chainHidden(chainId) ? "🚫" : "👁";
+  eye.title = hidden ? "Show this chain" : "Hide this chain";
+  eye.innerHTML = hidden ? EYE_OFF : EYE_ON;
   eye.addEventListener("click", () => {
     if (hiddenChains.has(chainId)) {
       hiddenChains.delete(chainId);
@@ -938,10 +950,6 @@ function applyStyle() {
   // onto it, so the rest of the complex stays on screen for context.
   viewer.setStyle({}, styleSpec(kind, scheme, chains.map(c => c.chain)));
 
-  // Hidden chains get an empty style, which removes them from the render
-  // without touching the model — so toggling the eye is reversible.
-  hiddenChains.forEach(ch => viewer.setStyle({ chain: ch }, {}));
-
   // Ligands (non-amino-acid chains from metadata) get their own rendering
   // style, chosen independently of the protein's, so a small molecule
   // stays legible inside a structure of thousands of atoms.
@@ -953,6 +961,12 @@ function applyStyle() {
     const spec = ligandStyleSpec(ligandStylePicker.value, kind === "surface");
     ligandChains.forEach(ch => viewer.setStyle({ chain: ch }, spec));
   }
+
+  // Hidden chains get an empty style, which removes them from the render
+  // without touching the model — so toggling the eye is reversible.
+  // This has to come last: the ligand block above would otherwise re-style
+  // a hidden ligand and undo the hide.
+  hiddenChains.forEach(ch => viewer.setStyle({ chain: ch }, {}));
 
   // Re-apply selection highlights on top. The highlight has to follow the
   // main style: a stick highlight drawn over a surface replaces that
