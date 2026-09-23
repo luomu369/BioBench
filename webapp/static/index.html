@@ -406,15 +406,15 @@
       <option>Load a structure…</option>
     </select>
     <select id="style-picker" class="ctl" disabled>
+      <option value="surface">Surface</option>
       <option value="cartoon">Cartoon</option>
       <option value="stick">Stick</option>
       <option value="sphere">Sphere</option>
       <option value="line">Line</option>
-      <option value="surface">Surface</option>
     </select>
     <select id="color-picker" class="ctl" disabled>
-      <option value="spectrum">Spectrum</option>
       <option value="chain">By chain</option>
+      <option value="spectrum">Spectrum</option>
       <option value="secondary">Secondary</option>
       <option value="white">White</option>
     </select>
@@ -733,29 +733,25 @@ function applyStyle() {
   // A small molecule is a handful of atoms in a structure of thousands,
   // so it gets a thick, high-contrast style rather than a subtle one.
   //
+  // Jmol element colours are used rather than one flat colour: they are
+  // the convention chemists read at a glance (blue N, red O, grey C) and
+  // they keep the ligand distinguishable from a protein coloured by chain.
+  //
   // Under "surface" the protein is wrapped in an opaque depth-sorted
   // shell that hides anything inside the pocket, so the shell is made
-  // more transparent and the ligand is drawn on top of it.
+  // more transparent and the ligand is drawn thicker on top of it.
   // current.json chains carry "id", not "chain" — see publish.py.
   const ligandChains = (currentMeta.chains || [])
     .filter(c => c.ligand)
     .map(c => c.id);
   if (ligandChains.length) {
-    if (kind === "surface") {
-      ligandChains.forEach(ch => {
-        viewer.setStyle({ chain: ch }, {
-          stick: { radius: 0.4, color: "orange" },
-          sphere: { scale: 0.6, color: "orange" }
-        });
+    const thick = kind === "surface";
+    ligandChains.forEach(ch => {
+      viewer.setStyle({ chain: ch }, {
+        stick: { radius: thick ? 0.3 : 0.25, colorscheme: "Jmol" },
+        sphere: { scale: thick ? 0.45 : 0.4, colorscheme: "Jmol" }
       });
-    } else {
-      ligandChains.forEach(ch => {
-        viewer.setStyle({ chain: ch }, {
-          stick: { radius: 0.35, color: "orange" },
-          sphere: { scale: 0.5, color: "orange" }
-        });
-      });
-    }
+    });
   }
 
   // Re-apply selection highlights on top
