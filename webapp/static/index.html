@@ -216,6 +216,28 @@
     word-break: break-all;
     white-space: pre-wrap;
   }
+  #seq-panel .seq-chain { margin-bottom: 10px; }
+  #seq-panel .seq-chain:last-child { margin-bottom: 0; }
+  #seq-panel .seq-chain-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+  #seq-panel .seq-chain-name { letter-spacing: .02em; }
+  #seq-panel .seq-eye {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    opacity: .75;
+  }
+  #seq-panel .seq-eye:hover { opacity: 1; transform: scale(1.15); }
+  #seq-panel .seq-chain-seq { color: var(--text); }
 
   /* ---------- selection panel ---------- */
   #selection {
@@ -303,25 +325,6 @@
     padding: 0 2px;
   }
   #selection .s-del:hover { color: var(--err); }
-  #selection .s-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(34,48,64,.7);
-  }
-  #selection .s-btn {
-    flex: 1;
-    background: rgba(11,15,20,.6);
-    border: 1px solid rgba(34,48,64,.9);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 11px;
-    padding: 6px 4px;
-    cursor: pointer;
-    transition: border-color .15s;
-  }
-  #selection .s-btn:hover { border-color: rgba(77,163,255,.5); }
 
   /* ---------- status bar ---------- */
   #status {
@@ -477,11 +480,6 @@
       <button class="s-clear" id="sel-clear">clear all</button>
     </div>
     <div id="sel-list"></div>
-    <div class="s-actions">
-      <button class="s-btn" id="sel-label">Label</button>
-      <button class="s-btn" id="sel-focus">Focus</button>
-      <button class="s-btn" id="sel-hide">Hide</button>
-    </div>
   </div>
 
 <div id="left-col">
@@ -582,21 +580,86 @@ function extractChains(model) {
   }));
 }
 
+// Chains the user has hidden. Kept across style/selection changes so
+// hiding survives a re-render; cleared when a new structure is published.
+const hiddenChains = new Set();
+
+function chainHidden(chainId) {
+  return hiddenChains.has(chainId);
+}
+
+// One row per chain: an eye toggle on the left, the chain name, and the
+// sequence underneath. Clicking the eye hides that chain in the 3D view.
+function chainRow(chainId, label, seqText) {
+  const row = document.createElement("div");
+  row.className = "seq-chain";
+
+  const head = document.createElement("div");
+  head.className = "seq-chain-head";
+
+  const eye = document.createElement("button");
+  eye.className = "seq-eye";
+  eye.type = "button";
+  eye.title = chainHidden(chainId) ? "Show this chain" : "Hide this chain";
+  eye.textContent = chainHidden(chainId) ? "🚫" : "👁";
+  eye.addEventListener("click", () => {
+    if (hiddenChains.has(chainId)) {
+      hiddenChains.delete(chainId);
+    } else {
+      hiddenChains.add(chainId);
+    }
+    applyStyle();
+    renderSequence(null);
+  });
+
+  const name = document.createElement("span");
+  name.className = "seq-chain-name";
+  name.textContent = label;
+
+  head.append(eye, name);
+  row.appendChild(head);
+
+  if (seqText) {
+    const body = document.createElement("div");
+    body.className = "seq-chain-seq";
+    body.textContent = seqText;
+    row.appendChild(body);
+  }
+  return row;
+}
+
 function renderSequence(chainInfo) {
   if (!chainInfo) {
-    // "All chains" selected — show a per-chain summary instead of one sequence
-    if (!chains.length) { seqPanel.classList.remove("show"); return; }
+    // "All chains" selected — one block per chain, each with its own hide
+    // toggle. Ligand chains carry no amino acids so extractChains skips
+    // them; take them from the metadata so every chain on screen is listed.
+    const ligandChains = (currentMeta.chains || []).filter(c => c.ligand);
+    if (!chains.length && !ligandChains.length) {
+      seqPanel.classList.remove("show");
+      return;
+    }
     seqTitle.textContent = "All chains";
-    seqLen.textContent = `${chains.length} chains`;
-    seqBody.textContent = chains
-      .map(c => `Chain ${c.chain}  (${c.seq.length} aa)\n${c.seq}`)
-      .join("\n\n");
+    seqLen.textContent = `${chains.length + ligandChains.length} chains`;
+    seqBody.innerHTML = "";
+    chains.forEach(c => {
+      const role = ((currentMeta.chains || []).find(m => m.id === c.chain) || {}).role;
+      const label = `Chain ${c.chain}${role ? " — " + role : ""}  (${c.seq.length} aa)`;
+      seqBody.appendChild(chainRow(c.chain, label, c.seq));
+    });
+    ligandChains.forEach(c => {
+      const label = `Ligand ${c.id}${c.role ? " — " + c.role : ""}  (${c.residues} res)`;
+      seqBody.appendChild(chainRow(c.id, label, ""));
+    });
     seqPanel.classList.add("show");
     return;
   }
   seqTitle.textContent = `Chain ${chainInfo.chain}`;
   seqLen.textContent = `${chainInfo.seq.length} residues`;
-  seqBody.textContent = chainInfo.seq;
+  seqBody.innerHTML = "";
+  seqBody.appendChild(chainRow(
+    chainInfo.chain,
+    `Chain ${chainInfo.chain}  (${chainInfo.seq.length} aa)`,
+    chainInfo.seq));
   seqPanel.classList.add("show");
 }
 
@@ -727,6 +790,7 @@ function renderStructure(data, meta) {
   resetBtn.disabled = false;
   selection = {};
   selCounter = 0;
+  hiddenChains.clear();
   viewer.removeAllLabels();
   renderSelectionPanel();
 }
@@ -873,6 +937,10 @@ function applyStyle() {
   // Every chain keeps the chosen style; picking one only moves the camera
   // onto it, so the rest of the complex stays on screen for context.
   viewer.setStyle({}, styleSpec(kind, scheme, chains.map(c => c.chain)));
+
+  // Hidden chains get an empty style, which removes them from the render
+  // without touching the model — so toggling the eye is reversible.
+  hiddenChains.forEach(ch => viewer.setStyle({ chain: ch }, {}));
 
   // Ligands (non-amino-acid chains from metadata) get their own rendering
   // style, chosen independently of the protein's, so a small molecule
@@ -1176,35 +1244,6 @@ selClear.addEventListener("click", () => {
   selCounter = 0;
   applyStyle();
   renderSelectionPanel();
-});
-
-document.getElementById("sel-focus").addEventListener("click", () => {
-  const sels = Object.values(selection).map(s => s.sel);
-  if (!sels.length) return;
-  viewer.setStyle({}, {});
-  viewer.setStyle({ or: sels }, { stick: { color: "orange", radius: 0.3 } });
-  viewer.zoomTo({ or: sels });
-  viewer.render();
-});
-
-document.getElementById("sel-hide").addEventListener("click", () => {
-  const sels = Object.values(selection).map(s => s.sel);
-  if (!sels.length) return;
-  viewer.setStyle({ or: sels }, {});
-  viewer.render();
-});
-
-document.getElementById("sel-label").addEventListener("click", () => {
-  Object.values(selection).forEach(s => {
-    viewer.addLabel(s.label, {
-      position: s.sel,
-      fontSize: 11,
-      fontColor: "#0b0f14",
-      backgroundColor: s.color,
-      padding: 3,
-    });
-  });
-  viewer.render();
 });
 
 /* ---------------- status bar ---------------- */
