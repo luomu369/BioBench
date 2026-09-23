@@ -44,11 +44,36 @@ pointing at.
 | Field | Meaning |
 |-------|---------|
 | `structure` | Name from `current.json` — which structure was selected from |
-| `count` | Number of selected residues |
+| `count` | Total selected items across all lists |
 | `residues[].chain` | Chain ID |
 | `residues[].resi` | Residue number (author numbering) |
 | `residues[].resn` | Three-letter residue name |
 | `residues[].color` | Highlight color assigned by the viewer |
+
+The Selection panel has four modes, and a selection can mix them. Two more
+lists appear when the user picks atoms or bonds:
+
+```json
+{
+  "atoms": [{"index": 3521, "label": "C — UNL 1 · L", "color": "#ff6b6b"}],
+  "bonds": [{"indices": [3521, 3524], "label": "C1#3521–C1#3524", "color": "#4ecdc4"}]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `atoms[].index` | 3Dmol's global atom index — unique across the model |
+| `atoms[].label` | `ATOM — RESN RESI · CHAIN`, as shown in the panel |
+| `bonds[].indices` | The two atom indices the bond connects |
+| `bonds[].label` | `ATOM<resi>–ATOM<resi>`, with `#index` when both ends read alike |
+
+> **Atom indices are not stable across publishes.** They are positions in
+> the file 3Dmol parsed, so re-publishing the same structure with a
+> different atom order renumbers everything. Residue and chain selections
+> are stable; atom and bond selections are only meaningful against the
+> structure named in `structure`. If a skill needs to act on an atom
+> selection, resolve the index against the current model rather than
+> storing it.
 
 ### Reading the selection
 

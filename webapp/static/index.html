@@ -483,9 +483,11 @@
   <div id="selection">
     <div class="s-head">
       <span>Selection</span>
-      <span class="s-mode" id="sel-mode" title="Click a residue to select just it, or the whole chain">
+      <span class="s-mode" id="sel-mode" title="What a click selects: a residue, a whole chain, a single atom, or a bond">
         <button class="s-mode-btn on" data-mode="res">Res</button>
         <button class="s-mode-btn" data-mode="chain">Chain</button>
+        <button class="s-mode-btn" data-mode="atom">Atom</button>
+        <button class="s-mode-btn" data-mode="bond">Bond</button>
       </span>
       <button class="s-clear" id="sel-clear">clear all</button>
     </div>
@@ -1039,6 +1041,27 @@ function applyStyle() {
   const ligandIds = new Set((currentMeta.chains || [])
     .filter(c => c.ligand).map(c => c.id));
   Object.entries(selection).forEach(([key, item]) => {
+    // A single atom: a sphere in the selection colour, big enough to read
+    // against the backbone style underneath. No stick — one atom has
+    // nothing to connect to, and a stick on a lone atom renders as a dot
+    // the same size as the sphere.
+    if (item.atom) {
+      viewer.setStyle(item.sel, {
+        sphere: { color: item.color, scale: 0.55 },
+        stick: { color: item.color, radius: 0.22 },
+      });
+      return;
+    }
+    // A bond: both atoms as spheres plus the stick between them, all in
+    // the selection colour, so the bond reads as one highlighted unit
+    // rather than two unrelated dots.
+    if (item.bond) {
+      viewer.setStyle(item.sel, {
+        sphere: { color: item.color, scale: 0.45 },
+        stick: { color: item.color, radius: 0.28 },
+      });
+      return;
+    }
     if (ligandIds.has(item.sel.chain)) {
       const spec = ligandStyleSpec(ligandStylePicker.value, kind === "surface");
       const map = elementColorsTinted(item.color);
@@ -1093,6 +1116,35 @@ function selKey(atom) {
   return `${atom.chain || "_"}:${atom.resi}`;
 }
 
+// Atom-level key. `index` is 3Dmol's global atom index, unique across the
+// whole model, so it identifies one atom unambiguously — unlike
+// chain:resi:name, which repeats for altlocs and for the same residue name
+// in different models.
+function atomKey(atom) {
+  return `atom:${atom.index}`;
+}
+
+// Bond key from two atom indices, ordered so the same bond clicked from
+// either end yields the same key.
+function bondKey(a, b) {
+  return `bond:${Math.min(a, b)}-${Math.max(a, b)}`;
+}
+
+function atomLabel(atom) {
+  const where = `${atom.resn || "?"} ${atom.resi}${atom.chain ? " · " + atom.chain : ""}`;
+  return `${atom.atom || atom.elem || "?"} — ${where}`;
+}
+
+function bondLabel(a, b) {
+  // Ligand atoms often share a residue number, so "C1–O1" is ambiguous
+  // when both ends are carbon. Include the element and, when the two ends
+  // would otherwise read the same, the atom index.
+  const name = x => `${x.atom || x.elem}${x.resi}`;
+  const same = name(a) === name(b);
+  const tag = x => same ? `${name(x)}#${x.index}` : name(x);
+  return `${tag(a)}–${tag(b)}`;
+}
+
 // Persist the current selection so an agent can read it.
 // Written to static/selection.json — see the structure-viewer skill.
 // Chain-level selections are written as {"chain": "B", "whole_chain": true}
@@ -1100,12 +1152,30 @@ function selKey(atom) {
 function persistSelection(keys) {
   const residues = [];
   const chainSelections = [];
+  const atoms = [];
+  const bonds = [];
   keys.forEach(k => {
     const item = selection[k];
     if (item.chain) {
       chainSelections.push({
         chain: item.sel.chain,
         whole_chain: true,
+        color: item.color,
+      });
+      return;
+    }
+    if (item.atom) {
+      atoms.push({
+        index: item.sel.index,
+        label: item.label,
+        color: item.color,
+      });
+      return;
+    }
+    if (item.bond) {
+      bonds.push({
+        indices: item.sel.index,
+        label: item.label,
         color: item.color,
       });
       return;
@@ -1121,13 +1191,14 @@ function persistSelection(keys) {
 
   const payload = {
     structure: currentStructure || null,
-    count: residues.length + chainSelections.length,
+    count: residues.length + chainSelections.length
+         + atoms.length + bonds.length,
     residues,
     updated: new Date().toISOString(),
   };
-  if (chainSelections.length) {
-    payload.chains = chainSelections;
-  }
+  if (chainSelections.length) payload.chains = chainSelections;
+  if (atoms.length) payload.atoms = atoms;
+  if (bonds.length) payload.bonds = bonds;
 
   // Fire-and-forget: the viewer must not block on this write.
   fetch("selection.json", {
@@ -1180,6 +1251,22 @@ function onAtomHover(atom) {
     hoverTip.appendChild(sel);
   }
 
+  // In atom/bond mode the atom name is the thing being picked, so lead
+  // with it rather than burying it after the residue.
+  if (selMode === "atom" || selMode === "bond") {
+    const name = document.createElement("span");
+    name.className = "ht-chain";
+    name.textContent = atom.atom || atom.elem || "";
+    hoverTip.appendChild(name);
+    const akey = atomKey(atom);
+    if (selection[akey]) {
+      const sel = document.createElement("span");
+      sel.className = "ht-sel";
+      sel.textContent = "selected";
+      hoverTip.appendChild(sel);
+    }
+  }
+
   hoverTip.hidden = false;
   positionTip();
 }
@@ -1220,10 +1307,15 @@ function renderSelectionPanel() {
   persistSelection(keys);
 
   if (!keys.length) {
-    selList.innerHTML =
-      '<div class="s-empty">Click residues in the viewer to select them. ' +
-      'Click again to deselect. Switch to <b>Chain</b> to select a ' +
-      'whole chain at once.</div>';
+    const hint = {
+      res: "Click residues in the viewer to select them. Click again to " +
+           "deselect. Switch to <b>Chain</b> to select a whole chain at once.",
+      chain: "Click any atom to select its whole chain.",
+      atom: "Click an atom to select just that atom.",
+      bond: "Click an atom to select the bond to a neighbour. Click again " +
+            "to walk to the next bond around that atom.",
+    }[selMode] || "";
+    selList.innerHTML = `<div class="s-empty">${hint}</div>`;
     return;
   }
 
@@ -1293,6 +1385,51 @@ function addChainSelection(chainId) {
   };
 }
 
+// A single atom. The style spec matches on 3Dmol's index, which is the
+// only per-atom selector setStyle accepts.
+function addAtomSelection(atom) {
+  const key = atomKey(atom);
+  if (selection[key]) return;
+  selection[key] = {
+    sel: { index: atom.index },
+    label: atomLabel(atom),
+    color: nextColor(atom.chain),
+    atom: true,
+  };
+}
+
+// A bond between the clicked atom and one of its neighbours. 3Dmol reports
+// no bond on click, so the neighbour is picked from the atom's `bonds`
+// list — the first one that is not already selected, so repeated clicks
+// walk around the atom rather than re-picking the same bond.
+function addBondSelection(atom) {
+  const model = viewer.getModel();
+  const byIndex = {};
+  (model.atoms || []).forEach(a => { byIndex[a.index] = a; });
+  const neighbours = (atom.bonds || []).map(i => byIndex[i]).filter(Boolean);
+  if (!neighbours.length) return;
+
+  const taken = new Set(
+    Object.keys(selection)
+      .filter(k => k.startsWith("bond:"))
+      .map(k => k.slice(6).split("-").map(Number))
+      .flat()
+  );
+  const other = neighbours.find(n => !taken.has(n.index)) || neighbours[0];
+
+  const key = bondKey(atom.index, other.index);
+  if (selection[key]) {
+    delete selection[key];
+    return;
+  }
+  selection[key] = {
+    sel: { index: [atom.index, other.index] },
+    label: bondLabel(atom, other),
+    color: nextColor(atom.chain),
+    bond: true,
+  };
+}
+
 // 3Dmol click handling: nearest atom within a pixel radius.
 // What a click selects depends on the Res/Chain toggle in the Selection
 // panel: in "res" mode it toggles the single residue, in "chain" mode it
@@ -1300,19 +1437,37 @@ function addChainSelection(chainId) {
 // deselects it. Alt/Option + click always removes.
 function onAtomClick(atom) {
   if (!atom) return;
+  const alt = window.event && window.event.altKey;
 
   if (selMode === "chain") {
     const key = `chain:${atom.chain}`;
-    if (selection[key]) {
+    if (alt || selection[key]) {
       delete selection[key];
     } else {
       addChainSelection(atom.chain);
     }
+  } else if (selMode === "atom") {
+    const key = atomKey(atom);
+    if (alt || selection[key]) {
+      delete selection[key];
+    } else {
+      addAtomSelection(atom);
+    }
+  } else if (selMode === "bond") {
+    if (alt) {
+      // Alt-click removes whichever selected bond touches this atom.
+      const touched = Object.keys(selection).filter(k => {
+        if (!k.startsWith("bond:")) return false;
+        const [a, b] = k.slice(6).split("-").map(Number);
+        return a === atom.index || b === atom.index;
+      });
+      touched.forEach(k => delete selection[k]);
+    } else {
+      addBondSelection(atom);
+    }
   } else {
     const key = selKey(atom);
-    if (window.event && window.event.altKey) {
-      delete selection[key];
-    } else if (selection[key]) {
+    if (alt || selection[key]) {
       delete selection[key];
     } else {
       addSelection(atom);
