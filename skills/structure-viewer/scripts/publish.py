@@ -33,6 +33,11 @@ VIEWER = Path(os.environ.get(
     "/home/asus_gx10/biobench/webapp/static"
 ))
 
+# How many past statuses to keep in status.json's history array. Enough to
+# scroll back through a session's runs without the file growing without
+# bound.
+STATUS_HISTORY = 20
+
 AA3TO1 = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
     "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
@@ -222,7 +227,25 @@ def publish_status(args) -> int:
     if args.state == "error" and args.message:
         status["error"] = args.message
 
-    atomic_write(VIEWER / "status.json", json.dumps(status, indent=2))
+    # Keep the last N statuses so the viewer can show a history. The pill
+    # only ever shows the newest one, so a run that finished minutes ago
+    # leaves no trace of what it did — and the messages are the only record
+    # of which skill ran and what it found.
+    path = VIEWER / "status.json"
+    history = []
+    if path.exists():
+        try:
+            old = json.loads(path.read_text())
+            history = old.get("history") or []
+        except (json.JSONDecodeError, OSError):
+            history = []
+    # Append a copy, not the dict itself: the new status carries the history
+    # it was built from, so appending it directly would make the file
+    # contain itself.
+    history.append(dict(status))
+    status["history"] = history[-STATUS_HISTORY:]
+
+    atomic_write(path, json.dumps(status, indent=2))
     print(f"status: {args.state}"
           + (f" {args.index}/{args.total} {args.step}" if args.total else "")
           + (f" — {args.message}" if args.message else ""))

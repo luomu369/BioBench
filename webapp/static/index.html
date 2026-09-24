@@ -478,6 +478,94 @@
   #status .sys-item.warn .v { color: #fbbf24; }
   #status .sys-item.hot .v { color: var(--err); }
 
+  /* ---------- status history ---------- */
+  /* The pill is centred near the bottom of the screen, so the menu opens
+     upward from it rather than downward into the viewer. */
+  #status .st-hist {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    /* Sits at the left end of the pill, so the gap goes on its right. */
+    margin-right: 2px;
+    padding: 0;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #status .st-hist:hover {
+    background: rgba(77,163,255,.14);
+    border-color: rgba(77,163,255,.35);
+    color: var(--accent);
+  }
+  #status .st-hist svg { width: 13px; height: 13px; fill: currentColor; }
+  #status .st-menu {
+    position: absolute;
+    /* Absolute, so it does not take a slot in the pill's flex row and
+       push the progress bar off centre while closed. Anchored to the left
+       edge, under the chevron that opens it. */
+    bottom: calc(100% + 8px);
+    left: 0;
+    width: min(420px, calc(100vw - 32px));
+    max-height: 60vh;
+    overflow-y: auto;
+    background: rgba(19,26,34,.97);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 10px;
+    padding: 5px;
+    box-shadow: 0 -10px 32px rgba(0,0,0,.5);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    z-index: 30;
+    scrollbar-width: thin;
+  }
+  #status .st-menu:empty { display: none; }
+  #status .st-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  #status .st-row + .st-row {
+    border-top: 1px solid rgba(34,48,64,.5);
+  }
+  #status .st-row .st-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-top: 5px;
+    flex-shrink: 0;
+    background: var(--muted);
+  }
+  #status .st-row[data-state="running"] .st-dot { background: var(--accent); }
+  #status .st-row[data-state="done"] .st-dot { background: var(--ok); }
+  #status .st-row[data-state="error"] .st-dot { background: var(--err); }
+  #status .st-row .st-body { flex: 1; min-width: 0; }
+  #status .st-row .st-msg {
+    color: var(--text);
+    word-break: break-word;
+  }
+  #status .st-row[data-state="error"] .st-msg { color: var(--err); }
+  #status .st-row .st-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+  #status .st-row .st-skill { color: var(--accent); opacity: .8; }
+  #status .st-empty {
+    padding: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
   /* ---------- structure switcher ---------- */
   /* One entry per structure the viewer has loaded this session, so results
      from different runs stay available instead of replacing each other.
@@ -629,6 +717,13 @@
 </div>
 
 <div id="status">
+  <!-- Past runs. The pill shows only the newest status, so without this a
+       finished run leaves no trace of what it did. The chevron points up
+       because the menu opens upward from the pill. It sits at the left end
+       so the progress text and machine load stay together on the right. -->
+  <button class="st-hist" id="st-hist" type="button" title="历史任务">
+    <svg viewBox="0 0 24 24"><path d="M12 8l8 8h-5v4H9v-4H4z"/></svg>
+  </button>
   <span class="dot"></span>
   <span class="msg"></span>
   <span class="bar"><div></div></span>
@@ -639,6 +734,7 @@
     <span class="sys-item" id="sys-gpu" title="GPU 占用率" hidden></span>
     <span class="sys-item" id="sys-mem" title="内存占用"></span>
   </span>
+  <div class="st-menu" id="st-menu" hidden></div>
 </div>
 
 <script>
@@ -2086,7 +2182,92 @@ function renderStatus(s) {
     total > 0 ? `${idx}/${total} ${s.step || ""}`.trim() : "";
 
   statusBar.classList.add("show");
+  renderStatusHistory(s);
 }
+
+/* ---------------- status history ---------------- */
+
+// The pill shows one status — the newest. Everything a run reported before
+// that is gone, so "what did the docking score?" means re-running it. The
+// publisher keeps the last 20 statuses in status.json's history array; this
+// renders them newest-first behind the chevron at the right end of the pill.
+
+const stHistBtn = document.getElementById("st-hist");
+const stMenu = document.getElementById("st-menu");
+
+function stTime(iso) {
+  if (!iso) return "";
+  // "2026-09-24T06:33:23" → "06:33:23". The date is dropped: the history
+  // spans one session, and the time is what identifies a run.
+  const t = iso.split("T")[1];
+  return t ? t.slice(0, 8) : iso;
+}
+
+function renderStatusHistory(s) {
+  const history = (s && s.history) || [];
+  stHistBtn.hidden = history.length === 0;
+
+  stMenu.innerHTML = "";
+  if (!history.length) {
+    const empty = document.createElement("div");
+    empty.className = "st-empty";
+    empty.textContent = "暂无历史任务";
+    stMenu.appendChild(empty);
+    return;
+  }
+
+  // Newest first — the run the user just watched is the one they want.
+  [...history].reverse().forEach(h => {
+    const row = document.createElement("div");
+    row.className = "st-row";
+    row.dataset.state = h.state || "";
+
+    const dot = document.createElement("span");
+    dot.className = "st-dot";
+    row.appendChild(dot);
+
+    const body = document.createElement("div");
+    body.className = "st-body";
+
+    const msg = document.createElement("div");
+    msg.className = "st-msg";
+    msg.textContent = h.message || h.state || "";
+    body.appendChild(msg);
+
+    const meta = document.createElement("div");
+    meta.className = "st-meta";
+    const bits = [];
+    if (h.step_total) bits.push(`${h.step_index || 0}/${h.step_total} ${h.step || ""}`.trim());
+    if (h.skill) bits.push(h.skill);
+    bits.push(stTime(h.updated));
+    meta.textContent = bits.filter(Boolean).join(" · ");
+    body.appendChild(meta);
+
+    row.appendChild(body);
+    stMenu.appendChild(row);
+  });
+}
+
+stHistBtn.addEventListener("click", ev => {
+  ev.stopPropagation();
+  stMenu.hidden = !stMenu.hidden;
+});
+
+// A click anywhere else closes it, the way any dropdown behaves.
+//
+// Two details matter here. The check covers the button's subtree, not just
+// the button: clicking the chevron's <svg> or <path> reports that element as
+// the target, and comparing against the button alone would close the menu on
+// the very click that opened it. And this listens for pointerdown on window
+// rather than click on document, because 3Dmol's canvas handler consumes
+// clicks — a click listener never fires for presses that land on the viewer,
+// which is most of the screen.
+window.addEventListener("pointerdown", ev => {
+  if (stMenu.hidden) return;
+  if (stMenu.contains(ev.target)) return;
+  if (stHistBtn.contains(ev.target)) return;
+  stMenu.hidden = true;
+});
 
 /* ---------------- structure tabs ---------------- */
 
