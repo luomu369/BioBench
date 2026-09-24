@@ -263,9 +263,10 @@
     line-height: 1.7;
     /* Letter spacing on the container, not the letters: it applies between
        every pair including the last of one row and the first of the next,
-       so the grid stays even. 0.14em is enough to separate neighbouring
-       residues without making a 50-letter row overflow the panel. */
-    letter-spacing: 0.14em;
+       so the grid stays even. In px rather than em so the pitch is exactly
+       the 7 px asked for — the glyph is 6.4 px wide on its own, so this
+       adds 0.6 px between neighbours. */
+    letter-spacing: 0.6px;
     /* No word-break: the sequence is laid out in fixed 50-residue rows
      * rather than wrapped wherever the panel happens to end. Rows of a
      * known length line up between chains, so the same position in two
@@ -285,7 +286,7 @@
   #seq-panel .seq-row {
     display: block;
     white-space: nowrap;
-    margin-right: -0.14em;
+    margin-right: -0.6px;
   }
   #seq-panel .seq-aa { border-radius: 2px; }
   #seq-panel .seq-aa:hover { background: rgba(77,163,255,.22); }
