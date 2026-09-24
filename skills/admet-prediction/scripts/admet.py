@@ -21,10 +21,12 @@ Usage:
     python admet.py --smiles "CCO"
     python admet.py --sdf molecules.sdf
     python admet.py --smiles "CCO" --json
+    BIOBENCH_STRUCTURE=combined.cif python admet.py --sdf m.sdf --publish my_admet
 """
 
 import argparse
 import json
+import os
 import sys
 
 # Lipinski's rule of five. The cutoffs are multiples of five because that
@@ -196,6 +198,96 @@ def verdict(a):
     return "; ".join(bits)
 
 
+def publish_summary(results, name):
+    """Write the analysis to the viewer as a new tab.
+
+    The viewer's metrics panel is the only place a skill can put numbers
+    where the user will see them without leaving the 3D view, so the
+    summary goes there: the set-level counts first, then one row per
+    molecule with its QED, SA and any alerts.
+
+    The molecules themselves are not republished — this is an analysis of
+    structures already on screen, and overwriting them would lose the
+    receptor. Only the metrics and notes are written, through the same
+    publisher every other skill uses.
+    """
+    import subprocess
+
+    n = len(results)
+    qeds = [a["qed"] for a in results]
+    sas = [a["sa_score"] for a in results if a["sa_score"] is not None]
+    lip = sum(1 for a in results if a["lipinski"]["passes"])
+    veber = sum(1 for a in results if a["veber"]["passes"])
+    alerted = [a for a in results if a["alerts"]]
+
+    best = max(results, key=lambda a: a["qed"])
+    worst = min(results, key=lambda a: a["qed"])
+
+    metrics = {
+        "molecules": {"label": "分子数", "value": n},
+        "lipinski": {"label": "通过 Lipinski", "value": f"{lip}/{n}"},
+        "veber": {"label": "通过 Veber", "value": f"{veber}/{n}"},
+        "qed_mean": {"label": "QED 均值", "value": round(sum(qeds) / n, 3)},
+        "qed_best": {"label": "最高 QED", "value": best["qed"],
+                     "hint": best["smiles"][:40]},
+        "qed_worst": {"label": "最低 QED", "value": worst["qed"]},
+        "sa_mean": {"label": "SA 均值", "value": round(sum(sas) / len(sas), 2)
+                    if sas else None, "hint": "1 易合成，10 困难"},
+        "alerts": {"label": "结构警示", "value": len(alerted),
+                   "hint": "PAINS / Brenk"},
+    }
+    metrics = {k: v for k, v in metrics.items() if v is not None}
+
+    # One line per molecule, so the panel doubles as the report.
+    lines = []
+    for a in sorted(results, key=lambda x: -x["qed"]):
+        flags = []
+        if not a["lipinski"]["passes"]:
+            flags.append("Lipinski×" + str(len(a["lipinski"]["violations"])))
+        if not a["veber"]["passes"]:
+            flags.append("Veber")
+        if a["sa_score"] and a["sa_score"] > 6:
+            flags.append("SA高")
+        cats = sorted({x["catalog"] for x in a["alerts"]})
+        if cats:
+            flags.append(",".join(cats))
+        tail = f"  [{'; '.join(flags)}]" if flags else ""
+        lines.append(f"QED {a['qed']:.2f}  SA {a['sa_score']}  "
+                     f"MW {a['properties']['mw']}  {a['smiles']}{tail}")
+    notes = "\n".join(lines)
+
+    pub = os.environ.get(
+        "BIOBENCH_PUBLISH",
+        "/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py")
+    if not os.path.exists(pub):
+        print(f"warning: publisher not found at {pub}; "
+              "metrics not written", file=sys.stderr)
+        return 0
+
+    cmd = [sys.executable, pub,
+           "--structure", os.environ.get("BIOBENCH_STRUCTURE", ""),
+           "--name", name, "--source", "rdkit-admet",
+           "--metrics", json.dumps(metrics),
+           "--notes", notes]
+    # --structure is required by the publisher; without a structure there is
+    # nothing to attach the metrics to, so say so rather than failing.
+    if not os.environ.get("BIOBENCH_STRUCTURE"):
+        print("warning: BIOBENCH_STRUCTURE not set — the viewer needs a "
+              "structure to attach metrics to. Set it to the combined "
+              "structure the molecules are already in.", file=sys.stderr)
+        print("\nmetrics that would be published:")
+        print(json.dumps(metrics, indent=2))
+        print("\nnotes:\n" + notes)
+        return 0
+
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"publish failed: {r.stderr.strip()}", file=sys.stderr)
+        return 1
+    print(r.stdout.strip())
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -205,6 +297,10 @@ def main():
     ap.add_argument("--sdf", help="an SDF file of molecules")
     ap.add_argument("--json", action="store_true",
                     help="emit JSON instead of a table")
+    ap.add_argument("--publish", metavar="NAME",
+                    help="publish the summary to the viewer as a new tab "
+                         "under this name, so the properties are visible "
+                         "next to the molecules they describe")
     args = ap.parse_args()
 
     if not args.smiles and not args.sdf:
@@ -216,6 +312,9 @@ def main():
         return 2
 
     results = [analyse(name, mol) for name, mol in mols]
+
+    if args.publish:
+        return publish_summary(results, args.publish)
 
     if args.json:
         print(json.dumps(results if len(results) > 1 else results[0],

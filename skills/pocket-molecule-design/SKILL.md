@@ -346,14 +346,6 @@ before presenting it:
 |-------|-----|
 | Chemically sensible | Look for the functional groups the pocket favours |
 | Not a duplicate | Compare SMILES; the beam often converges |
-| Drug-like | `admet-prediction` — QED, Lipinski, PAINS |
-| Synthesisable | `admet-prediction` reports the SA score; reject strained rings, peroxides, metals |
-| Actually binds | Dock the best candidates with `molecular-docking` |
-
-**Triage before docking.** Docking is the expensive step, and a molecule
-that fails Lipinski on three counts or carries PAINS alerts is not worth
-the minutes. Run `admet-prediction` over the set first and dock the top few
-by QED.
 
 Report in biological terms:
 

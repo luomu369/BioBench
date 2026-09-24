@@ -148,9 +148,35 @@ mmseqs createdb targets.fasta tDB --createdb-mode 2
 A database is a directory of binary files plus an index. It is not portable
 between MMseqs2 versions — rebuild rather than upgrade in place.
 
-## Downloading ready-made databases
+## Building a sequence database from the Foldseek structure database
 
-Optional. Without them, searches are limited to local files.
+**The PDB sequence database does not need downloading — it is already on
+disk.** Foldseek's structure database ships the amino acid sequences
+alongside the coordinates, in `pdb_seq`, and MMseqs2 reads that format
+directly:
+
+```bash
+MM=/home/asus_gx10/tools/mmseqs/bin/mmseqs
+
+# 1.5 M sequences out of the structure database, ~6 s
+$MM convert2fasta ~/foldseek-db/pdb_seq pdb_seqs.fasta
+
+# GPU-compatible database, ~6 s
+$MM createdb pdb_seqs.fasta ~/mmseqs-db/pdb --createdb-mode 2
+```
+
+Result on this machine: 1,562,678 sequences, 397 MB as a database, 565 MB
+as FASTA. Keep the FASTA — rebuilding with different parameters does not
+need the conversion again.
+
+This works because both tools use the same database format for amino acid
+data. It does **not** work the other way round: `foldseek easy-search`
+refuses an amino acid database with `wrong type (Aminoacid)`, so a
+structure search cannot borrow a sequence database.
+
+### Downloading other databases
+
+If a database is not already present, `mmseqs databases` fetches one:
 
 ```bash
 mmseqs databases UniProtKB Swiss-Prot swissprot db_tmp
@@ -162,6 +188,9 @@ mmseqs databases UniProtKB Swiss-Prot swissprot db_tmp
 | `UniProtKB/UniRef90` | ~8 GB | ~20 GB | Clustered at 90% identity |
 | `PDB` | ~30 GB | ~80 GB | Sequences of experimental structures |
 | `UniProtKB/UniRef50` | ~25 GB | ~60 GB | Clustered at 50% |
+
+**Prefer converting the local Foldseek database over downloading PDB.** It
+is the same content, already on disk, and takes twelve seconds.
 
 ## Troubleshooting
 

@@ -133,21 +133,6 @@ python3 $PUB --status --state done --step "分子生成" --index 2 --total 2 \
   --skill molecule-generation --message "已生成 20 个分子"
 ```
 
-### Before anything downstream
-
-Generated molecules have not been filtered for drug-likeness — GenMol
-optimises for the pocket, not for the properties a drug needs. Run
-`admet-prediction` over the set before docking or showing them to the user,
-and report what it says:
-
-```bash
-$PY /home/asus_gx10/biobench/skills/admet-prediction/scripts/admet.py \
-  --sdf molecules.sdf --json
-```
-
-A set where most molecules fail Lipinski or carry PAINS alerts is worth
-saying out loud, rather than presenting twenty SMILES as twenty candidates.
-
 ## Output format
 
 One SMILES per line:

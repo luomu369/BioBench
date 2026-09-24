@@ -42,10 +42,14 @@ Pick the target from what the user is asking:
 
 | Question | Target |
 |----------|--------|
-| "What is this sequence?" | UniProt/Swiss-Prot or PDB |
+| "What is this sequence?" | `~/mmseqs-db/pdb` — 1.5 M PDB sequences, already built |
 | "Is this the same as that one?" | The specific local file |
 | "Did these designs converge?" | The directory of designs |
-| "Does my binder resemble a known family?" | PDB or Swiss-Prot |
+| "Does my binder resemble a known family?" | `~/mmseqs-db/pdb`, or Swiss-Prot if downloaded |
+
+> **The PDB sequence database is already on disk.** It was converted from
+> the Foldseek structure database, not downloaded — see `mmseqs-deploy` for
+> how, and for what to do if it is missing.
 
 > **Short sequences need a different tool.** MMseqs2's sensitivity falls off
 > below ~30 residues, and a 10-residue motif will match nothing meaningful.
@@ -55,13 +59,22 @@ Pick the target from what the user is asking:
 
 ```
 0. Confirm parameters with the user   ← do not skip
-1. Report progress                    (structure-viewer publisher)
-2. Build the databases
+1. Check the target database exists
+2. Build the query database
 3. Run the search
 4. Interpret and report the hits
 ```
 
-## Step 1 — Report progress
+## Step 1 — Check the database
+
+```bash
+ls ~/mmseqs-db/pdb/pdb.dbtype 2>/dev/null && echo "PDB sequence db present"
+```
+
+If it is missing, build it from the Foldseek structure database — twelve
+seconds, no download. See `mmseqs-deploy`.
+
+## Step 2 — Report progress
 
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
@@ -70,7 +83,7 @@ python3 $PUB --status --state running --step "搜索序列数据库" --index 1 -
   --skill sequence-search --message "正在比对序列"
 ```
 
-## Step 2 — Build the databases
+## Step 3 — Build the databases
 
 MMseqs2 works on its own binary database format, not FASTA:
 
@@ -85,7 +98,7 @@ $MM createdb query.fasta qDB
 it the search fails with `Database tDB is not a valid GPU database`. The
 query database does not need it.
 
-## Step 3 — Run
+## Step 4 — Run
 
 ```bash
 MM=/home/asus_gx10/tools/mmseqs/bin/mmseqs
@@ -158,7 +171,7 @@ Each line of `clusters.tsv` is one cluster: a representative followed by its
 members. Many small clusters mean the designs diverged; one large cluster
 means they converged.
 
-## Step 4 — Publish
+## Step 5 — Publish
 
 If the search produced a structure worth showing — a hit fetched from the
 PDB, say — publish it. The search itself produces no structure, so usually
