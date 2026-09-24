@@ -762,8 +762,20 @@ const resetBtn = document.getElementById("reset-btn");
 
 function renderStructure(data, meta) {
   currentMeta = meta;
-  viewer.removeAllModels();
   const fmt = meta.format === "pdb" ? "pdb" : "mmcif";
+
+  // Clear, then build, then render — all before yielding to the browser.
+  //
+  // The flicker came from removeAllModels() emptying the scene while
+  // render() was not reached until the styles were set several statements
+  // later; the browser painted one blank frame in between. Everything from
+  // here to viewer.render() is synchronous, so no frame is produced until
+  // the new model is fully styled.
+  //
+  // removeModel(id) is not an alternative: viewer.models is a sparse array
+  // keyed by ID, and deleting a middle entry leaves its length unchanged,
+  // so the model count climbs on every poll even though only one is drawn.
+  viewer.removeAllModels();
   viewer.addModel(data, fmt);
 
   // removeAllModels() clears click bindings — re-attach for the new model
