@@ -250,15 +250,64 @@ Call it whenever the task moves to a new phase. Typical points:
 - when a partial result is worth showing
 - on success (`--state done`) or failure (`--state error`)
 
+### Every skill reports the same way
+
+This is the convention, not one skill's habit. Whatever you are running —
+a design, a docking sweep, a pocket search — the sequence is the same:
+
+1. **Declare the plan** before starting, so the user sees the route.
+2. **Report each step** as it is reached, with matching `--step` names.
+3. **Mark it done** with the result in `--message`.
+
+```bash
+PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+
+# 1. the whole route, before anything runs
+python3 $PUB --status --state queued --skill <your-skill> --job <run-id> \
+  --plan "步骤一,步骤二,步骤三" --message "已规划：<what>，预计 <how long>"
+
+# 2. each step as it is reached — same --job, --step matching the plan
+python3 $PUB --status --state running --step "步骤一" --index 1 --total 3 \
+  --skill <your-skill> --job <run-id> --message "正在<doing what>"
+
+# 3. finished
+python3 $PUB --status --state done --step "步骤三" --index 3 --total 3 \
+  --skill <your-skill> --job <run-id> --message "<the result>"
+```
+
+**Declare a plan for anything over a few minutes.** It costs one flag and
+turns "正在生成主链骨架" into a route the user can read from the first
+second. A run of seconds does not need one — a single `--state running` is
+enough.
+
+**Give every run its own `--job` id.** Several skills can proceed at once —
+a GPU design alongside a CPU docking run — and without distinct ids they
+share one entry and clobber each other's progress. `--job` defaults to the
+skill name, so re-running a skill updates its entry rather than adding a
+duplicate; pass a distinct value to run two of the same skill side by side.
+
+The viewer shows one job on the pill and the rest in the pull-up menu,
+grouped into 排队中 / 运行中 / 已完成.
+
 ### Status fields
 
 | Field | Meaning |
 |-------|---------|
-| `state` | `idle`, `running`, `done`, `error` |
+| `state` | `queued`/`idle` (waiting), `running`, `done`, `error` |
 | `step` | 当前阶段的说明文字，直接显示在进度条上 |
 | `step_index` / `step_total` | Drives the progress bar |
 | `message` | Human-readable detail |
 | `skill` | Which skill is running, for attribution |
+| `job` | Identifies the run so several can proceed at once |
+| `plan` | The whole route, declared up front |
+
+**`--step` names must match the plan's spellings exactly.** That is how the
+viewer knows which step to light up. A name that does not appear in the plan
+leaves every step grey rather than lighting the wrong one — so if the plan
+says `结构预测`, report `--step "结构预测"`, not `--step "folding"`.
+
+A plan is declared once and carried forward: re-passing it on every step
+update is unnecessary, and omitting it after the first call does not lose it.
 
 ### Publishing a structure
 
@@ -278,63 +327,6 @@ dropdown shows their purpose.
 
 Both actions can be combined in one call by passing `--structure` and
 `--status` together.
-
-### Running several jobs at once
-
-Several skills can proceed simultaneously — a BoltzGen design on the GPU
-while Vina docks on the CPU. Each one reports progress under its own `--job`
-id, and the viewer tracks them separately instead of letting the second run
-overwrite the first's status.
-
-```bash
-# two jobs, side by side
-python3 $PUB --status --state running --step "设计主链" --index 1 --total 5 \
-  --skill binder-design --job boltz1 --message "BoltzGen 设计 4 个 binder"
-
-python3 $PUB --status --state running --step "分子生成" --index 1 --total 3 \
-  --skill pocket-molecule-design --job resgen1 --message "ResGen 生成口袋分子"
-```
-
-`--job` defaults to the skill name, so re-running a skill updates its entry
-rather than adding a duplicate — the same rule the viewer's tabs follow.
-Pass a distinct value to run two of the same skill side by side.
-
-The pill at the bottom shows one job: the newest running one, or the result
-of whichever just finished. Everything else is in the pull-up menu behind the
-chevron, grouped into 运行中 / 排队中 / 已完成, each with its own progress
-bar and elapsed time.
-
-**Use `--job` whenever a run may overlap another.** Without it two
-concurrent runs of the same skill share one entry and clobber each other's
-progress — the pill would jump between the two.
-
-### Declaring the plan up front
-
-A long run reveals itself one step at a time, so for the first stretch there
-is no way to know what it is going to do. `--plan` takes the whole route and
-the viewer shows it before anything has run, lighting each step up as it is
-reached:
-
-```bash
-python3 $PUB --status --state queued --skill binder-design --job boltz1 \
-  --plan "生成主链,折叠验证,亲和力评估,筛选排序" \
-  --message "已规划：4 个 binder 设计"
-```
-
-`--state queued` (or `idle`) marks it as waiting. The job appears in the
-menu's 排队中 group with every step grey, and moves to 运行中 on the first
-`--state running` call.
-
-**Declare a plan for anything over a few minutes.** It costs one flag and
-turns "正在生成主链骨架" into a route the user can read at a glance.
-
-The current step is matched **by name** against the plan, not by index — the
-`--step` you report is what the plan was written with. A name that does not
-appear in the plan leaves every step grey rather than lighting the wrong
-one, so keep the two spellings identical.
-
-A plan is declared once and carried forward: re-passing it on every step
-update is unnecessary, and omitting it after the first call does not lose it.
 
 ### Highlighting what you just changed
 

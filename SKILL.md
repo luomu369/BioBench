@@ -136,20 +136,11 @@ Report progress as it happens — publish to `status.json` so the viewer's
 progress bar moves, and tell the user what step the job is on. When it
 finishes, report the result and publish the structure.
 
-**Declare the plan before starting a long job.** Anything over a few minutes
-should publish its whole route up front with `--plan`, so the user sees what
-is going to happen rather than watching one step appear at a time:
-
-```bash
-python3 $PUB --status --state queued --skill binder-design --job boltz1 \
-  --plan "生成主链,折叠验证,结构预测,亲和力评估,汇总指标,筛选排序" \
-  --message "已规划：4 个 binder 设计，预计 25 分钟"
-```
-
-Several jobs can proceed at once — a GPU design alongside a CPU docking run.
-Give each its own `--job` id and the viewer tracks them separately, showing
-one on the pill and the rest in the pull-up menu grouped by 排队中 / 运行中
-/ 已完成.
+**Declare the plan before starting a long job, and give each run its own
+`--job`.** Anything over a few minutes should publish its whole route up
+front so the user sees what is going to happen, and several jobs can proceed
+at once — a GPU design alongside a CPU docking run. The convention, with
+examples, is in `structure-viewer` under "Every skill reports the same way".
 
 Short commands (git, grep, reading a file, a quick check) run in the
 foreground; they finish before the user notices.
