@@ -37,6 +37,11 @@ def parse_args():
     ap.add_argument("--d", required=True, help="atom after the bond, far side")
     ap.add_argument("--step", type=int, default=15, help="degrees between samples")
     ap.add_argument("--out", help="write the profile as JSON here")
+    ap.add_argument("--write-pdb",
+                    help="write the source structure with the side chain at "
+                         "its minimum-energy angle. Only the atoms on the "
+                         "far side of the bond move; the rest of the "
+                         "complex is copied through untouched.")
     return ap.parse_args()
 
 
@@ -240,6 +245,67 @@ def rotate_about_bond(conf, ib, ic, delta_deg):
         conf.SetAtomPosition(idx, [float(rv[0]), float(rv[1]), float(rv[2])])
 
 
+def write_minimum(src, chain, resi, pivot_atom, mol, conf, far_side, dest):
+    """Write the source structure with one residue's far side replaced.
+
+    The rotated coordinates live in an RDKit conformer built from a single
+    residue, so they have to be matched back to the original file by atom
+    name. Everything outside the residue is copied through untouched, which
+    keeps the rest of the complex — and its numbering — exactly as it was.
+
+    Hydrogens are skipped: the source has none, and inventing them would
+    change the atom count and every serial number after them.
+    """
+    import gemmi
+
+    # Rotated positions for the atoms that moved. The conformer holds the
+    # hydrogens AddHs appended after the heavy atoms, so the heavy atoms are
+    # still in the order build_mol read them — which is the file order, and
+    # matches the residue's atom order in the source.
+    st = gemmi.read_structure(src)
+    res_atoms = None
+    for ch in st[0]:
+        if ch.name != chain:
+            continue
+        for r in ch:
+            if r.seqid.num == resi:
+                res_atoms = list(r)
+                break
+    if res_atoms is None:
+        raise SystemExit(f"{chain}:{resi} vanished from {src}")
+
+    heavy = [a for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
+    if len(heavy) != len(res_atoms):
+        raise SystemExit(
+            f"atom count mismatch: {len(heavy)} in the conformer, "
+            f"{len(res_atoms)} in {chain}:{resi}")
+
+    new_pos = {}
+    for i, ga in enumerate(res_atoms):
+        if heavy[i].GetIdx() in far_side:
+            p = conf.GetAtomPosition(heavy[i].GetIdx())
+            new_pos[ga.name] = (p.x, p.y, p.z)
+
+    replaced = 0
+    for ch in st[0]:
+        if ch.name != chain:
+            continue
+        for r in ch:
+            if r.seqid.num != resi:
+                continue
+            for a in r:
+                if a.name in new_pos:
+                    x, y, z = new_pos[a.name]
+                    a.pos.x, a.pos.y, a.pos.z = x, y, z
+                    replaced += 1
+
+    st.setup_entities()
+    with open(dest, "w") as f:
+        f.write(st.make_pdb_string())
+    print(f"wrote {dest}: {replaced} atoms replaced on {chain}:{resi}",
+          file=sys.stderr)
+
+
 def main():
     args = parse_args()
     atoms, resn = load_residue(args.pdb, args.chain, args.resi)
@@ -341,6 +407,20 @@ def main():
         "minimum_energy": e_min,
         "max_barrier_kcal": round(max(energies) - e_min, 3),
     }
+
+    # Write the minimum-energy conformation back into the full structure.
+    #
+    # Only the atoms on the far side of the bond move; everything else keeps
+    # the coordinates it had. That is the point — the result is the original
+    # complex with one side chain rotated, so it can be published beside the
+    # original and the two compared directly.
+    if args.write_pdb:
+        for idx, p in original.items():
+            conf.SetAtomPosition(idx, [p.x, p.y, p.z])
+        rotate_about_bond(conf, ib, ic, best[0]["angle"] - start)
+        write_minimum(args.pdb, args.chain, args.resi, args.b,
+                      mol, conf, far_side, args.write_pdb)
+        result["written"] = args.write_pdb
 
     text = json.dumps(result, indent=2)
     if args.out:
