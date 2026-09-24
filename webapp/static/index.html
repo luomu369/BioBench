@@ -450,6 +450,34 @@
   }
   #status .step { color: var(--muted); font-size: 12px; flex-shrink: 0; }
 
+  /* ---------- machine load readout ---------- */
+  /* Sits at the right end of the status pill. A vertical rule separates it
+     from the progress text so the two groups read as one thing each. */
+  #status .sys {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 12px;
+    margin-left: 2px;
+    border-left: 1px solid rgba(34,48,64,.9);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  #status .sys-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  #status .sys-item .k { opacity: .65; }
+  #status .sys-item .v { color: var(--text); }
+  /* Colour the number by how loaded the machine is, so a busy GPU is
+     visible at a glance without reading the digits. */
+  #status .sys-item.warn .v { color: #fbbf24; }
+  #status .sys-item.hot .v { color: var(--err); }
+
   /* ---------- structure switcher ---------- */
   /* One entry per structure the viewer has loaded this session, so results
      from different runs stay available instead of replacing each other.
@@ -605,6 +633,12 @@
   <span class="msg"></span>
   <span class="bar"><div></div></span>
   <span class="step"></span>
+  <!-- Machine load, so a slow run can be told apart from a hung one. -->
+  <span class="sys" id="sys">
+    <span class="sys-item" id="sys-cpu" title="CPU 占用率"></span>
+    <span class="sys-item" id="sys-gpu" title="GPU 占用率" hidden></span>
+    <span class="sys-item" id="sys-mem" title="内存占用"></span>
+  </span>
 </div>
 
 <script>
@@ -1941,6 +1975,65 @@ selClear.addEventListener("click", () => {
   renderSelectionPanel();
 });
 
+/* ---------------- machine load ---------------- */
+
+// The status pill shows what the skill is doing; these numbers show what the
+// machine is doing while it does it. A run that looks stuck but is burning a
+// core is a different problem from one that is genuinely idle, and the only
+// way to tell them apart from the browser is to look here.
+
+const sysCpu = document.getElementById("sys-cpu");
+const sysGpu = document.getElementById("sys-gpu");
+const sysMem = document.getElementById("sys-mem");
+
+// Above these the number changes colour: warn at 70%, hot at 90%.
+const SYS_WARN = 70;
+const SYS_HOT = 90;
+
+function sysClass(pct) {
+  if (pct >= SYS_HOT) return "sys-item hot";
+  if (pct >= SYS_WARN) return "sys-item warn";
+  return "sys-item";
+}
+
+function sysSet(el, label, value, pct) {
+  if (!el) return;
+  el.className = sysClass(pct);
+  el.innerHTML = `<span class="k">${label}</span>` +
+                 `<span class="v">${value}</span>`;
+}
+
+async function renderSysinfo() {
+  try {
+    const res = await fetch("sysinfo.json?t=" + Date.now());
+    if (!res.ok) return;
+    const s = await res.json();
+
+    if (typeof s.cpu_percent === "number") {
+      sysSet(sysCpu, "CPU", `${Math.round(s.cpu_percent)}%`, s.cpu_percent);
+    }
+
+    // No nvidia-smi or no NVIDIA GPU: the server omits the block, and the
+    // span stays hidden rather than showing a permanent 0%.
+    if (s.gpu && typeof s.gpu.util_percent === "number") {
+      sysGpu.hidden = false;
+      sysSet(sysGpu, "GPU", `${Math.round(s.gpu.util_percent)}%`, s.gpu.util_percent);
+      // Unified-memory parts report no dedicated VRAM; the tooltip then
+      // says so instead of showing undefined.
+      sysGpu.title = (typeof s.gpu.mem_used_gb === "number")
+        ? `GPU 占用率 · 显存 ${s.gpu.mem_used_gb}/${s.gpu.mem_total_gb} GB`
+        : "GPU 占用率 · 统一内存架构，无独立显存";
+    } else {
+      sysGpu.hidden = true;
+    }
+
+    if (s.memory && typeof s.memory.percent === "number") {
+      sysSet(sysMem, "RAM",
+             `${s.memory.used_gb}/${s.memory.total_gb}G`, s.memory.percent);
+    }
+  } catch (e) { /* server unreachable */ }
+}
+
 /* ---------------- status bar ---------------- */
 
 function renderStatus(s) {
@@ -2152,6 +2245,11 @@ async function poll() {
     const res = await fetch("status.json?t=" + Date.now());
     if (res.ok) renderStatus(await res.json());
   } catch (e) { /* no status file */ }
+
+  // Sampled on the same 2s tick as the status file. The server measures CPU
+  // across a 250ms window, so this is a real reading rather than a
+  // since-boot average.
+  renderSysinfo();
 }
 
 poll();
