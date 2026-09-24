@@ -124,6 +124,9 @@
   #structure-label {
     position: absolute;
     top: 14px; left: 16px;
+    /* Above #left-col (z-index 10) so the switcher menu can open over the
+       metrics and sequence panels. */
+    z-index: 40;
     background: rgba(11,15,20,.72);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -447,68 +450,82 @@
   }
   #status .step { color: var(--muted); font-size: 12px; flex-shrink: 0; }
 
-  /* ---------- structure tabs ---------- */
-  /* One tab per structure the viewer has loaded this session, so results
-     from different runs stay side by side instead of replacing each other.
-     Sits above the status bar, below the top controls. */
-  #tabs {
-    position: absolute;
-    top: 58px; left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
+  /* ---------- structure switcher ---------- */
+  /* One entry per structure the viewer has loaded this session, so results
+     from different runs stay available instead of replacing each other.
+   *
+   * A dropdown rather than a row of tabs: a row of four or more runs the
+   * width of the viewer and pushes the top controls around. The dropdown
+   * lives inside the structure label at the top left, next to the name of
+   * what is on screen. */
+  #struct-switcher {
+    position: relative;
     display: none;
-    align-items: center;
-    gap: 6px;
-    max-width: calc(100% - 32px);
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding: 2px;
+    margin-left: 2px;
   }
-  #tabs.show { display: flex; }
-  #tabs::-webkit-scrollbar { display: none; }
-  /* The bar floats over the viewer canvas. Without this a click on a tab
-     also reaches 3Dmol underneath, which treats it as an atom click and
-     rewrites the state.selection before switchTab can save it. */
-  #tabs .tab { pointer-events: auto; }
-  #tabs .tab {
+  #struct-switcher.show { display: inline-block; }
+  #struct-switcher > button {
     display: flex;
     align-items: center;
-    gap: 7px;
-    background: rgba(19,26,34,.72);
-    border: 1px solid rgba(34,48,64,.9);
-    border-radius: 999px;
-    color: var(--muted);
-    font-size: 12px;
-    padding: 5px 8px 5px 12px;
+    gap: 5px;
+    background: rgba(77,163,255,.12);
+    border: 1px solid rgba(77,163,255,.35);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 11px;
+    padding: 2px 6px;
     cursor: pointer;
-    white-space: nowrap;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    transition: border-color .15s, color .15s;
   }
-  #tabs .tab:hover { border-color: rgba(77,163,255,.5); color: var(--text); }
-  #tabs .tab.on {
-    border-color: rgba(77,163,255,.6);
-    color: var(--text);
-    background: rgba(30,41,59,.85);
+  #struct-switcher > button:hover { background: rgba(77,163,255,.22); }
+  #struct-switcher .sw-caret { font-size: 9px; opacity: .8; }
+  #struct-switcher .sw-count { color: var(--muted); }
+  #struct-switcher .sw-menu {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    min-width: 230px;
+    background: rgba(19,26,34,.96);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 10px;
+    padding: 5px;
+    box-shadow: 0 10px 32px rgba(0,0,0,.5);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    z-index: 30;
   }
-  #tabs .tab .t-src { color: var(--accent); font-size: 11px; }
-  #tabs .tab .t-close {
+  #struct-switcher .sw-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #struct-switcher .sw-row:hover { background: rgba(77,163,255,.12); color: var(--text); }
+  #struct-switcher .sw-row.on { color: var(--text); background: rgba(77,163,255,.16); }
+  #struct-switcher .sw-row .sw-name { flex: 1; }
+  #struct-switcher .sw-row .sw-src { color: var(--accent); font-size: 10px; }
+  #struct-switcher .sw-row .sw-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #struct-switcher .sw-close {
     background: none;
     border: none;
     color: var(--muted);
     font-size: 13px;
     line-height: 1;
     cursor: pointer;
-    padding: 0 2px;
+    padding: 0 3px;
     border-radius: 50%;
   }
-  #tabs .tab .t-close:hover { color: var(--err); }
+  #struct-switcher .sw-close:hover { color: var(--err); }
 </style>
 </head>
 <body>
-
-<div id="tabs"></div>
 
 <div id="viewer-wrap">
   <div id="viewer"></div>
@@ -523,7 +540,7 @@
   </div>
 </div>
 
-<div id="structure-label"></div>
+<div id="structure-label"><span id="struct-switcher"></span></div>
 
 <div id="topbar">
     <select id="style-picker" class="ctl" disabled>
@@ -917,8 +934,15 @@ function renderStructure(data, meta, snap) {
   viewer.render();
 
   hint.classList.add("hidden");
-  label.innerHTML = "";
-  label.appendChild(document.createTextNode(meta.name || "structure"));
+  // Clear only the text and the source tag, not the children — the structure
+  // switcher lives in this element and innerHTML="" would drop it on every
+  // render.
+  [...label.childNodes].forEach(n => {
+    if (n.nodeType === Node.TEXT_NODE) n.remove();
+    if (n.nodeType === Node.ELEMENT_NODE && n.classList.contains("src")) n.remove();
+  });
+  label.insertBefore(document.createTextNode(meta.name || "structure"),
+                     label.firstChild);
   if (meta.source) {
     const src = document.createElement("span");
     src.className = "src";
@@ -1931,7 +1955,7 @@ function renderStatus(s) {
 
 /* ---------------- structure tabs ---------------- */
 
-const tabsBar = document.getElementById("tabs");
+const switcher = document.getElementById("struct-switcher");
 const MAX_TABS = 12;
 
 // A republish of the same name replaces that tab rather than adding a
@@ -1964,52 +1988,88 @@ function addTab(text, meta, activate = true) {
   renderTabs();
 }
 
+// The switcher is a button plus a menu that opens on click. The button
+// shows how many structures are open; the menu lists them with the active
+// one marked, and each row can be closed.
 function renderTabs() {
-  tabsBar.innerHTML = "";
+  switcher.innerHTML = "";
   if (state.tabs.length < 2) {
-    // A single structure needs no tab bar; the label already names it.
-    tabsBar.classList.remove("show");
+    // A single structure needs no switcher; the label already names it.
+    switcher.classList.remove("show");
     return;
   }
-  tabsBar.classList.add("show");
+  switcher.classList.add("show");
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.innerHTML = `<span class="sw-count">${state.tabs.length}</span>` +
+                  `<span class="sw-caret">▾</span>`;
+  btn.title = "Switch structure";
+  btn.addEventListener("click", ev => {
+    ev.stopPropagation();
+    toggleSwitcherMenu();
+  });
+  switcher.appendChild(btn);
+
+  const menu = document.createElement("div");
+  menu.className = "sw-menu";
+  menu.hidden = true;
   state.tabs.forEach((t, i) => {
-    const el = document.createElement("div");
-    el.className = "tab" + (i === state.activeTab ? " on" : "");
+    const row = document.createElement("div");
+    row.className = "sw-row" + (i === state.activeTab ? " on" : "");
+
+    const dot = document.createElement("span");
+    dot.className = "sw-dot";
+    dot.style.background = i === state.activeTab ? "var(--accent)" : "transparent";
+    row.appendChild(dot);
 
     const name = document.createElement("span");
-    name.className = "t-name";
+    name.className = "sw-name";
     name.textContent = t.meta.name || "structure";
-    el.appendChild(name);
+    row.appendChild(name);
 
     if (t.meta.source) {
       const src = document.createElement("span");
-      src.className = "t-src";
+      src.className = "sw-src";
       src.textContent = t.meta.source;
-      el.appendChild(src);
+      row.appendChild(src);
     }
 
     const close = document.createElement("button");
-    close.className = "t-close";
+    close.className = "sw-close";
     close.textContent = "×";
     close.title = "Close";
     close.addEventListener("click", ev => {
       ev.stopPropagation();
       closeTab(i);
-    });    el.appendChild(close);
-
-    el.addEventListener("click", ev => {
-      // The bar floats over the viewer canvas, and 3Dmol listens for
-      // clicks above its own element. Without stopping propagation the
-      // same click also lands as an atom click, which rewrites the
-      // state.selection before switchTab can save it — the tab then restores
-      // whatever the stray click happened to hit.
-      ev.stopPropagation();
-      ev.preventDefault();
-      switchTab(i);
     });
-    tabsBar.appendChild(el);
+    row.appendChild(close);
+
+    row.addEventListener("click", ev => {
+      ev.stopPropagation();
+      switchTab(i);
+      closeSwitcherMenu();
+    });
+    menu.appendChild(row);
   });
+  switcher.appendChild(menu);
 }
+
+function toggleSwitcherMenu() {
+  const menu = switcher.querySelector(".sw-menu");
+  if (!menu) return;
+  menu.hidden = !menu.hidden;
+}
+
+function closeSwitcherMenu() {
+  const menu = switcher.querySelector(".sw-menu");
+  if (menu) menu.hidden = true;
+}
+
+// A click anywhere else closes the menu, the way any dropdown behaves.
+document.addEventListener("click", ev => {
+  if (!switcher.contains(ev.target)) closeSwitcherMenu();
+});
 
 function closeTab(i) {
   if (state.tabs.length <= 1) return;
