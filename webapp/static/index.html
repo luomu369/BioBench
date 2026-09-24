@@ -446,9 +446,65 @@
     animation: none;
   }
   #status .step { color: var(--muted); font-size: 12px; flex-shrink: 0; }
+
+  /* ---------- structure tabs ---------- */
+  /* One tab per structure the viewer has loaded this session, so results
+     from different runs stay side by side instead of replacing each other.
+     Sits above the status bar, below the top controls. */
+  #tabs {
+    position: absolute;
+    top: 58px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    max-width: calc(100% - 32px);
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 2px;
+  }
+  #tabs.show { display: flex; }
+  #tabs::-webkit-scrollbar { display: none; }
+  #tabs .tab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(19,26,34,.72);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 5px 8px 5px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color .15s, color .15s;
+  }
+  #tabs .tab:hover { border-color: rgba(77,163,255,.5); color: var(--text); }
+  #tabs .tab.on {
+    border-color: rgba(77,163,255,.6);
+    color: var(--text);
+    background: rgba(30,41,59,.85);
+  }
+  #tabs .tab .t-src { color: var(--accent); font-size: 11px; }
+  #tabs .tab .t-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    border-radius: 50%;
+  }
+  #tabs .tab .t-close:hover { color: var(--err); }
 </style>
 </head>
 <body>
+
+<div id="tabs"></div>
 
 <div id="viewer-wrap">
   <div id="viewer"></div>
@@ -548,6 +604,12 @@ let chains = [];
 let currentMeta = {};
 let lastUpdated = null;
 let currentStructure = null;
+
+// Structures loaded this session, newest last. Each entry keeps the raw
+// file text so switching tabs does not refetch — the contract files hold
+// only the latest structure, so an older one would otherwise be gone.
+let tabs = [];
+let activeTab = -1;
 
 if (!webglAvailable()) {
   const hint = document.getElementById("viewer-hint");
@@ -1635,6 +1697,90 @@ function renderStatus(s) {
   statusBar.classList.add("show");
 }
 
+/* ---------------- structure tabs ---------------- */
+
+const tabsBar = document.getElementById("tabs");
+const MAX_TABS = 12;
+
+// A republish of the same name replaces that tab rather than adding a
+// second one — rerunning a skill should not pile up duplicates.
+function addTab(text, meta) {
+  const name = meta.name || "structure";
+  const existing = tabs.findIndex(t => t.meta.name === name);
+  if (existing >= 0) {
+    tabs[existing] = { text, meta };
+    activeTab = existing;
+  } else {
+    tabs.push({ text, meta });
+    activeTab = tabs.length - 1;
+    if (tabs.length > MAX_TABS) {
+      tabs.shift();
+      activeTab -= 1;
+    }
+  }
+  renderTabs();
+}
+
+function renderTabs() {
+  tabsBar.innerHTML = "";
+  if (tabs.length < 2) {
+    // A single structure needs no tab bar; the label already names it.
+    tabsBar.classList.remove("show");
+    return;
+  }
+  tabsBar.classList.add("show");
+  tabs.forEach((t, i) => {
+    const el = document.createElement("div");
+    el.className = "tab" + (i === activeTab ? " on" : "");
+
+    const name = document.createElement("span");
+    name.className = "t-name";
+    name.textContent = t.meta.name || "structure";
+    el.appendChild(name);
+
+    if (t.meta.source) {
+      const src = document.createElement("span");
+      src.className = "t-src";
+      src.textContent = t.meta.source;
+      el.appendChild(src);
+    }
+
+    const close = document.createElement("button");
+    close.className = "t-close";
+    close.textContent = "×";
+    close.title = "Close";
+    close.addEventListener("click", ev => {
+      ev.stopPropagation();
+      closeTab(i);
+    });
+    el.appendChild(close);
+
+    el.addEventListener("click", () => switchTab(i));
+    tabsBar.appendChild(el);
+  });
+}
+
+function closeTab(i) {
+  if (tabs.length <= 1) return;
+  tabs.splice(i, 1);
+  if (activeTab >= tabs.length) activeTab = tabs.length - 1;
+  else if (i < activeTab) activeTab -= 1;
+  renderTabs();
+  switchTab(activeTab);
+}
+
+function switchTab(i) {
+  if (i < 0 || i >= tabs.length || i === activeTab) return;
+  activeTab = i;
+  const t = tabs[i];
+  // lastUpdated must move with the tab, or the next poll would see the
+  // contract file's timestamp as unchanged and never re-render it.
+  lastUpdated = t.meta.updated;
+  currentStructure = t.meta.name || null;
+  renderStructure(t.text, t.meta);
+  renderTabs();
+}
+
 /* ---------------- polling ---------------- */
 
 async function poll() {
@@ -1646,7 +1792,15 @@ async function poll() {
         lastUpdated = meta.updated;
         currentStructure = meta.name || null;
         const cif = await fetch("current.cif?t=" + Date.now());
-        if (cif.ok) renderStructure(await cif.text(), meta);
+        if (cif.ok) {
+          const text = await cif.text();
+          addTab(text, meta);
+          renderStructure(text, meta);
+          // renderStructure rebuilds the panels; redraw the tab bar after
+          // it so the active tab's highlight reflects the structure now on
+          // screen rather than whichever one addTab last marked.
+          renderTabs();
+        }
       }
     }
   } catch (e) { /* viewer not published yet */ }
