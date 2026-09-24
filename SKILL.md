@@ -24,7 +24,10 @@ biobench/
     ├── resgen-deploy/        install ResGen and its weights
     ├── pocket-molecule-design/ design molecules for a binding pocket
     ├── foldseek-deploy/      install Foldseek
-    └── structure-comparison/ compare structures with Foldseek
+    ├── structure-comparison/ compare structures with Foldseek
+    ├── vina-deploy/          install AutoDock Vina
+    ├── molecular-docking/    dock ligands, scan bond torsions
+    └── pocket-detection/     find binding pockets with fpocket
 ```
 
 ## First contact
@@ -66,6 +69,11 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "cluster these structures" | `structure-comparison` | Foldseek clustering |
 | "where could a drug bind?" / "find the pockets" | `pocket-detection` | fpocket ranks cavities by drug-likeness |
 | "I have an apo structure, where do I dock?" | `pocket-detection` | Pocket centroids become docking boxes |
+| "dock this molecule into the protein" | `molecular-docking` | Vina runs locally; poses and affinities reported |
+| "where does this drug bind?" / "score these ligands" | `molecular-docking` | Rigid or flexible docking |
+| "screen this library against the target" | `molecular-docking` | Batch docking |
+| "what is the lowest-energy state around this bond?" | `molecular-docking` | MMFF94 torsion scan; profile and minimum published |
+| "how much energy to rotate this side chain?" | `molecular-docking` | Same scan, reported as a barrier |
 | "install GenMol" | `genmol-deploy` | Environment + weights setup |
 | "install ResGen" | `resgen-deploy` | Repo + Google Drive weights + 3 patches |
 | "install Foldseek" | `foldseek-deploy` | Static binary install |
