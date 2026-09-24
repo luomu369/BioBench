@@ -146,12 +146,10 @@ writes a visualization `.cif` you can inspect before committing to a run.
 
 A design run is 20–30 minutes, so declare the whole route before starting it
 — the viewer then shows the plan from the first second instead of revealing
-one step at a time. The reporting convention is in `structure-viewer`; this
-run's plan is:
+one step at a time. The reporting convention is in `structure-viewer`.
 
-```
-生成主链 → 折叠验证 → 结构预测 → 亲和力评估 → 汇总指标 → 筛选排序
-```
+Name the steps for the user, not after BoltzGen's stages. For a standard
+six-stage run:
 
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
@@ -161,22 +159,28 @@ python3 $PUB --status --state queued --skill binder-design --job boltz1 \
   --message "已规划：4 个 binder 设计，预计 25 分钟"
 ```
 
-Report each step as it is reached with the same `--job` and a `--step` that
-matches the plan's spelling exactly.
+Adjust the route to the run — fewer designs, an extra analysis the user asked
+for, a protocol that skips a stage. Then report each step as it is reached
+with the same `--job` and a `--step` matching what you declared.
 
 ### What to report at each step
 
 Write messages a biologist reads — describe the biology, not the algorithm.
 Avoid raw terms like "diffusion sampling" or "DataLoader".
 
-| Step | `--step` | `--message` example |
-|------|----------|---------------------|
-| 1 | `design` | `正在生成 4 个 binder 主链骨架（2/4 完成）` |
-| 2 | `design_folding` | `正在折叠验证设计的序列` |
-| 3 | `folding` | `正在预测复合物结构并计算 pLDDT 置信度` |
-| 4 | `affinity` | `正在评估结合亲和力` |
-| 5 | `analysis` | `正在汇总设计指标` |
-| 6 | `filtering` | `正在按 ipTM 排序并筛选` |
+The pipeline has six stages, but **name the steps yourself**. The plan is
+what the user reads, so phrase it for them rather than copying BoltzGen's
+internal stage names — `design_folding` means nothing to a biologist, while
+"折叠验证" says what is happening. A typical route:
+
+```
+生成主链 → 折叠验证 → 结构预测 → 亲和力评估 → 汇总指标 → 筛选排序
+```
+
+Split or merge stages when the run warrants it. A quick two-design check
+might be three steps; a run where the user asked for extra analysis might
+have seven. The only rule is that the `--step` you report matches what you
+declared.
 
 Update the message whenever the run moves to a new step, and include the
 sub-progress when the log shows it (e.g. `2/4 designs generated`).

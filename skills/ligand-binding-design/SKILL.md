@@ -134,11 +134,10 @@ visualization `.cif`.
 
 A design run is 20–30 minutes, so declare the whole route before starting it
 — the viewer then shows the plan from the first second. The reporting
-convention is in `structure-viewer`; this run's plan is:
+convention is in `structure-viewer`.
 
-```
-生成主链 → 折叠验证 → 结构预测 → 亲和力评估 → 汇总指标 → 筛选排序
-```
+Name the steps for the user, not after BoltzGen's stages. For a standard
+six-stage run:
 
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
@@ -148,21 +147,15 @@ python3 $PUB --status --state queued --skill ligand-binding-design --job lbd1 \
   --message "已规划：4 个结合小分子的蛋白设计，预计 25 分钟"
 ```
 
-Report each step as it is reached with the same `--job` and a `--step` that
-matches the plan's spelling exactly.
+Adjust the route to the run, then report each step as it is reached with the
+same `--job` and a `--step` matching what you declared.
 
 ### What to report at each step
 
-Write messages a biologist reads:
-
-| Step | `--message` example |
-|------|---------------------|
-| `design` | `正在生成 4 个结合位点主链（2/4 完成）` |
-| `design_folding` | `正在折叠验证设计的序列` |
-| `folding` | `正在预测复合物结构并计算 pLDDT 置信度` |
-| `affinity` | `正在评估小分子结合亲和力` |
-| `analysis` | `正在汇总设计指标` |
-| `filtering` | `正在按 ipTM 排序并筛选` |
+Write messages a biologist reads — describe the biology, not the algorithm.
+Avoid raw terms like "diffusion sampling" or "DataLoader". The pipeline has
+six stages, but the wording is yours: "折叠验证" says what is happening,
+`design_folding` does not. Split or merge stages when the run warrants it.
 
 ## Step 4 — Run
 

@@ -278,7 +278,9 @@ python3 $PUB --status --state done --step "步骤三" --index 3 --total 3 \
 **Declare a plan for anything over a few minutes.** It costs one flag and
 turns "正在生成主链骨架" into a route the user can read from the first
 second. A run of seconds does not need one — a single `--state running` is
-enough.
+enough. Where the line falls is your call: a docking sweep that takes ninety
+seconds probably is not worth a plan, a pocket search that takes four minutes
+probably is.
 
 **Give every run its own `--job` id.** Several skills can proceed at once —
 a GPU design alongside a CPU docking run — and without distinct ids they
@@ -308,6 +310,12 @@ says `结构预测`, report `--step "结构预测"`, not `--step "folding"`.
 
 A plan is declared once and carried forward: re-passing it on every step
 update is unnecessary, and omitting it after the first call does not lose it.
+
+**The plan is yours to write.** Nothing checks it against what the run
+actually does. Phrase the steps for the user rather than after a tool's
+internal stage names, and split or merge them to match the run — a quick
+check might be three steps, a thorough one seven. A plan that reads as a
+route the user recognises is worth more than one that mirrors the pipeline.
 
 ### Publishing a structure
 
