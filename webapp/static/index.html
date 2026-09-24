@@ -1493,18 +1493,17 @@ function bondLabel(a, b) {
   return `${tag(a)}–${tag(b)}`;
 }
 
-// Persist the current state.selection so an agent can read it.
-// Written to static/state.selection.json — see the structure-viewer skill.
-// Chain-level selections are written as {"chain": "B", "whole_chain": true}
-// so a skill can act on them without expanding hundreds of residues.
-function persistSelection(keys) {
+// Turn one tab's selection object into the JSON shape skills read.
+// Kept separate from persistSelection so the same code can serialise the
+// active tab and every background tab.
+function serializeSelection(sel) {
   const residues = [];
   const chainSelections = [];
   const atoms = [];
   const bonds = [];
   const pockets = [];
-  keys.forEach(k => {
-    const item = state.selection[k];
+  Object.keys(sel || {}).forEach(k => {
+    const item = sel[k];
     if (item.pocket) {
       pockets.push({
         chain: item.sel.chain,
@@ -1544,6 +1543,16 @@ function persistSelection(keys) {
       color: item.color,
     });
   });
+  return { residues, chainSelections, atoms, bonds, pockets };
+}
+
+// Persist the current state.selection so an agent can read it.
+// Written to static/state.selection.json — see the structure-viewer skill.
+// Chain-level selections are written as {"chain": "B", "whole_chain": true}
+// so a skill can act on them without expanding hundreds of residues.
+function persistSelection(keys) {
+  const { residues, chainSelections, atoms, bonds, pockets } =
+    serializeSelection(state.selection);
 
   const payload = {
     structure: state.structureName || null,
@@ -1560,6 +1569,11 @@ function persistSelection(keys) {
   // What the user is currently looking at. Without this an agent can read
   // the selection but not which tab it was made on, so "design a binder
   // for this" is ambiguous the moment more than one structure is open.
+  //
+  // Every open tab is reported, not just the active one. A request like
+  // "superimpose the two chains I selected" needs both selections, and they
+  // are usually made on different tabs — the active tab alone would make
+  // that request impossible to fulfil.
   payload.view = {
     // Index and name of the tab on screen, plus every tab open, so the
     // agent can tell "the one I am looking at" from "the ones I have".
@@ -1575,6 +1589,26 @@ function persistSelection(keys) {
     // Chains the user has hidden with the eye toggles.
     hidden_chains: [...state.hiddenChains],
   };
+
+  // Selections on the other open tabs, keyed by tab name. The active tab's
+  // selection is already in the top-level fields, so it is skipped here.
+  const others = {};
+  state.tabs.forEach((t, i) => {
+    if (i === state.activeTab) return;
+    const name = t.meta.name || "structure";
+    const s = serializeSelection(t.state && t.state.selection);
+    const n = s.residues.length + s.chainSelections.length
+            + s.atoms.length + s.bonds.length + s.pockets.length;
+    if (!n) return;
+    const entry = { count: n };
+    if (s.residues.length) entry.residues = s.residues;
+    if (s.chainSelections.length) entry.chains = s.chainSelections;
+    if (s.atoms.length) entry.atoms = s.atoms;
+    if (s.bonds.length) entry.bonds = s.bonds;
+    if (s.pockets.length) entry.pockets = s.pockets;
+    others[name] = entry;
+  });
+  if (Object.keys(others).length) payload.other_tabs = others;
 
   // Fire-and-forget: the viewer must not block on this write.
   fetch("selection.json", {

@@ -88,6 +88,32 @@ on a tab the user has since left is not what they are pointing at. When
 `view.tabs` has more than one entry, say which structure you are working
 on rather than assuming.
 
+### Selections on the other open tabs
+
+The top-level fields describe the tab on screen. Every other open tab that
+has a selection is reported under `other_tabs`, keyed by tab name:
+
+```json
+{
+  "structure": "pep15_rank1",
+  "chains": [{"chain": "B", "whole_chain": true}],
+  "view": {"tab": 0, "tab_name": "pep15_rank1", "tabs": ["pep15_rank1", "gb_docked"]},
+  "other_tabs": {
+    "gb_docked": {"count": 1, "chains": [{"chain": "A", "whole_chain": true}]}
+  }
+}
+```
+
+This is what makes "superimpose the two chains I selected" answerable: the
+two selections are almost always made on different tabs, and the active tab
+alone carries only one of them. Tabs with nothing selected are omitted, so
+an absent key means "nothing picked there", not "unknown".
+
+Each entry has the same shape as the top level — `residues`, `chains`,
+`atoms`, `bonds`, `pockets` — plus a `count`. Residue and chain selections
+are stable across publishes; atom and bond indices are only meaningful
+against the structure named by the key.
+
 The Selection panel has four modes, and a selection can mix them. Two more
 lists appear when the user picks atoms or bonds:
 
