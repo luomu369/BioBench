@@ -636,6 +636,11 @@
   /* The job currently on the pill, so the menu says which row is the one
      being shown at the bottom of the screen. */
   #status .st-row.on { background: rgba(77,163,255,.14); }
+  /* A finished task leads somewhere. The pointer and the hover tint say so
+     without adding a chevron or a label — the row already carries a state
+     dot, and a third affordance would be noise. */
+  #status .st-row.st-clickable { cursor: pointer; }
+  #status .st-row.st-clickable:hover { background: rgba(77,163,255,.12); }
   /* A running job's progress, inline under its message. Narrower than the
      pill's bar — this one is a glance, not the primary readout. */
   #status .st-row .st-bar {
@@ -766,6 +771,18 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
+  /* A task heading above the structures it produced. Small caps rather
+     than a coloured bar: the rows below already carry a dot for the active
+     one, and a second visual language would compete with it. */
+  #struct-switcher .sw-group {
+    padding: 7px 9px 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+    opacity: .75;
+  }
+  #struct-switcher .sw-group:first-child { padding-top: 3px; }
   #struct-switcher .sw-close {
     background: none;
     border: none;
@@ -2843,6 +2860,26 @@ function stJobRow(j, isActive) {
   }
 
   row.appendChild(body);
+
+  // A finished task is the way to reach what it produced. Clicking it jumps
+  // to the last structure published under this job — which is why the tab
+  // switcher groups by job too: a task that published several structures
+  // shows them together, and this click lands on the most recent.
+  //
+  // Running and queued tasks are not clickable: there is nothing to show
+  // yet, and a row that looks like a button but does nothing is worse than
+  // one that plainly is not.
+  if (j.state === "done" || j.state === "error") {
+    row.classList.add("st-clickable");
+    row.title = "Show this task's result";
+    row.addEventListener("click", () => {
+      const idx = state.tabs.findIndex(t => (t.meta.job || "") === j.id);
+      if (idx >= 0) {
+        switchTab(idx);
+        closeSwitcherMenu();
+      }
+    });
+  }
   return row;
 }
 
@@ -3015,43 +3052,68 @@ function renderTabs() {
   const menu = document.createElement("div");
   menu.className = "sw-menu";
   menu.hidden = true;
+
+  // Grouped by the task that produced each structure. A task's results
+  // belong together — the point of the grouping is that clicking a finished
+  // task in the status menu reaches everything it made, not just the last
+  // publish. Structures with no task (a manual publish, an RCSB fetch) sit
+  // under a plain heading rather than being hidden.
+  const groups = [];
+  const byJob = {};
   state.tabs.forEach((t, i) => {
-    const row = document.createElement("div");
-    row.className = "sw-row" + (i === state.activeTab ? " on" : "");
-
-    const dot = document.createElement("span");
-    dot.className = "sw-dot";
-    dot.style.background = i === state.activeTab ? "var(--accent)" : "transparent";
-    row.appendChild(dot);
-
-    const name = document.createElement("span");
-    name.className = "sw-name";
-    name.textContent = t.meta.name || "structure";
-    row.appendChild(name);
-
-    if (t.meta.source) {
-      const src = document.createElement("span");
-      src.className = "sw-src";
-      src.textContent = t.meta.source;
-      row.appendChild(src);
+    const job = t.meta.job || "";
+    if (!byJob[job]) {
+      byJob[job] = [];
+      groups.push(job);
     }
+    byJob[job].push([t, i]);
+  });
 
-    const close = document.createElement("button");
-    close.className = "sw-close";
-    close.textContent = "×";
-    close.title = "Close";
-    close.addEventListener("click", ev => {
-      ev.stopPropagation();
-      closeTab(i);
-    });
-    row.appendChild(close);
+  groups.forEach(job => {
+    if (job) {
+      const head = document.createElement("div");
+      head.className = "sw-group";
+      head.textContent = job;
+      menu.appendChild(head);
+    }
+    byJob[job].forEach(([t, i]) => {
+      const row = document.createElement("div");
+      row.className = "sw-row" + (i === state.activeTab ? " on" : "");
 
-    row.addEventListener("click", ev => {
-      ev.stopPropagation();
-      switchTab(i);
-      closeSwitcherMenu();
+      const dot = document.createElement("span");
+      dot.className = "sw-dot";
+      dot.style.background = i === state.activeTab ? "var(--accent)" : "transparent";
+      row.appendChild(dot);
+
+      const name = document.createElement("span");
+      name.className = "sw-name";
+      name.textContent = t.meta.name || "structure";
+      row.appendChild(name);
+
+      if (t.meta.source) {
+        const src = document.createElement("span");
+        src.className = "sw-src";
+        src.textContent = t.meta.source;
+        row.appendChild(src);
+      }
+
+      const close = document.createElement("button");
+      close.className = "sw-close";
+      close.textContent = "×";
+      close.title = "Close";
+      close.addEventListener("click", ev => {
+        ev.stopPropagation();
+        closeTab(i);
+      });
+      row.appendChild(close);
+
+      row.addEventListener("click", ev => {
+        ev.stopPropagation();
+        switchTab(i);
+        closeSwitcherMenu();
+      });
+      menu.appendChild(row);
     });
-    menu.appendChild(row);
   });
   switcher.appendChild(menu);
 }

@@ -203,6 +203,15 @@ def publish_structure(args) -> int:
         "notes": args.notes or "",
         "updated": utcnow_iso(),
     }
+    # Which task produced this. The viewer groups structures under the task
+    # that made them, so a finished task is the way to reach its results —
+    # without this a structure is only reachable through the flat tab list,
+    # and the user has to remember which run it came from.
+    #
+    # Defaults to the skill name, matching how --job defaults, so a publish
+    # and a status report from the same skill land in the same group without
+    # either having to say so.
+    meta["job"] = args.job or args.skill or ""
     highlight = parse_highlight(args.highlight)
     if highlight:
         meta["highlight"] = highlight
