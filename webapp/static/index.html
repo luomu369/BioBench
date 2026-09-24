@@ -458,8 +458,10 @@
    * width of the viewer and pushes the top controls around. The dropdown
    * lives inside the structure label at the top left, next to the name of
    * what is on screen. */
+  /* Static, not relative: the menu is positioned against #structure-label
+     so it opens flush with the label's left edge instead of hanging off
+     the button, which sits to the right of the structure name. */
   #struct-switcher {
-    position: relative;
     display: none;
     margin-left: 2px;
   }
@@ -481,6 +483,8 @@
   #struct-switcher .sw-count { color: var(--muted); }
   #struct-switcher .sw-menu {
     position: absolute;
+    /* Anchored to #structure-label (the nearest positioned ancestor), so
+       the menu's left edge lines up with the label's left edge. */
     top: calc(100% + 5px);
     left: 0;
     min-width: 230px;
