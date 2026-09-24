@@ -8,8 +8,16 @@ description: '**WORKFLOW SKILL** — Predict drug-likeness and ADMET-relevant pr
 Predict drug-likeness and ADMET-relevant properties from SMILES, using
 RDKit's descriptors and structural alert catalogs.
 
-**Prerequisite:** RDKit. It is already in the `docking` and `boltzgen`
-conda environments.
+**Prerequisite:** RDKit. If it is not importable, install it:
+
+```bash
+conda create -n admet python=3.12 -y
+conda activate admet
+conda install -c conda-forge rdkit -y
+```
+
+Any Python with RDKit works — there is no GPU requirement and no model
+weights to download.
 
 ## What this is, and is not
 
@@ -61,17 +69,19 @@ Proceed?
 From SMILES directly:
 
 ```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
 SCRIPT=/home/asus_gx10/biobench/skills/admet-prediction/scripts/admet.py
 
-$PY $SCRIPT --smiles "CC(=O)Oc1ccccc1C(=O)O" --smiles "Cn1cnc2c1c(=O)n(C)c(=O)n2C"
+python $SCRIPT --smiles "CC(=O)Oc1ccccc1C(=O)O" --smiles "Cn1cnc2c1c(=O)n(C)c(=O)n2C"
 ```
+
+Use whichever `python` has RDKit — on this machine that is the `docking` or
+`boltzgen` environment, but the script needs nothing else from either.
 
 From an SDF — which is what `molecule-generation` and
 `pocket-molecule-design` produce:
 
 ```bash
-$PY $SCRIPT --sdf runs/resgen_redock/out/molecules.sdf
+python $SCRIPT --sdf runs/resgen_redock/out/molecules.sdf
 ```
 
 ## Step 2 — Read the output
@@ -125,7 +135,7 @@ For a set of molecules, rank by QED and report the distribution rather than
 listing every one:
 
 ```bash
-$PY $SCRIPT --sdf molecules.sdf --json | python3 -c "
+python $SCRIPT --sdf molecules.sdf --json | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 rows = sorted(d, key=lambda a: -a['qed'])

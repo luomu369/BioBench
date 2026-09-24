@@ -8,8 +8,16 @@ description: '**WORKFLOW SKILL** — Analyse the conformational energy of a prot
 Scan the torsional energy profile around a bond with an MMFF94 force field
 and report the lowest-energy state.
 
-**Prerequisite:** RDKit. It is already in the `docking` and `boltzgen`
-conda environments; no separate install step.
+**Prerequisite:** RDKit. If it is not importable, install it:
+
+```bash
+conda create -n admet python=3.12 -y
+conda activate admet
+conda install -c conda-forge rdkit -y
+```
+
+Any Python with RDKit works — there is no GPU requirement and no model
+weights to download.
 
 ## When to Use
 
@@ -88,10 +96,11 @@ explicit about what is being rotated.
 
 ## Step 3 — Run the scan
 
-```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
+Use whichever `python` has RDKit — on this machine that is the `docking` or
+`boltzgen` environment, but the script needs nothing else from either.
 
-$PY skills/conformational-analysis/scripts/torsion_scan.py \
+```bash
+python skills/conformational-analysis/scripts/torsion_scan.py \
   --pdb runs/dock_gb/out/complex.pdb \
   --chain B --resi 464 \
   --a CA --b CB --c CG --d ND1 \
