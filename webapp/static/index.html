@@ -634,6 +634,8 @@ const state = {
   hiddenChains: new Set(),
   /** "res" | "chain" | "atom" | "bond" */
   selMode: "res",
+  /** Residue currently under the cursor, for the hover preview */
+  hover: null,
   /** Loaded structures: [{text, meta, state}] */
   tabs: [],
   /** Index into tabs of the structure on screen */
@@ -1153,6 +1155,53 @@ function selectionHighlightSpec(kind) {
   }
 }
 
+// Hover preview: the same treatment a click would apply, at reduced
+// opacity, so the user sees what selecting this residue would look like
+// before committing to it.
+//
+// The side chain is drawn in Jmol element colours rather than the hover
+// tint — a preview that flattens the chemistry tells the user less than
+// the residue's own O/N/C readout does.
+function hoverHighlightSpec(kind) {
+  const spec = selectionHighlightSpec(kind);
+  const out = {};
+  for (const [k, v] of Object.entries(spec)) {
+    if (k === "stick" && v.colorscheme) {
+      out[k] = { ...v };                       // side chain keeps its colours
+    } else if (k === "surface") {
+      out[k] = { ...v, color: HOVER_COLOR };
+    } else {
+      out[k] = { ...v, color: HOVER_COLOR };
+    }
+  }
+  return out;
+}
+
+const HOVER_COLOR = "#93c5fd";
+
+// What the hover preview applies to, per selection mode. In res mode it is
+// the residue; in atom/bond mode it is the atom or bond under the cursor,
+// matching what a click would select.
+function hoverSel(atom) {
+  if (state.selMode === "atom") return { index: atom.index };
+  if (state.selMode === "bond") {
+    const model = viewer.getModel();
+    const byIndex = {};
+    (model.atoms || []).forEach(a => { byIndex[a.index] = a; });
+    const other = (atom.bonds || []).map(i => byIndex[i]).filter(Boolean)[0];
+    return other ? { index: [atom.index, other.index] } : { index: atom.index };
+  }
+  return { chain: atom.chain, resi: atom.resi };
+}
+
+// The selection key the hovered thing would occupy, so the preview can be
+// suppressed when it is already selected.
+function hoverKey(atom) {
+  if (state.selMode === "atom") return atomKey(atom);
+  if (state.selMode === "bond") return `bond:${atom.index}`;
+  return `${atom.chain || "_"}:${atom.resi}`;
+}
+
 function applyStyle() {
   const kind = stylePicker.value;
   const scheme = colorPicker.value;
@@ -1254,6 +1303,14 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
     }
     viewer.setStyle(item.sel, styled);
   });
+
+  // Hover preview goes last so it wins over both the base style and any
+  // selection on the same residue — the user is asking about this one right
+  // now. Skipped when the residue is already selected, since the real
+  // highlight is stronger than the preview and repainting it would flicker.
+  if (state.hover && !state.selection[hoverKey(state.hover)]) {
+    viewer.setStyle(hoverSel(state.hover), hoverHighlightSpec(kind));
+  }
 
   viewer.render();
 }
@@ -1399,7 +1456,7 @@ let hoverPos = { x: 0, y: 0 };
 
 function onAtomHover(atom) {
   if (!atom) {
-    hoverTip.hidden = true;
+    onHoverOut();
     return;
   }
   const resn = atom.resn || "?";
@@ -1446,10 +1503,22 @@ function onAtomHover(atom) {
 
   hoverTip.hidden = false;
   positionTip();
+
+  // Preview the selection. Only repaint when the hovered thing actually
+  // changed — 3Dmol fires hover on every mouse move within a residue, and
+  // restyling each time is both wasteful and visibly flickery.
+  const prev = state.hover;
+  const same = prev && hoverKey(prev) === hoverKey(atom);
+  state.hover = atom;
+  if (!same) applyStyle();
 }
 
 function onHoverOut() {
   hoverTip.hidden = true;
+  if (state.hover) {
+    state.hover = null;
+    applyStyle();
+  }
 }
 
 // Keep the tip inside the viewer: flip it to the other side of the cursor
