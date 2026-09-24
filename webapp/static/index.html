@@ -1191,24 +1191,40 @@ let hoverPreviewed = false;
 // What the hover preview applies to, per selection mode. In res mode it is
 // the residue; in atom/bond mode it is the atom or bond under the cursor,
 // matching what a click would select.
+// What the hover preview covers. Always the whole residue, in every mode.
+//
+// In atom and bond mode a click selects one atom or one bond, but that is
+// a poor thing to preview: a lone atom is a dot with no context, and the
+// user is usually asking "what is this residue" rather than "what is this
+// atom". The residue carries the side chain and the backbone, which is
+// what makes the preview readable. The narrower selection still happens
+// on click — only the preview is wider.
 function hoverSel(atom) {
-  if (state.selMode === "atom") return { index: atom.index };
-  if (state.selMode === "bond") {
-    const model = viewer.getModel();
-    const byIndex = {};
-    (model.atoms || []).forEach(a => { byIndex[a.index] = a; });
-    const other = (atom.bonds || []).map(i => byIndex[i]).filter(Boolean)[0];
-    return other ? { index: [atom.index, other.index] } : { index: atom.index };
-  }
   return { chain: atom.chain, resi: atom.resi };
 }
 
 // The selection key the hovered thing would occupy, so the preview can be
 // suppressed when it is already selected.
-function hoverKey(atom) {
-  if (state.selMode === "atom") return atomKey(atom);
-  if (state.selMode === "bond") return `bond:${atom.index}`;
-  return `${atom.chain || "_"}:${atom.resi}`;
+// Whether the hovered residue already carries a selection, so the preview
+// can be suppressed. Residue-level in every mode, matching what hoverSel
+// paints: an atom or bond selected anywhere in this residue counts, since
+// the real highlight is stronger than the preview and repainting over it
+// would flicker.
+function hoverAlreadySelected(atom) {
+  const resKey = `${atom.chain || "_"}:${atom.resi}`;
+  if (state.selection[resKey] || state.selection[`chain:${atom.chain}`]) {
+    return true;
+  }
+  // Atom and bond selections are keyed by index, so scan for one whose
+  // atom belongs to this residue.
+  return Object.values(state.selection).some(item => {
+    if (!item.atom && !item.bond) return false;
+    const idx = Array.isArray(item.sel.index) ? item.sel.index : [item.sel.index];
+    return idx.some(i => {
+      const a = viewer.getModel().atoms.find(x => x.index === i);
+      return a && a.chain === atom.chain && a.resi === atom.resi;
+    });
+  });
 }
 
 function applyStyle() {
@@ -1317,7 +1333,7 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
   // selection on the same residue — the user is asking about this one right
   // now. Skipped when the residue is already selected, since the real
   // highlight is stronger than the preview and repainting it would flicker.
-  if (state.hover && !state.selection[hoverKey(state.hover)]) {
+  if (state.hover && !hoverAlreadySelected(state.hover)) {
     viewer.setStyle(hoverSel(state.hover), hoverHighlightSpec(kind));
   }
 
@@ -1571,7 +1587,9 @@ function onAtomHover(atom) {
   // The tooltip appears immediately — naming a residue is cheap and the
   // user asked for it by pointing. Only the 3D repaint waits.
   const prev = state.hover;
-  const same = prev && hoverKey(prev) === hoverKey(atom);
+  // Same residue means nothing to repaint — 3Dmol fires hover on every
+  // mouse move within a residue.
+  const same = prev && prev.chain === atom.chain && prev.resi === atom.resi;
   state.hover = atom;
   if (same) return;
 
@@ -1587,7 +1605,8 @@ function onAtomHover(atom) {
 
   hoverPreviewTimer = setTimeout(() => {
     // The pointer may have moved on while the timer was pending.
-    if (state.hover && hoverKey(state.hover) === hoverKey(atom)) {
+    if (state.hover && state.hover.chain === atom.chain
+        && state.hover.resi === atom.resi) {
       hoverPreviewed = true;
       applyStyle();
     }
