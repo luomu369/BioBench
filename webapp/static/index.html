@@ -2947,7 +2947,12 @@ function stPlan(j) {
 
 function renderStatusHistory(s) {
   const jobs = (s && s.jobs) || [];
-  const activeId = s && s.active ? s.active.id : null;
+  // Which row to mark is whichever job the pill is actually showing — not
+  // whichever one published last. Those are the same while a run is in
+  // progress and different the moment the user switches to an older
+  // structure, and marking the wrong one leaves a highlight on a task whose
+  // result is not on screen.
+  const shownId = pillJob() || (s && s.active ? s.active.id : null);
   stHistBtn.hidden = !jobs.length;
 
   stMenu.innerHTML = "";
@@ -2968,17 +2973,17 @@ function renderStatusHistory(s) {
 
   if (running.length) {
     stMenu.appendChild(stGroupLabel(`运行中 · ${running.length}`));
-    running.forEach(j => stMenu.appendChild(stJobRow(j, j.id === activeId)));
+    running.forEach(j => stMenu.appendChild(stJobRow(j, j.id === shownId)));
   }
   if (queued.length) {
     stMenu.appendChild(stGroupLabel(`排队中 · ${queued.length}`));
-    queued.forEach(j => stMenu.appendChild(stJobRow(j, j.id === activeId)));
+    queued.forEach(j => stMenu.appendChild(stJobRow(j, j.id === shownId)));
   }
   if (finished.length) {
     stMenu.appendChild(stGroupLabel(`已完成 · ${finished.length}`));
     // Newest first — the run the user just watched is the one they want.
     [...finished].reverse().forEach(
-      j => stMenu.appendChild(stJobRow(j, j.id === activeId)));
+      j => stMenu.appendChild(stJobRow(j, j.id === shownId)));
   }
 }
 
