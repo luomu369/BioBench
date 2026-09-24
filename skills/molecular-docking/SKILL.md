@@ -1,6 +1,6 @@
 ---
 name: molecular-docking
-description: '**WORKFLOW SKILL** — Dock a small-molecule ligand into a protein receptor with AutoDock Vina, rigid or with flexible receptor side chains, and report the predicted binding poses and affinities. Also scans the torsional energy profile around a selected bond. USE FOR: predicting how a drug-like molecule binds a protein; finding a binding site; scoring binding affinity; comparing poses of several ligands; virtual screening a molecule library against a target; docking when the pocket must rearrange to fit the ligand; finding the lowest-energy rotamer around a bond; asking how much energy it costs to rotate a side chain. DO NOT USE FOR: installing Vina (use vina-deploy); designing a protein to bind a ligand (use ligand-binding-design); generating the ligand itself (use molecule-generation or pocket-molecule-design); publishing structures (use structure-viewer). Requires Vina installed — run vina-deploy first.'
+description: '**WORKFLOW SKILL** — Dock a small-molecule ligand into a protein receptor with AutoDock Vina, rigid or with flexible receptor side chains, and report the predicted binding poses and affinities. USE FOR: predicting how a drug-like molecule binds a protein; finding a binding site; scoring binding affinity; comparing poses of several ligands; virtual screening a molecule library against a target; docking when the pocket must rearrange to fit the ligand. DO NOT USE FOR: installing Vina (use vina-deploy); designing a protein to bind a ligand (use ligand-binding-design); generating the ligand itself (use molecule-generation or pocket-molecule-design); analysing the conformational energy of a bond or side chain (use conformational-analysis); publishing structures (use structure-viewer). Requires Vina installed — run vina-deploy first.'
 ---
 
 # Molecular Docking
@@ -19,8 +19,6 @@ poses.
 - "Screen this library against the target"
 - "Predict the binding pose"
 - "Dock this letting the pocket move" / "flexible docking"
-- "What is the lowest-energy state around this bond?"
-- "How much energy does it cost to rotate this side chain?"
 
 ## Confirm before running
 
@@ -403,149 +401,6 @@ print(f'clashes < 2.0 A: {clash}')
 > the other chain's copy vanishes — 19 residues silently deleted from
 > chain B, leaving it in 14 pieces. Always match on chain *and* number.
 
-## Torsion scan around a selected bond
-
-Rotates the far side of a bond through 360° and reports the energy profile
-with MMFF94. Answers "what is the lowest-energy state around this bond" and
-"what does it cost to rotate this side chain".
-
-### Reading the selection
-
-The user selects a bond in the viewer (`sel_mode: bond`). `selection.json`
-carries it as two atom indices plus a label:
-
-```json
-{"bonds": [{"indices": [3108, 3105], "label": "CB464–CA464", "color": "#4ecdc4"}]}
-```
-
-The label names the two atoms but not their order, and the scan needs a
-direction — rotating about b-c from the a side is a different scan from
-rotating from the d side. Resolve the indices against the structure to get
-the atoms, then pick the four for the dihedral:
-
-```bash
-python3 -c "
-import json
-d = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
-b = d.get('bonds', [])
-if not b:
-    raise SystemExit('no bond selected — switch the panel to Bond mode')
-print('selected bond:', b[0]['label'], b[0]['indices'])
-"
-```
-
-For a side-chain scan the natural choice is the χ1 dihedral: `N-CA-CB-CG`
-for most residues, `CA-CB-CG-<first side-chain atom>` for the next one
-along. Pass the four atoms explicitly:
-
-```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
-
-$PY skills/molecular-docking/scripts/torsion_scan.py \
-  --pdb runs/dock_gb/out/complex.pdb \
-  --chain B --resi 464 \
-  --a CA --b CB --c CG --d ND1 \
-  --step 15 \
-  --out runs/torsion_464/scan.json \
-  --write-pdb runs/torsion_464/minimum.pdb
-```
-
-| Flag | Why |
-|------|-----|
-| `--a --b --c --d` | The four atoms of the dihedral. `b` and `c` are the bond being scanned |
-| `--step` | Degrees between samples. 15 gives 24 points; 10 gives 36 and a smoother curve |
-| `--write-pdb` | Also write the structure with the side chain at its minimum |
-
-### What the output says
-
-```json
-{
-  "minimum_angle": 30,
-  "minimum_energy": 604.14,
-  "max_barrier_kcal": 11.104,
-  "start_angle": -99.83,
-  "profile": [{"angle": 0, "energy": 607.37, "rel_kcal": 3.23}, ...]
-}
-```
-
-| Field | Meaning |
-|-------|---------|
-| `minimum_angle` | The lowest-energy dihedral, in degrees |
-| `start_angle` | The angle in the input structure — what the crystal actually has |
-| `max_barrier_kcal` | Highest point above the minimum. Under ~5 the bond rotates freely; over ~20 it is locked |
-| `rel_kcal` | Each sample's energy above the minimum, so the numbers read as barriers |
-
-**`start_angle` above the minimum is the interesting case.** A side chain
-sitting 3 kcal/mol off its preferred rotamer is being held there by
-something — a ligand, a neighbouring residue, a crystal contact. That is
-worth saying in `--notes`, because it is the one result that says something
-about the complex rather than about the residue in isolation.
-
-### Publishing
-
-Publish the original structure for the profile, and the written minimum as
-a second tab so the two can be compared:
-
-```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
-
-python3 $PUB --structure runs/torsion_464/minimum.pdb \
-  --name "torsion_B464_min" --source rdkit-mmff \
-  --roles "A=receptor,B=receptor,C=nanobody,D=peptide,L=ligand" \
-  --highlight "B:464" \
-  --metrics '{"min_angle": {"label": "最低能角度", "value": "30°"},
-             "crystal_angle": {"label": "晶体角度", "value": "-99.8°"},
-             "barrier": {"label": "能垒", "value": "11.1 kcal/mol"}}' \
-  --notes "..." \
-  --status --state done --step "导出最低能构象" --index 1 --total 1 \
-  --skill molecular-docking --message "已导出 B:464 最低能构象（30°）"
-```
-
-### The scan is in vacuum — say so
-
-The residue is scanned alone. No neighbouring chains, no ligand, no
-solvent. Two consequences worth stating whenever the result is reported:
-
-- The barrier is the **intrinsic** cost of rotating that side chain, not
-  the cost in the complex. A pocket can raise it arbitrarily.
-- The minimum is where the side chain *would* prefer to sit, which is often
-  not where it *is* sitting. The gap between the two is the environment's
-  contribution, and it is the more informative number.
-
-A full-complex scan needs a force field over the whole assembly (OpenMM or
-similar), which is not installed.
-
-### How it works, and what does not
-
-The far side of the bond is rotated as a **rigid body** and the force field
-is evaluated at each angle. Minimisation with a torsion constraint was
-tried first and does not work: the constraint is a harmonic term competing
-with everything else in the force field, and at any constant strong enough
-to hold the angle the rest of the molecule tears itself apart. The profile
-came out rising linearly to 2.6e7 kcal/mol — a stretched bond, not a
-barrier.
-
-The residue is rebuilt from the PDB with an explicit topology table rather
-than guessed bonds. A residue read out of a structure is a fragment whose N
-and C termini have no neighbours, and RDKit's bond determination refuses to
-assign a valence to an atom with one bond.
-
-Four RDKit details are needed to get a usable profile, each found by
-hitting the error:
-
-| Call | Without it |
-|------|-----------|
-| `UpdatePropertyCache` | `SetNoImplicit` leaves the explicit valence uncalculated; MMFF reads it on the first atom |
-| `GetSSSR` | `RingInfo not initialized` on HIS, PHE, TYR, TRP, PRO |
-| `AddHs` | MMFF wants explicit hydrogens; PDB depositions omit them |
-| Rebuild the force field each sample | `PyForceField` copies coordinates at construction and `CalcEnergy` reads that copy — a force field built once reports the same number however the conformer moves, giving a perfectly flat profile |
-
-Only the atoms on the far side move. `--write-pdb` maps the conformer's
-heavy atoms back to the file by position, since `build_mol` sets no atom
-names and `AddHs` appends after the heavy atoms — index order is file
-order. Hydrogens are skipped: the source has none, and inventing them would
-renumber every serial after them.
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -567,13 +422,6 @@ renumber every serial after them.
 | Ligand clashes with a side chain Vina moved | Published the rigid receptor, not the moved one | Publish `complex.pdb` from `dock_flex.py` |
 | Ligand clashes with a residue that was never flexible | Flex residues picked by centroid, missing long side chains | `pick_flex_residues` now uses nearest-atom distance |
 | Flexible docking takes 15+ minutes | Vina ran single-threaded despite 20 cores | Pass `--cpu 0`; auto-detection logged `CPU: 0` and used one thread |
-| Torsion profile is perfectly flat | Force field built once; `PyForceField` copied the coordinates at construction | Rebuild it at every sample |
-| Torsion energies rise linearly to ~1e7 | Minimising with a torsion constraint tears the molecule apart | Rotate rigidly instead; do not minimise |
-| `getValence(EXPLICIT) ... without calcExplicitValence` | `SetNoImplicit` skips the valence calculation MMFF reads | Call `UpdatePropertyCache(strict=False)` |
-| `RingInfo not initialized` | MMFF reads ring membership, computed on demand | Call `GetSSSR(mol)` |
-| `Molecule does not have explicit Hs` | MMFF wants hydrogens; the PDB has none | `AddHs(mol, addCoords=True)` |
-| `Unable to determine valence of atom 0 ... 1 bonds` | RDKit cannot guess bonds on a residue fragment | Use the `RESIDUE_BONDS` table in `torsion_scan.py` |
-| `--write-pdb` output has a different atom count | Hydrogens were written into a source that had none | Skip them; map heavy atoms by position |
 
 ## References
 

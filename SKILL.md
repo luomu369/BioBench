@@ -26,7 +26,8 @@ biobench/
     ├── foldseek-deploy/      install Foldseek
     ├── structure-comparison/ compare structures with Foldseek
     ├── vina-deploy/          install AutoDock Vina
-    ├── molecular-docking/    dock ligands, scan bond torsions
+    ├── molecular-docking/    dock ligands into a receptor
+    ├── conformational-analysis/ scan bond torsions with a force field
     └── pocket-detection/     find binding pockets with fpocket
 ```
 
@@ -72,8 +73,9 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "dock this molecule into the protein" | `molecular-docking` | Vina runs locally; poses and affinities reported |
 | "where does this drug bind?" / "score these ligands" | `molecular-docking` | Rigid or flexible docking |
 | "screen this library against the target" | `molecular-docking` | Batch docking |
-| "what is the lowest-energy state around this bond?" | `molecular-docking` | MMFF94 torsion scan; profile and minimum published |
-| "how much energy to rotate this side chain?" | `molecular-docking` | Same scan, reported as a barrier |
+| "what is the lowest-energy state around this bond?" | `conformational-analysis` | MMFF94 torsion scan; profile and minimum published |
+| "how much energy to rotate this side chain?" | `conformational-analysis` | Same scan, reported as a barrier |
+| "is this residue in a strained conformation?" | `conformational-analysis` | Compares the crystal rotamer against the preferred one |
 | "install GenMol" | `genmol-deploy` | Environment + weights setup |
 | "install ResGen" | `resgen-deploy` | Repo + Google Drive weights + 3 patches |
 | "install Foldseek" | `foldseek-deploy` | Static binary install |
