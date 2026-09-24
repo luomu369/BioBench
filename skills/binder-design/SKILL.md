@@ -291,9 +291,7 @@ BoltzGen does not preserve the IDs from your spec.
 
 ### Writing `--notes`
 
-The viewer shows `--notes` verbatim, so write whatever the numbers alone
-don't say — what the run did, what the result means, what to try next.
-No required structure. Reference material if you want it:
+See `structure-viewer` for how `--notes` is shown. What to put in it:
 
 | Metric | What it is |
 |--------|------------|

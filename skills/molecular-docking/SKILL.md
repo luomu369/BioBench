@@ -251,8 +251,7 @@ protein style, so the pose stays visible under cartoon/surface views.
 
 ### Writing `--notes`
 
-The viewer shows `--notes` verbatim, so write whatever the numbers alone
-don't say. No required structure:
+See `structure-viewer` for how `--notes` is shown. What to put in it:
 
 ```
 --notes "亲和力 -8.55 kcal/mol，5 个姿态。建议：与共晶配体对比打分。"

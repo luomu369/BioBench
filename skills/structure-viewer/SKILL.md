@@ -427,6 +427,7 @@ In Python:
 
 ```python
 import json, os
+from datetime import datetime, timezone
 from pathlib import Path
 
 def publish(cif_text: str, meta: dict, viewer: Path):
@@ -435,7 +436,10 @@ def publish(cif_text: str, meta: dict, viewer: Path):
     tmp.write_text(cif_text)
     os.replace(tmp, viewer / "current.cif")
 
-    meta["updated"] = datetime.now().isoformat(timespec="seconds")
+    # UTC with the zone spelled out. A bare isoformat() gives local time with
+    # no offset, and the browser reads it in its own zone — on a UTC machine
+    # serving a GMT+0800 browser that puts every timestamp eight hours off.
+    meta["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     tmp = viewer / ".current.json.tmp"
     tmp.write_text(json.dumps(meta, indent=2))
     os.replace(tmp, viewer / "current.json")
@@ -508,33 +512,35 @@ document.querySelector('#viewer canvas')._3dmol_viewer.models[0].atoms
 
 ## Example: publishing a BoltzGen result
 
+The whole flow, end to end. Everything goes through the publisher — writing
+`status.json` by hand would skip the job bookkeeping and leave the viewer's
+task list out of step.
+
 ```bash
-BIOBENCH=/home/asus_gx10/biobench
-RUN=$BIOBENCH/runs/my-design
+PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+RUN=runs/my-design
 
-# 1. Report progress
-cat > $BIOBENCH/webapp/static/status.json <<'EOF'
-{"state":"running","skill":"boltzgen-deploy","step":"folding",
- "step_index":4,"step_total":6,"message":"Refolding designs"}
-EOF
+# 1. Declare the route before the run starts
+python3 $PUB --status --state queued --skill binder-design --job boltz1 \
+  --plan "生成主链,折叠验证,结构预测,亲和力评估,汇总指标,筛选排序" \
+  --message "已规划：4 个 binder 设计，预计 25 分钟"
 
-# 2. Publish the top-ranked design
-cp $RUN/intermediate_designs/rank0_*.cif \
-   $BIOBENCH/webapp/static/.current.cif.tmp
-mv $BIOBENCH/webapp/static/.current.cif.tmp \
-   $BIOBENCH/webapp/static/current.cif
+# 2. Report each step as it is reached
+python3 $PUB --status --state running --step "结构预测" --index 3 --total 6 \
+  --skill binder-design --job boltz1 --message "正在预测复合物结构并计算 pLDDT"
 
-# 3. Publish metadata
-cat > $BIOBENCH/webapp/static/.current.json.tmp <<'EOF'
-{"name":"nk2r_binder_rank0","source":"boltzgen","format":"cif",
- "metrics":{"plddt":0.87},"notes":"Top-ranked of 8 designs"}
-EOF
-mv $BIOBENCH/webapp/static/.current.json.tmp \
-   $BIOBENCH/webapp/static/current.json
+# 3. Publish the top-ranked design, with the hotspots highlighted
+python3 $PUB --structure $RUN/intermediate_designs/rank0_design_0.cif \
+  --name "nk2r_binder_rank0" --source boltzgen \
+  --roles "A=binder,B=target" \
+  --highlight "B:145,B:146,B:149" \
+  --metrics '{"designs": {"label": "设计数", "value": 4},
+             "ipTM": {"label": "界面 TM-score", "value": 0.72, "hint": ">0.7 为好"}}' \
+  --notes "Top-ranked of 4 designs. ipTM 0.72 — the interface is credible."
 
-# 4. Mark done
-cat > $BIOBENCH/webapp/static/status.json <<'EOF'
-{"state":"done","skill":"boltzgen-deploy","step":"filtering",
- "step_index":6,"step_total":6,"message":"Published rank0"}
-EOF
+# 4. Mark the job done
+python3 $PUB --status --state done --step "筛选排序" --index 6 --total 6 \
+  --skill binder-design --job boltz1 --message "已发布 rank0，ipTM 0.72"
 ```
+
+Steps 3 and 4 can be one call — `--structure` and `--status` together.

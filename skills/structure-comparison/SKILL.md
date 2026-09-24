@@ -323,8 +323,7 @@ panel, and the status bar reads done.
 
 ### Writing `--notes`
 
-The viewer shows `--notes` verbatim, so write whatever the numbers alone
-don't say. No required structure. Reference material if you want it:
+See `structure-viewer` for how `--notes` is shown. What to put in it:
 
 | Result | Usually means |
 |--------|---------------|
