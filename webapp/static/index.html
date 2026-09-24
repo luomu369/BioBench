@@ -252,7 +252,7 @@
   #seq-panel .seq-eye.off { color: var(--muted); opacity: .8; }
   #seq-panel .seq-chain-seq { color: var(--text); }
 
-  /* ---------- selection panel ---------- */
+  /* ---------- state.selection panel ---------- */
   #selection {
     position: absolute;
     right: 16px; top: 58px;
@@ -466,6 +466,10 @@
   }
   #tabs.show { display: flex; }
   #tabs::-webkit-scrollbar { display: none; }
+  /* The bar floats over the viewer canvas. Without this a click on a tab
+     also reaches 3Dmol underneath, which treats it as an atom click and
+     rewrites the state.selection before switchTab can save it. */
+  #tabs .tab { pointer-events: auto; }
   #tabs .tab {
     display: flex;
     align-items: center;
@@ -600,16 +604,57 @@ function webglAvailable() {
 }
 
 const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "0b0f14" });
-let chains = [];
-let currentMeta = {};
-let lastUpdated = null;
-let currentStructure = null;
 
-// Structures loaded this session, newest last. Each entry keeps the raw
-// file text so switching tabs does not refetch — the contract files hold
-// only the latest structure, so an older one would otherwise be gone.
-let tabs = [];
-let activeTab = -1;
+/* ================= state =================
+ *
+ * Everything mutable lives here. The viewer previously kept eight
+ * top-level variables — selection, hiddenChains, tabs, activeTab, chains,
+ * state.meta, lastUpdated, state.structureName — and every one of them was
+ * read and written from several unrelated functions. That is what made the
+ * tab bugs so hard to pin down: a state.selection could be saved, cleared, and
+ * repainted by three different callers with no single place to look.
+ *
+ * One object, mutated only through the helpers below, so the question
+ * "what is selected right now" has exactly one answer.
+ */
+const state = {
+  /** Chains of the loaded structure: [{chain, seq, residues}] */
+  chains: [],
+  /** current.json of the active structure */
+  meta: {},
+  /** Timestamp of the contract file the active tab was loaded from */
+  lastUpdated: null,
+  /** Timestamp last seen in current.json, independent of which tab is shown */
+  contractUpdated: null,
+  /** Name of the active structure, for selection.json */
+  structureName: null,
+  /** key → {sel, label, color, chain?, atom?, bond?, pocket?} */
+  selection: {},
+  /** Chain IDs hidden by the eye toggles */
+  hiddenChains: new Set(),
+  /** "res" | "chain" | "atom" | "bond" */
+  selMode: "res",
+  /** Loaded structures: [{text, meta, state}] */
+  tabs: [],
+  /** Index into tabs of the structure on screen */
+  activeTab: -1,
+};
+
+// Snapshot the per-structure part of the state, so a tab can restore it.
+function captureState() {
+  return {
+    selection: JSON.parse(JSON.stringify(state.selection)),
+    hiddenChains: [...state.hiddenChains],
+  };
+}
+
+// Install a snapshot taken by captureState. Called before anything reads
+// the state.selection — applyStyle() paints from it, so restoring afterwards
+// leaves the previous structure's highlights on screen.
+function restoreState(snap) {
+  state.selection = snap && snap.selection ? snap.selection : {};
+  state.hiddenChains = new Set(snap && snap.hiddenChains ? snap.hiddenChains : []);
+}
 
 if (!webglAvailable()) {
   const hint = document.getElementById("viewer-hint");
@@ -664,12 +709,10 @@ function extractChains(model) {
   }));
 }
 
-// Chains the user has hidden. Kept across style/selection changes so
+// Chains the user has hidden. Kept across style/state.selection changes so
 // hiding survives a re-render; restored per tab when switching.
-let hiddenChains = new Set();
-
 function chainHidden(chainId) {
-  return hiddenChains.has(chainId);
+  return state.hiddenChains.has(chainId);
 }
 
 // Eye / eye-off icons. Inline SVG rather than emoji so the colour can be
@@ -695,10 +738,10 @@ function chainRow(chainId, label, seqText) {
   eye.title = hidden ? "Show this chain" : "Hide this chain";
   eye.innerHTML = hidden ? EYE_OFF : EYE_ON;
   eye.addEventListener("click", () => {
-    if (hiddenChains.has(chainId)) {
-      hiddenChains.delete(chainId);
+    if (state.hiddenChains.has(chainId)) {
+      state.hiddenChains.delete(chainId);
     } else {
-      hiddenChains.add(chainId);
+      state.hiddenChains.add(chainId);
     }
     applyStyle();
     renderSequence(null);
@@ -725,16 +768,16 @@ function renderSequence(chainInfo) {
     // "All chains" selected — one block per chain, each with its own hide
     // toggle. Ligand chains carry no amino acids so extractChains skips
     // them; take them from the metadata so every chain on screen is listed.
-    const ligandChains = (currentMeta.chains || []).filter(c => c.ligand);
-    if (!chains.length && !ligandChains.length) {
+    const ligandChains = (state.meta.chains || []).filter(c => c.ligand);
+    if (!state.chains.length && !ligandChains.length) {
       seqPanel.classList.remove("show");
       return;
     }
     seqTitle.textContent = "All chains";
-    seqLen.textContent = `${chains.length + ligandChains.length} chains`;
+    seqLen.textContent = `${state.chains.length + ligandChains.length} chains`;
     seqBody.innerHTML = "";
-    chains.forEach(c => {
-      const role = ((currentMeta.chains || []).find(m => m.id === c.chain) || {}).role;
+    state.chains.forEach(c => {
+      const role = ((state.meta.chains || []).find(m => m.id === c.chain) || {}).role;
       const label = `Chain ${c.chain}${role ? " — " + role : ""}  (${c.seq.length} aa)`;
       seqBody.appendChild(chainRow(c.chain, label, c.seq));
     });
@@ -822,19 +865,20 @@ const colorPicker = document.getElementById("color-picker");
 const ligandStylePicker = document.getElementById("ligand-style-picker");
 const resetBtn = document.getElementById("reset-btn");
 
-function renderStructure(data, meta, state) {
-  currentMeta = meta;
+// `snap` is a per-tab snapshot from captureState(), or null for a
+// structure arriving fresh from a publish.
+function renderStructure(data, meta, snap) {
+  state.meta = meta;
 
-  // Restore this tab's selection state before anything reads it.
+  // Restore this tab's selection before anything reads it.
   //
-  // selection and hiddenChains are singletons and still hold the previous
-  // tab's contents on entry. applyStyle() below paints from them, so
-  // restoring afterwards left the old tab's highlights drawn on the new
-  // structure while the panel showed the new tab's state — a residue
-  // appearing selected in two tabs at once, and the tab it belonged to
-  // showing nothing.
-  selection = state && state.selection ? state.selection : {};
-  hiddenChains = new Set(state && state.hiddenChains ? state.hiddenChains : []);
+  // state.selection and state.hiddenChains still hold the previous tab's
+  // contents on entry. applyStyle() below paints from them, so restoring
+  // afterwards left the old tab's highlights drawn on the new structure
+  // while the panel showed the new tab's state — a residue appearing
+  // selected in two tabs at once, and the tab it belonged to showing
+  // nothing.
+  restoreState(snap);
 
   const fmt = meta.format === "pdb" ? "pdb" : "mmcif";
 
@@ -859,8 +903,8 @@ function renderStructure(data, meta, state) {
   viewer.setHoverDuration(0);
   viewer.setHoverable({}, true, onAtomHover, onHoverOut);
 
-  chains = extractChains(viewer.getModel());
-  const isPeptide = chains.length > 0;
+  state.chains = extractChains(viewer.getModel());
+  const isPeptide = state.chains.length > 0;
   if (isPeptide) {
     applyStyle();
   } else {
@@ -885,7 +929,7 @@ function renderStructure(data, meta, state) {
   // sequence panel's eye toggles.
   const metaChains = meta.chains || [];
   const ligandChains = metaChains.filter(c => c.ligand);
-  if (chains.length === 0 && ligandChains.length === 0) {
+  if (state.chains.length === 0 && ligandChains.length === 0) {
     seqPanel.classList.remove("show");
   } else {
     renderSequence(null);
@@ -893,7 +937,7 @@ function renderStructure(data, meta, state) {
 
   renderMetrics(meta);
 
-  // Enable the style controls. The selection state was restored at the top
+  // Enable the style controls. The state.selection state was restored at the top
   // of this function, before applyStyle() painted from it.
   stylePicker.disabled = false;
   colorPicker.disabled = false;
@@ -902,8 +946,8 @@ function renderStructure(data, meta, state) {
   viewer.removeAllLabels();
   // A publish's highlight applies once, when the structure arrives. On a
   // tab switch it would re-add residues the user has since dismissed, so
-  // it is skipped when restoring a saved state.
-  if (!state) applyHighlights(meta);
+  // it is skipped when restoring a saved snapshot.
+  if (!snap) applyHighlights(meta);
   renderSelectionPanel();
 }
 
@@ -913,7 +957,7 @@ function renderStructure(data, meta, state) {
 //   "highlight": [{"chain": "A", "resi": 385}, ...]
 //
 // and those residues are selected exactly as if the user had clicked them
-// — same colours, same panel rows, same selection.json. The user can then
+// — same colours, same panel rows, same state.selection.json. The user can then
 // dismiss them individually or clear the lot.
 //
 // Residues that are not in the loaded model are skipped rather than
@@ -934,8 +978,8 @@ function applyHighlights(meta) {
     const key = `${w.chain}:${w.resi}`;
     const atom = byKey[key];
     if (!atom) return;
-    if (selection[key]) return;
-    selection[key] = {
+    if (state.selection[key]) return;
+    state.selection[key] = {
       sel: { chain: atom.chain, resi: atom.resi },
       label: selLabel(atom),
       color: nextColor(atom.chain),
@@ -960,10 +1004,15 @@ function applyHighlights(meta) {
 const BLUE_WHITE = ["#7dd3fc", "#bae6fd", "#e0f2fe", "#f0f9ff",
                     "#ffffff", "#ffffff", "#ffffff", "#ffffff"];
 
+// `chains` is the array from extractChains: [{chain, seq, residues}]. The
+// key is the chain ID string, not the object — using the object made every
+// entry "[object Object]" and the whole structure rendered in one colour.
 function chainColorMap(chains) {
   const map = {};
-  chains.forEach((c, i) => {
-    map[c] = BLUE_WHITE[Math.min(i, BLUE_WHITE.length - 1)];
+  (chains || []).forEach((c, i) => {
+    const id = typeof c === "string" ? c : c.chain;
+    if (id == null) return;
+    map[id] = BLUE_WHITE[Math.min(i, BLUE_WHITE.length - 1)];
   });
   return map;
 }
@@ -1000,8 +1049,8 @@ function mixHex(base, target, t) {
   return "#" + ((1 << 24) | (r << 16) | (gr << 8) | bl).toString(16).slice(1);
 }
 
-// Element colours tinted toward the user's selection colour. The molecule
-// keeps its O/N/C identity but visibly carries the selection colour, which
+// Element colours tinted toward the user's state.selection colour. The molecule
+// keeps its O/N/C identity but visibly carries the state.selection colour, which
 // is what the swatch in the Selection panel promises.
 function elementColorsTinted(selColor, t = 0.55) {
   const out = {};
@@ -1112,13 +1161,13 @@ function applyStyle() {
 
   // Every chain keeps the chosen style; picking one only moves the camera
   // onto it, so the rest of the complex stays on screen for context.
-  viewer.setStyle({}, styleSpec(kind, scheme, chains.map(c => c.chain)));
+  viewer.setStyle({}, styleSpec(kind, scheme, state.chains.map(c => c.chain)));
 
   // Ligands (non-amino-acid chains from metadata) get their own rendering
   // style, chosen independently of the protein's, so a small molecule
   // stays legible inside a structure of thousands of atoms.
   // current.json chains carry "id", not "chain" — see publish.py.
-  const ligandChains = (currentMeta.chains || [])
+  const ligandChains = (state.meta.chains || [])
     .filter(c => c.ligand)
     .map(c => c.id);
   if (ligandChains.length) {
@@ -1147,17 +1196,17 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
   // without touching the model — so toggling the eye is reversible.
   // This has to come last: the ligand block above would otherwise re-style
   // a hidden ligand and undo the hide.
-  hiddenChains.forEach(ch => viewer.setStyle({ chain: ch }, {}));
+  state.hiddenChains.forEach(ch => viewer.setStyle({ chain: ch }, {}));
 
   // A selected ligand keeps exactly the geometry it already had; only the
-  // element colours change, each tinted toward the user's selection colour.
+  // element colours change, each tinted toward the user's state.selection colour.
   // Overwriting with one flat tone would destroy the O/N/C readout, and
   // changing the radius makes the molecule look fatter than its neighbours.
   const highlight = selectionHighlightSpec(kind);
-  const ligandIds = new Set((currentMeta.chains || [])
+  const ligandIds = new Set((state.meta.chains || [])
     .filter(c => c.ligand).map(c => c.id));
-  Object.entries(selection).forEach(([key, item]) => {
-    // A selected pocket takes the selection colour and grows slightly.
+  Object.entries(state.selection).forEach(([key, item]) => {
+    // A selected pocket takes the state.selection colour and grows slightly.
     // Opacity stays put: changing it reorders 3Dmol's transparent pass and
     // the other pockets fade with it, which reads as "selecting one dims
     // them all". A slightly larger sphere in the selection colour marks
@@ -1169,7 +1218,7 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
       return;
     }
     // A single atom or a bond: keep the geometry exactly as it was and
-    // only shift the element colours toward the selection colour. Scaling
+    // only shift the element colours toward the state.selection colour. Scaling
     // the sphere up made the atom look like a different, larger atom
     // rather than the same one marked; tinting says "selected" while the
     // O/N/C readout and the size stay honest.
@@ -1197,7 +1246,7 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
     for (const [k, v] of Object.entries(highlight)) {
       // The side chain keeps Jmol element colours — blue N, red O, grey C
       // — so the residue's chemistry stays legible. Only the backbone
-      // representation carries the selection colour, which is what marks
+      // representation carries the state.selection colour, which is what marks
       // the residue as chosen.
       styled[k] = k === "stick" && v.colorscheme
         ? { ...v }
@@ -1225,11 +1274,9 @@ const selectionPanel = document.getElementById("selection");
 const selList = document.getElementById("sel-list");
 const selClear = document.getElementById("sel-clear");
 
-// key → { sel, label, color, chain? }
-let selection = {};
-// "res" — a click selects the single residue under the cursor.
-// "chain" — a click selects that residue's whole chain.
-let selMode = "res";
+// What a click selects: "res" — the single residue under the cursor;
+// "chain" — that residue's whole chain; "atom" — one atom; "bond" — a
+// bond to a neighbour. Lives in state so a tab can keep its own mode.
 const PALETTE = ["#ff6b6b", "#4ecdc4", "#ffe66d", "#a78bfa",
                  "#fb923c", "#34d399", "#f472b6", "#60a5fa"];
 
@@ -1266,8 +1313,8 @@ function bondLabel(a, b) {
   return `${tag(a)}–${tag(b)}`;
 }
 
-// Persist the current selection so an agent can read it.
-// Written to static/selection.json — see the structure-viewer skill.
+// Persist the current state.selection so an agent can read it.
+// Written to static/state.selection.json — see the structure-viewer skill.
 // Chain-level selections are written as {"chain": "B", "whole_chain": true}
 // so a skill can act on them without expanding hundreds of residues.
 function persistSelection(keys) {
@@ -1277,7 +1324,7 @@ function persistSelection(keys) {
   const bonds = [];
   const pockets = [];
   keys.forEach(k => {
-    const item = selection[k];
+    const item = state.selection[k];
     if (item.pocket) {
       pockets.push({
         chain: item.sel.chain,
@@ -1319,7 +1366,7 @@ function persistSelection(keys) {
   });
 
   const payload = {
-    structure: currentStructure || null,
+    structure: state.structureName || null,
     count: residues.length + chainSelections.length
          + atoms.length + bonds.length + pockets.length,
     residues,
@@ -1374,7 +1421,7 @@ function onAtomHover(atom) {
   // Say whether this residue is already selected, so the user knows what
   // a click will do before making it.
   const key = `${chain}:${resi}`;
-  if (selection[key] || selection[`chain:${chain}`]) {
+  if (state.selection[key] || state.selection[`chain:${chain}`]) {
     const sel = document.createElement("span");
     sel.className = "ht-sel";
     sel.textContent = "selected";
@@ -1383,13 +1430,13 @@ function onAtomHover(atom) {
 
   // In atom/bond mode the atom name is the thing being picked, so lead
   // with it rather than burying it after the residue.
-  if (selMode === "atom" || selMode === "bond") {
+  if (state.selMode === "atom" || state.selMode === "bond") {
     const name = document.createElement("span");
     name.className = "ht-chain";
     name.textContent = atom.atom || atom.elem || "";
     hoverTip.appendChild(name);
     const akey = atomKey(atom);
-    if (selection[akey]) {
+    if (state.selection[akey]) {
       const sel = document.createElement("span");
       sel.className = "ht-sel";
       sel.textContent = "selected";
@@ -1430,7 +1477,7 @@ document.getElementById("viewer-wrap").addEventListener("mouseleave", () => {
 });
 
 function renderSelectionPanel() {
-  const keys = Object.keys(selection);
+  const keys = Object.keys(state.selection);
   selList.innerHTML = "";
   selectionPanel.classList.add("show");
 
@@ -1444,13 +1491,13 @@ function renderSelectionPanel() {
       atom: "Click an atom to select just that atom.",
       bond: "Click an atom to select the bond to a neighbour. Click again " +
             "to walk to the next bond around that atom.",
-    }[selMode] || "";
+    }[state.selMode] || "";
     selList.innerHTML = `<div class="s-empty">${hint}</div>`;
     return;
   }
 
   keys.forEach(key => {
-    const item = selection[key];
+    const item = state.selection[key];
     const row = document.createElement("div");
     row.className = "s-row";
 
@@ -1468,12 +1515,12 @@ function renderSelectionPanel() {
     del.title = "Remove";
     del.addEventListener("click", ev => {
       ev.stopPropagation();
-      delete selection[key];
+      delete state.selection[key];
       applyStyle();
       renderSelectionPanel();
     });
 
-    // Clicking the row flies the camera to that selection. The panel lists
+    // Clicking the row flies the camera to that state.selection. The panel lists
     // things picked from all over the complex, and without this the only
     // way back to one is to hunt for it in the 3D view.
     row.addEventListener("click", () => seekToSelection(item.sel));
@@ -1483,13 +1530,13 @@ function renderSelectionPanel() {
   });
 }
 
-// Centre the camera on a selection spec. zoomTo takes a 3Dmol selection,
+// Centre the camera on a state.selection spec. zoomTo takes a 3Dmol state.selection,
 // not coordinates — it resolves the atoms itself and frames them, so a
 // single atom and a whole chain both work through the same call.
 //
 // A lone atom has no extent, and zoomTo's own minimum framing is 5 units,
 // which would leave it lost in the middle of the screen. Widen the
-// selection to the atom's residue in that case so the framing has
+// state.selection to the atom's residue in that case so the framing has
 // something to work with.
 function seekToSelection(sel) {
   if (!sel) return;
@@ -1514,25 +1561,25 @@ function seekToSelection(sel) {
   viewer.render();
 }
 
-// Colour for the next selection. Derived from how many things are already
+// Colour for the next state.selection. Derived from how many things are already
 // selected rather than from a running counter, so the sequence is stable:
 // selecting the same residues in the same order always yields the same
 // colours, and cancelling one in the middle does not shift the rest.
 //
 // Residues on the same chain share a colour, which keeps a multi-residue
-// selection on one chain visually coherent.
+// state.selection on one chain visually coherent.
 function nextColor(chainId) {
-  const used = new Set(Object.values(selection).map(s => s.color));
-  const sameChain = Object.values(selection).find(
+  const used = new Set(Object.values(state.selection).map(s => s.color));
+  const sameChain = Object.values(state.selection).find(
     s => s.sel && s.sel.chain === chainId);
   if (sameChain) return sameChain.color;
   const free = PALETTE.find(c => !used.has(c));
-  return free || PALETTE[Object.keys(selection).length % PALETTE.length];
+  return free || PALETTE[Object.keys(state.selection).length % PALETTE.length];
 }
 
 function addSelection(atom) {
   const key = selKey(atom);
-  if (selection[key]) return;
+  if (state.selection[key]) return;
   // An alpha-sphere cloud is one pocket, not one residue: every sphere in
   // it shares residue number 1, so selecting by residue would collapse
   // 74 spheres into a single entry and fade only one of them. Select the
@@ -1540,8 +1587,8 @@ function addSelection(atom) {
   // than recolour.
   if (atom.resn === "STP") {
     const chainKey = `chain:${atom.chain}`;
-    if (selection[chainKey]) return;
-    selection[chainKey] = {
+    if (state.selection[chainKey]) return;
+    state.selection[chainKey] = {
       sel: { chain: atom.chain, resn: "STP" },
       label: `Pocket ${atom.chain}`,
       color: nextColor(atom.chain),
@@ -1550,7 +1597,7 @@ function addSelection(atom) {
     };
     return;
   }
-  selection[key] = {
+  state.selection[key] = {
     sel: { chain: atom.chain, resi: atom.resi },
     label: selLabel(atom),
     color: nextColor(atom.chain),
@@ -1559,9 +1606,9 @@ function addSelection(atom) {
 
 function addChainSelection(chainId) {
   const key = `chain:${chainId}`;
-  if (selection[key]) return;
-  const info = chains.find(c => c.chain === chainId);
-  selection[key] = {
+  if (state.selection[key]) return;
+  const info = state.chains.find(c => c.chain === chainId);
+  state.selection[key] = {
     sel: { chain: chainId },
     label: `Chain ${chainId}${info ? ` (${info.seq.length} aa)` : ""}`,
     color: nextColor(chainId),
@@ -1573,8 +1620,8 @@ function addChainSelection(chainId) {
 // only per-atom selector setStyle accepts.
 function addAtomSelection(atom) {
   const key = atomKey(atom);
-  if (selection[key]) return;
-  selection[key] = {
+  if (state.selection[key]) return;
+  state.selection[key] = {
     sel: { index: atom.index },
     label: atomLabel(atom),
     color: nextColor(atom.chain),
@@ -1594,7 +1641,7 @@ function addBondSelection(atom) {
   if (!neighbours.length) return;
 
   const taken = new Set(
-    Object.keys(selection)
+    Object.keys(state.selection)
       .filter(k => k.startsWith("bond:"))
       .map(k => k.slice(6).split("-").map(Number))
       .flat()
@@ -1602,11 +1649,11 @@ function addBondSelection(atom) {
   const other = neighbours.find(n => !taken.has(n.index)) || neighbours[0];
 
   const key = bondKey(atom.index, other.index);
-  if (selection[key]) {
-    delete selection[key];
+  if (state.selection[key]) {
+    delete state.selection[key];
     return;
   }
-  selection[key] = {
+  state.selection[key] = {
     sel: { index: [atom.index, other.index] },
     label: bondLabel(atom, other),
     color: nextColor(atom.chain),
@@ -1623,29 +1670,29 @@ function onAtomClick(atom) {
   if (!atom) return;
   const alt = window.event && window.event.altKey;
 
-  if (selMode === "chain") {
+  if (state.selMode === "chain") {
     const key = `chain:${atom.chain}`;
-    if (alt || selection[key]) {
-      delete selection[key];
+    if (alt || state.selection[key]) {
+      delete state.selection[key];
     } else {
       addChainSelection(atom.chain);
     }
-  } else if (selMode === "atom") {
+  } else if (state.selMode === "atom") {
     const key = atomKey(atom);
-    if (alt || selection[key]) {
-      delete selection[key];
+    if (alt || state.selection[key]) {
+      delete state.selection[key];
     } else {
       addAtomSelection(atom);
     }
-  } else if (selMode === "bond") {
+  } else if (state.selMode === "bond") {
     if (alt) {
       // Alt-click removes whichever selected bond touches this atom.
-      const touched = Object.keys(selection).filter(k => {
+      const touched = Object.keys(state.selection).filter(k => {
         if (!k.startsWith("bond:")) return false;
         const [a, b] = k.slice(6).split("-").map(Number);
         return a === atom.index || b === atom.index;
       });
-      touched.forEach(k => delete selection[k]);
+      touched.forEach(k => delete state.selection[k]);
     } else {
       addBondSelection(atom);
     }
@@ -1656,8 +1703,8 @@ function onAtomClick(atom) {
     // toggle it off.
     if (atom.resn === "STP") {
       const key = `chain:${atom.chain}`;
-      if (alt || selection[key]) {
-        delete selection[key];
+      if (alt || state.selection[key]) {
+        delete state.selection[key];
       } else {
         addSelection(atom);
       }
@@ -1666,8 +1713,8 @@ function onAtomClick(atom) {
       return;
     }
     const key = selKey(atom);
-    if (alt || selection[key]) {
-      delete selection[key];
+    if (alt || state.selection[key]) {
+      delete state.selection[key];
     } else {
       addSelection(atom);
     }
@@ -1679,14 +1726,14 @@ function onAtomClick(atom) {
 // Res/Chain toggle
 document.querySelectorAll("#sel-mode .s-mode-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    selMode = btn.dataset.mode;
+    state.selMode = btn.dataset.mode;
     document.querySelectorAll("#sel-mode .s-mode-btn")
       .forEach(b => b.classList.toggle("on", b === btn));
   });
 });
 
 selClear.addEventListener("click", () => {
-  selection = {};
+  state.selection = {};
   applyStyle();
   renderSelectionPanel();
 });
@@ -1716,31 +1763,31 @@ function renderStatus(s) {
 const tabsBar = document.getElementById("tabs");
 const MAX_TABS = 12;
 
-// Snapshot the live selection state so a tab can restore it later.
-function captureTabState() {
-  return {
-    selection: JSON.parse(JSON.stringify(selection)),
-    hiddenChains: [...hiddenChains],
-  };
-}
-
 // A republish of the same name replaces that tab rather than adding a
 // second one — rerunning a skill should not pile up duplicates.
-function addTab(text, meta) {
+// `activate` decides whether the new tab also takes over the screen. A
+// publish while the user is on an older tab records the structure but
+// leaves the view where it is; the caller then keeps activeTab as it was.
+function addTab(text, meta, activate = true) {
   const name = meta.name || "structure";
-  const existing = tabs.findIndex(t => t.meta.name === name);
+  const existing = state.tabs.findIndex(t => t.meta.name === name);
   if (existing >= 0) {
     // Keep whatever the user had selected on this tab; only the
     // structure and its metadata are new.
-    const kept = tabs[existing].state;
-    tabs[existing] = { text, meta, state: kept };
-    activeTab = existing;
+    const kept = state.tabs[existing].state;
+    state.tabs[existing] = { text, meta, state: kept };
+    if (activate) state.activeTab = existing;
   } else {
-    tabs.push({ text, meta, state: null });
-    activeTab = tabs.length - 1;
-    if (tabs.length > MAX_TABS) {
-      tabs.shift();
-      activeTab -= 1;
+    state.tabs.push({ text, meta, state: null });
+    if (activate) {
+      state.activeTab = state.tabs.length - 1;
+      if (state.tabs.length > MAX_TABS) {
+        state.tabs.shift();
+        state.activeTab -= 1;
+      }
+    } else if (state.tabs.length > MAX_TABS) {
+      state.tabs.shift();
+      if (state.activeTab > 0) state.activeTab -= 1;
     }
   }
   renderTabs();
@@ -1748,15 +1795,15 @@ function addTab(text, meta) {
 
 function renderTabs() {
   tabsBar.innerHTML = "";
-  if (tabs.length < 2) {
+  if (state.tabs.length < 2) {
     // A single structure needs no tab bar; the label already names it.
     tabsBar.classList.remove("show");
     return;
   }
   tabsBar.classList.add("show");
-  tabs.forEach((t, i) => {
+  state.tabs.forEach((t, i) => {
     const el = document.createElement("div");
-    el.className = "tab" + (i === activeTab ? " on" : "");
+    el.className = "tab" + (i === state.activeTab ? " on" : "");
 
     const name = document.createElement("span");
     name.className = "t-name";
@@ -1777,41 +1824,45 @@ function renderTabs() {
     close.addEventListener("click", ev => {
       ev.stopPropagation();
       closeTab(i);
-    });
-    el.appendChild(close);
+    });    el.appendChild(close);
 
-    el.addEventListener("click", () => switchTab(i));
+    el.addEventListener("click", ev => {
+      // The bar floats over the viewer canvas, and 3Dmol listens for
+      // clicks above its own element. Without stopping propagation the
+      // same click also lands as an atom click, which rewrites the
+      // state.selection before switchTab can save it — the tab then restores
+      // whatever the stray click happened to hit.
+      ev.stopPropagation();
+      ev.preventDefault();
+      switchTab(i);
+    });
     tabsBar.appendChild(el);
   });
 }
 
 function closeTab(i) {
-  if (tabs.length <= 1) return;
-  tabs.splice(i, 1);
-  if (activeTab >= tabs.length) activeTab = tabs.length - 1;
-  else if (i < activeTab) activeTab -= 1;
-  // switchTab would bail on i === activeTab, and the surviving tab has to
-  // be drawn regardless — render it directly.
-  const t = tabs[activeTab];
-  lastUpdated = t.meta.updated;
-  currentStructure = t.meta.name || null;
+  if (state.tabs.length <= 1) return;
+  state.tabs.splice(i, 1);
+  if (state.activeTab >= state.tabs.length) state.activeTab = state.tabs.length - 1;
+  else if (i < state.activeTab) state.activeTab -= 1;
+  // switchTab would bail on i === state.activeTab, and the surviving tab has
+  // to be drawn regardless — render it directly.
+  const t = state.tabs[state.activeTab];
+  state.structureName = t.meta.name || null;
   renderStructure(t.text, t.meta, t.state);
   renderTabs();
 }
 
 function switchTab(i) {
-  if (i < 0 || i >= tabs.length || i === activeTab) return;
+  if (i < 0 || i >= state.tabs.length || i === state.activeTab) return;
   // Save the outgoing tab's state before the incoming one overwrites the
   // singletons.
-  if (activeTab >= 0 && tabs[activeTab]) {
-    tabs[activeTab].state = captureTabState();
+  if (state.activeTab >= 0 && state.tabs[state.activeTab]) {
+    state.tabs[state.activeTab].state = captureState();
   }
-  activeTab = i;
-  const t = tabs[i];
-  // lastUpdated must move with the tab, or the next poll would see the
-  // contract file's timestamp as unchanged and never re-render it.
-  lastUpdated = t.meta.updated;
-  currentStructure = t.meta.name || null;
+  state.activeTab = i;
+  const t = state.tabs[i];
+  state.structureName = t.meta.name || null;
   renderStructure(t.text, t.meta, t.state);
   renderTabs();
 }
@@ -1823,24 +1874,35 @@ async function poll() {
     const res = await fetch("current.json?t=" + Date.now());
     if (res.ok) {
       const meta = await res.json();
-      if (meta.updated && meta.updated !== lastUpdated) {
-        lastUpdated = meta.updated;
-        currentStructure = meta.name || null;
+      // Compare against the contract's own last-seen timestamp, not the
+      // active tab's. A tab switched to an older structure has an older
+      // timestamp, and using it here would make every poll think the
+      // contract had changed.
+      if (meta.updated && meta.updated !== state.contractUpdated) {
         const cif = await fetch("current.cif?t=" + Date.now());
-        if (cif.ok) {
-          const text = await cif.text();
-          // Save the outgoing tab's selection before the new structure
-          // replaces the live state.
-          if (activeTab >= 0 && tabs[activeTab]) {
-            tabs[activeTab].state = captureTabState();
-          }
-          addTab(text, meta);
-          renderStructure(text, meta, null);
-          // renderStructure rebuilds the panels; redraw the tab bar after
-          // it so the active tab's highlight reflects the structure now on
-          // screen rather than whichever one addTab last marked.
-          renderTabs();
+        if (!cif.ok) return;
+        const text = await cif.text();
+
+        // A new publish is always recorded as a tab. Whether it also takes
+        // over the screen depends on what the user is looking at:
+        //
+        //  - on the newest tab: switch to it, as before.
+        //  - on an older tab: leave the view alone. The contract file holds
+        //    only the latest structure, so following it here would yank the
+        //    user off the tab they opened deliberately. The new tab is
+        //    added and marked, and they can click it when ready.
+        const onNewest = state.activeTab === state.tabs.length - 1;
+        if (state.activeTab >= 0 && state.tabs[state.activeTab]) {
+          state.tabs[state.activeTab].state = captureState();
         }
+        addTab(text, meta, onNewest);
+        if (onNewest) {
+          state.lastUpdated = meta.updated;
+          state.structureName = meta.name || null;
+          renderStructure(text, meta, null);
+        }
+        state.contractUpdated = meta.updated;
+        renderTabs();
       }
     }
   } catch (e) { /* viewer not published yet */ }
