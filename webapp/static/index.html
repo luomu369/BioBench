@@ -690,6 +690,10 @@ if (!webglAvailable()) {
 
 const hint = document.getElementById("viewer-hint");
 const label = document.getElementById("structure-label");
+// The structure switcher lives inside the label, so it is grabbed here
+// alongside it rather than down with the tab code — renderStructure runs
+// before that point and would otherwise hit the temporal dead zone.
+const switcher = document.getElementById("struct-switcher");
 const metricsPanel = document.getElementById("metrics");
 const metricsRows = document.getElementById("metrics-rows");
 const metricsNotes = document.getElementById("metrics-notes");
@@ -945,8 +949,10 @@ function renderStructure(data, meta, snap) {
     if (n.nodeType === Node.TEXT_NODE) n.remove();
     if (n.nodeType === Node.ELEMENT_NODE && n.classList.contains("src")) n.remove();
   });
+  // The switcher goes first so the button sits at the label's left edge,
+  // with the structure name and source following it.
   label.insertBefore(document.createTextNode(meta.name || "structure"),
-                     label.firstChild);
+                     switcher.nextSibling);
   if (meta.source) {
     const src = document.createElement("span");
     src.className = "src";
@@ -1959,7 +1965,6 @@ function renderStatus(s) {
 
 /* ---------------- structure tabs ---------------- */
 
-const switcher = document.getElementById("struct-switcher");
 const MAX_TABS = 12;
 
 // A republish of the same name replaces that tab rather than adding a
