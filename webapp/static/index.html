@@ -1613,18 +1613,28 @@ function dist(a, b) {
 // opacity — never geometry. The shape ends up with an empty bounding
 // sphere and draws nothing. The geometry has to be added explicitly on
 // the returned object.
+//
+// The colour has to be given twice. addCylinder writes it into the geo's
+// colour array, but globj() runs updateColor(geo, shape.color) over the
+// whole array before drawing — and a shape built from an empty spec has
+// color black, because updateFromStyle falls back to CC.color(0) when the
+// spec carries no colour. Passing it only to addCylinder leaves the line
+// black.
 function addDashedLine(a, b) {
-  const shape = viewer.addShape({});
+  const shape = viewer.addShape({ color: DIST_LINE_COLOR });
   shape.addCylinder({
     start: a,
     end: b,
-    radius: 0.1,
+    // 0.25 rather than something thinner: the canvas runs at device pixel
+    // ratio, and a 0.1 A cylinder is a couple of pixels wide — enough to
+    // disappear against a translucent surface shell.
+    radius: 0.25,
     // Dashed so it reads as a measurement rather than a bond. A solid
     // line at this radius looks like a covalent connection between two
     // residues that have nothing to do with each other.
     dashed: true,
-    dashLength: 0.3,
-    gapLength: 0.25,
+    dashLength: 0.35,
+    gapLength: 0.3,
     color: DIST_LINE_COLOR,
   });
   distShapes.push(shape);
@@ -1635,11 +1645,13 @@ function addTextLabel(text, at) {
     position: at,
     backgroundColor: DIST_LABEL_BG,
     fontColor: DIST_LINE_COLOR,
-    // 14 rather than 12: the label is the point of the line, and at 12 it
-    // read as a caption for the structure rather than a measurement.
-    fontSize: 14,
+    // 18 rather than 14: the label is the point of the line, and at 14 it
+    // read as a caption for the structure rather than a measurement. 3Dmol
+    // label sizes are in pixels at the canvas's device ratio, so what looks
+    // right on screen is larger than the CSS-equivalent number.
+    fontSize: 18,
     font: "monospace",
-    padding: 4,
+    padding: 5,
     borderThickness: 0,
   });
   distLabels.push(label);
