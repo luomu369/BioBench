@@ -25,9 +25,12 @@ biobench/
     ├── pocket-molecule-design/ design molecules for a binding pocket
     ├── foldseek-deploy/      install Foldseek
     ├── structure-comparison/ compare structures with Foldseek
+    ├── mmseqs-deploy/        install MMseqs2 (GPU-accelerated)
+    ├── sequence-search/      search protein sequences with MMseqs2
     ├── vina-deploy/          install AutoDock Vina
     ├── molecular-docking/    dock ligands into a receptor
     ├── conformational-analysis/ scan bond torsions with a force field
+    ├── admet-prediction/     drug-likeness and structural alerts
     └── pocket-detection/     find binding pockets with fpocket
 ```
 
@@ -68,6 +71,11 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "what could bind here" / "propose ligands for these residues" | `pocket-molecule-design` | Reads `selection.json`, generates for that pocket |
 | "does my design look like a known fold?" | `structure-comparison` | Foldseek search; matches reported |
 | "cluster these structures" | `structure-comparison` | Foldseek clustering |
+| "what is this sequence?" / "find homologues" | `sequence-search` | MMseqs2 search; hits reported |
+| "does my binder resemble a known family?" | `sequence-search` | MMseqs2 against PDB or Swiss-Prot |
+| "cluster these sequences" | `sequence-search` | MMseqs2 clustering |
+| "is this molecule drug-like?" | `admet-prediction` | Lipinski, QED, SA, PAINS, Brenk |
+| "which of these should I dock?" | `admet-prediction` | Ranks by QED and flags alerts |
 | "where could a drug bind?" / "find the pockets" | `pocket-detection` | fpocket ranks cavities by drug-likeness |
 | "I have an apo structure, where do I dock?" | `pocket-detection` | Pocket centroids become docking boxes |
 | "dock this molecule into the protein" | `molecular-docking` | Vina runs locally; poses and affinities reported |
