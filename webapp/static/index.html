@@ -1559,18 +1559,26 @@ function persistView() {
 // first question anyone asks of a pair of residues, and answering it meant
 // leaving the viewer for a script.
 //
-// Only two residues trigger it. With three or more the lines cross and the
-// labels overlap into noise, and the question "how far apart" no longer has
-// a single answer. Chain and atom selections are ignored for the same
-// reason: a whole chain has no single position to measure from.
+// Two residues draw one line with its length. Three draw the triangle's
+// three edges with their lengths, plus the angle at each corner — the
+// shape three points make is the question "are these three arranged the way
+// I think", and lengths alone do not answer it. Four or more draw nothing:
+// the edges cross, the labels overlap into noise, and there is no longer a
+// single shape to read.
 //
-// The line is drawn between centroids rather than the closest atom pair.
+// Chain and atom selections are ignored: a whole chain has no single
+// position to measure from.
+//
+// The lines run between centroids rather than the closest atom pair.
 // Centroids are symmetric — the line reads as "these two residues" — while
 // a closest-atom line lands on whatever side chain happens to point the
-// right way and looks arbitrary. The trade-off is that the number is the
-// centroid distance, not the contact distance; the label says which.
+// right way and looks arbitrary. The trade-off is that the numbers are
+// centroid distances, not contact distances.
 
-const DIST_LINE_COLOR = "#93c5fd";
+// White rather than a hue: the structure is already coloured by chain, and
+// a saturated line competes with it. White reads as "measurement" without
+// taking a side, and leaves the selection colours free to mean "chosen".
+const DIST_LINE_COLOR = "#ffffff";
 const DIST_LABEL_BG = "rgba(11,15,20,.85)";
 
 function clearDistanceLines() {
@@ -1596,42 +1604,35 @@ function residueCentroid(chain, resi) {
   return { x: x / atoms.length, y: y / atoms.length, z: z / atoms.length };
 }
 
-function drawDistanceLines() {
-  clearDistanceLines();
+function dist(a, b) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+}
 
-  // Residue selections only: chain, atom, bond and pocket entries have no
-  // single position to measure from.
-  const residues = Object.values(state.selection).filter(
-    it => it && it.sel && it.sel.resi !== undefined && !it.chain
-        && !it.atom && !it.bond && !it.pocket);
-  if (residues.length !== 2) return;
-
-  const a = residueCentroid(residues[0].sel.chain, residues[0].sel.resi);
-  const b = residueCentroid(residues[1].sel.chain, residues[1].sel.resi);
-  if (!a || !b) return;
-
-  const d = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
-
-  // addShape({cylinder: {...}}) does not work: GLShape's constructor stores
-  // the spec but only updateFromStyle reads it, and that handles colour and
-  // opacity — never geometry. The shape ends up with an empty bounding
-  // sphere and draws nothing. The geometry has to be added explicitly on
-  // the returned object.
+// addShape({cylinder: {...}}) does not work: GLShape's constructor stores
+// the spec but only updateFromStyle reads it, and that handles colour and
+// opacity — never geometry. The shape ends up with an empty bounding
+// sphere and draws nothing. The geometry has to be added explicitly on
+// the returned object.
+function addDashedLine(a, b) {
   const shape = viewer.addShape({});
   shape.addCylinder({
-    start: { x: a.x, y: a.y, z: a.z },
-    end: { x: b.x, y: b.y, z: b.z },
-    radius: 0.12,
+    start: a,
+    end: b,
+    radius: 0.1,
     // Dashed so it reads as a measurement rather than a bond. A solid
     // line at this radius looks like a covalent connection between two
     // residues that have nothing to do with each other.
     dashed: true,
+    dashLength: 0.3,
+    gapLength: 0.25,
     color: DIST_LINE_COLOR,
   });
   distShapes.push(shape);
+}
 
-  const label = viewer.addLabel(`${d.toFixed(2)} Å`, {
-    position: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 },
+function addTextLabel(text, at) {
+  const label = viewer.addLabel(text, {
+    position: at,
     backgroundColor: DIST_LABEL_BG,
     fontColor: DIST_LINE_COLOR,
     // 14 rather than 12: the label is the point of the line, and at 12 it
@@ -1642,6 +1643,76 @@ function drawDistanceLines() {
     borderThickness: 0,
   });
   distLabels.push(label);
+}
+
+function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+}
+
+// Angle at corner `v`, between the edges to `p` and `q`, in degrees.
+function angleAt(v, p, q) {
+  const u = { x: p.x - v.x, y: p.y - v.y, z: p.z - v.z };
+  const w = { x: q.x - v.x, y: q.y - v.y, z: q.z - v.z };
+  const dot = u.x * w.x + u.y * w.y + u.z * w.z;
+  const lu = Math.sqrt(u.x ** 2 + u.y ** 2 + u.z ** 2);
+  const lw = Math.sqrt(w.x ** 2 + w.y ** 2 + w.z ** 2);
+  if (!lu || !lw) return null;
+  // Clamp: floating point can push the ratio a hair outside [-1, 1] for a
+  // straight or fully folded corner, and acos of that is NaN.
+  const c = Math.max(-1, Math.min(1, dot / (lu * lw)));
+  return Math.acos(c) * 180 / Math.PI;
+}
+
+function drawDistanceLines() {
+  clearDistanceLines();
+
+  // Residue selections only: chain, atom, bond and pocket entries have no
+  // single position to measure from.
+  const residues = Object.values(state.selection).filter(
+    it => it && it.sel && it.sel.resi !== undefined && !it.chain
+        && !it.atom && !it.bond && !it.pocket);
+  if (residues.length < 2 || residues.length > 3) return;
+
+  const pts = residues.map(r =>
+    residueCentroid(r.sel.chain, r.sel.resi));
+  if (pts.some(p => !p)) return;
+
+  if (pts.length === 2) {
+    addDashedLine(pts[0], pts[1]);
+    addTextLabel(`${dist(pts[0], pts[1]).toFixed(2)} Å`, midpoint(pts[0], pts[1]));
+    return;
+  }
+
+  // Three residues: the triangle. Each edge gets its length at the
+  // midpoint, and each corner gets its angle pushed slightly toward the
+  // interior so the three labels do not sit on top of each other.
+  const [a, b, c] = pts;
+  const edges = [[a, b], [b, c], [c, a]];
+  edges.forEach(([p, q]) => {
+    addDashedLine(p, q);
+    addTextLabel(`${dist(p, q).toFixed(2)} Å`, midpoint(p, q));
+  });
+
+  const corners = [
+    { at: a, p: b, q: c },
+    { at: b, p: a, q: c },
+    { at: c, p: a, q: b },
+  ];
+  corners.forEach(({ at, p, q }) => {
+    const deg = angleAt(at, p, q);
+    if (deg === null) return;
+    // Nudge toward the interior: the centroid of the three points is always
+    // inside the triangle, so a point part-way from the corner to it is too.
+    const inner = { x: (a.x + b.x + c.x) / 3,
+                    y: (a.y + b.y + c.y) / 3,
+                    z: (a.z + b.z + c.z) / 3 };
+    const t = 0.28;
+    addTextLabel(`${deg.toFixed(1)}°`, {
+      x: at.x + (inner.x - at.x) * t,
+      y: at.y + (inner.y - at.y) * t,
+      z: at.z + (inner.z - at.z) * t,
+    });
+  });
 }
 
 stylePicker.addEventListener("change", applyStyle);
