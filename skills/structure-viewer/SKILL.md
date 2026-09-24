@@ -49,6 +49,44 @@ pointing at.
 | `residues[].resi` | Residue number (author numbering) |
 | `residues[].resn` | Three-letter residue name |
 | `residues[].color` | Highlight color assigned by the viewer |
+| `view` | What the user is currently looking at — see below |
+
+### `view` — which structure is on screen
+
+The viewer keeps every structure of the session as a tab, and the contract
+files hold only the latest one. Without `view`, "design a binder for this"
+is ambiguous the moment more than one structure is open.
+
+```json
+{
+  "view": {
+    "tab": 1,
+    "tab_name": "pockets_A",
+    "tabs": ["docked_F", "pockets_A", "mutant_B"],
+    "sel_mode": "res",
+    "style": "surface",
+    "color": "chain",
+    "ligand_style": "stick",
+    "hidden_chains": ["C"]
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `tab` | Index into `tabs` of the structure on screen |
+| `tab_name` | Its name — the same value as `structure` |
+| `tabs` | Every structure open, oldest first |
+| `sel_mode` | `res`, `chain`, `atom`, or `bond` — what a click selects |
+| `style` | `surface`, `cartoon`, `stick`, `sphere`, or `line` |
+| `color` | `chain`, `spectrum`, or `secondary` |
+| `ligand_style` | `stick`, `ballstick`, `spacefill`, or `line` |
+| `hidden_chains` | Chains the user hid with the eye toggles |
+
+**Read `view.tab_name` before acting on a selection.** A residue selected
+on a tab the user has since left is not what they are pointing at. When
+`view.tabs` has more than one entry, say which structure you are working
+on rather than assuming.
 
 The Selection panel has four modes, and a selection can mix them. Two more
 lists appear when the user picks atoms or bonds:
@@ -84,6 +122,8 @@ When the user says something like "design around my selected residues" or
 python3 -c "
 import json
 d = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+v = d.get('view', {})
+print('on screen:', v.get('tab_name'), f\"(tab {v.get('tab')} of {len(v.get('tabs', []))})\")
 print('structure:', d['structure'], '| count:', d['count'])
 for r in d['residues']:
     print(f\"  {r['chain']}:{r['resi']} {r['resn']}\")
@@ -92,6 +132,16 @@ for r in d['residues']:
 
 If the file is missing or `count` is 0, the user has not selected anything —
 ask them to select residues in the viewer first.
+
+**Check `view` before acting.** When more than one tab is open, the
+selection may belong to a structure the user has since navigated away
+from. `view.tab_name` says which one is on screen; if it differs from
+`structure`, say so rather than silently working on the wrong one.
+
+The same file answers "what am I looking at" without any selection at all
+— `view.tabs`, `view.style`, `view.sel_mode` and `view.hidden_chains` are
+written on every tab switch, style change and chain toggle, not just on
+selection.
 
 ### Using it in a design
 

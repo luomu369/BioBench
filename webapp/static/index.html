@@ -1178,6 +1178,15 @@ function hoverHighlightSpec(kind) {
 }
 
 const HOVER_COLOR = "#93c5fd";
+// How long the pointer must rest on a residue before the 3D preview
+// appears. Long enough that sweeping across the structure does not
+// repaint every residue it crosses; short enough to feel immediate.
+const HOVER_PREVIEW_MS = 100;
+let hoverPreviewTimer = null;
+// Whether a preview is currently painted. 3Dmol fires hover-out only when
+// the pointer leaves the model, so moving between residues has to clear
+// the previous preview itself.
+let hoverPreviewed = false;
 
 // What the hover preview applies to, per selection mode. In res mode it is
 // the residue; in atom/bond mode it is the atom or bond under the cursor,
@@ -1313,6 +1322,38 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
   }
 
   viewer.render();
+
+  // Report the view to any agent reading selection.json. applyStyle runs
+  // on every tab switch, style change and chain toggle, so this is the one
+  // place that sees all of them — persistSelection alone only fires when
+  // the selection itself changes.
+  persistView();
+}
+
+// Everything about the view an agent needs to know which structure the
+// user means. Serialised so the write can be skipped when nothing changed:
+// hover previews also route through applyStyle, and posting on every one
+// of those would be both wasteful and noisy.
+function viewSignature() {
+  return JSON.stringify({
+    tab: state.activeTab,
+    name: state.structureName,
+    tabs: state.tabs.map(t => t.meta.name),
+    mode: state.selMode,
+    style: stylePicker.value,
+    color: colorPicker.value,
+    ligand: ligandStylePicker.value,
+    hidden: [...state.hiddenChains].sort(),
+    sel: Object.keys(state.selection).sort(),
+  });
+}
+
+let lastViewSig = null;
+function persistView() {
+  const sig = viewSignature();
+  if (sig === lastViewSig) return;
+  lastViewSig = sig;
+  persistSelection(Object.keys(state.selection));
 }
 
 stylePicker.addEventListener("change", applyStyle);
@@ -1434,6 +1475,25 @@ function persistSelection(keys) {
   if (atoms.length) payload.atoms = atoms;
   if (bonds.length) payload.bonds = bonds;
 
+  // What the user is currently looking at. Without this an agent can read
+  // the selection but not which tab it was made on, so "design a binder
+  // for this" is ambiguous the moment more than one structure is open.
+  payload.view = {
+    // Index and name of the tab on screen, plus every tab open, so the
+    // agent can tell "the one I am looking at" from "the ones I have".
+    tab: state.activeTab,
+    tab_name: state.structureName || null,
+    tabs: state.tabs.map(t => t.meta.name || "structure"),
+    // What a click would select right now.
+    sel_mode: state.selMode,
+    // How the structure is drawn.
+    style: stylePicker.value,
+    color: colorPicker.value,
+    ligand_style: ligandStylePicker.value,
+    // Chains the user has hidden with the eye toggles.
+    hidden_chains: [...state.hiddenChains],
+  };
+
   // Fire-and-forget: the viewer must not block on this write.
   fetch("selection.json", {
     method: "POST",
@@ -1504,19 +1564,42 @@ function onAtomHover(atom) {
   hoverTip.hidden = false;
   positionTip();
 
-  // Preview the selection. Only repaint when the hovered thing actually
-  // changed — 3Dmol fires hover on every mouse move within a residue, and
-  // restyling each time is both wasteful and visibly flickery.
+  // Preview the selection, but only after the pointer has rested on this
+  // residue for a moment. Sweeping the mouse across the structure would
+  // otherwise repaint every residue it crosses, which reads as flicker.
+  //
+  // The tooltip appears immediately — naming a residue is cheap and the
+  // user asked for it by pointing. Only the 3D repaint waits.
   const prev = state.hover;
   const same = prev && hoverKey(prev) === hoverKey(atom);
   state.hover = atom;
-  if (!same) applyStyle();
+  if (same) return;
+
+  // Drop whatever preview is pending or already on screen. 3Dmol only
+  // calls the hover-out handler when the pointer leaves the model
+  // entirely, so moving between residues never clears it — without this
+  // the previous residue keeps its highlight while the new one waits.
+  clearTimeout(hoverPreviewTimer);
+  if (hoverPreviewed) {
+    hoverPreviewed = false;
+    applyStyle();
+  }
+
+  hoverPreviewTimer = setTimeout(() => {
+    // The pointer may have moved on while the timer was pending.
+    if (state.hover && hoverKey(state.hover) === hoverKey(atom)) {
+      hoverPreviewed = true;
+      applyStyle();
+    }
+  }, HOVER_PREVIEW_MS);
 }
 
 function onHoverOut() {
   hoverTip.hidden = true;
-  if (state.hover) {
+  clearTimeout(hoverPreviewTimer);
+  if (state.hover || hoverPreviewed) {
     state.hover = null;
+    hoverPreviewed = false;
     applyStyle();
   }
 }
