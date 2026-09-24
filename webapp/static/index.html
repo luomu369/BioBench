@@ -463,24 +463,22 @@
      the button, which sits to the right of the structure name. */
   #struct-switcher {
     display: none;
-    margin-left: 2px;
+    /* The label is 13px text with 6px of vertical padding; the icon button
+       is 32px tall, so it needs a small negative margin to sit on the same
+       optical line as the name instead of stretching the label. */
+    margin: -3px 2px -3px 0;
+    vertical-align: middle;
   }
   #struct-switcher.show { display: inline-block; }
   #struct-switcher > button {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    background: rgba(77,163,255,.12);
-    border: 1px solid rgba(77,163,255,.35);
-    border-radius: 6px;
-    color: var(--accent);
-    font-size: 11px;
-    padding: 2px 6px;
-    cursor: pointer;
+    flex-shrink: 0;
+    /* .ctl.icon is sized for the top control bar; scale it down to sit
+       beside 13px label text. */
+    width: 22px; height: 22px;
+    padding: 4px;
+    border-radius: 5px;
   }
-  #struct-switcher > button:hover { background: rgba(77,163,255,.22); }
-  #struct-switcher .sw-caret { font-size: 9px; opacity: .8; }
-  #struct-switcher .sw-count { color: var(--muted); }
+  #struct-switcher > button svg { width: 13px; height: 13px; }
   #struct-switcher .sw-menu {
     position: absolute;
     /* Anchored to #structure-label (the nearest positioned ancestor), so
@@ -2011,9 +2009,12 @@ function renderTabs() {
 
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.innerHTML = `<span class="sw-count">${state.tabs.length}</span>` +
-                  `<span class="sw-caret">▾</span>`;
-  btn.title = "Switch structure";
+  // A bare chevron, matching the icon buttons in the top control bar. The
+  // count is dropped: the menu already lists every open structure, and the
+  // number made the button read as a badge rather than a control.
+  btn.className = "ctl icon";
+  btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>`;
+  btn.title = `Switch structure (${state.tabs.length} open)`;
   btn.addEventListener("click", ev => {
     ev.stopPropagation();
     toggleSwitcherMenu();
