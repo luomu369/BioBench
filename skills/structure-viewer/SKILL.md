@@ -308,6 +308,34 @@ bar and elapsed time.
 concurrent runs of the same skill share one entry and clobber each other's
 progress — the pill would jump between the two.
 
+### Declaring the plan up front
+
+A long run reveals itself one step at a time, so for the first stretch there
+is no way to know what it is going to do. `--plan` takes the whole route and
+the viewer shows it before anything has run, lighting each step up as it is
+reached:
+
+```bash
+python3 $PUB --status --state queued --skill binder-design --job boltz1 \
+  --plan "生成主链,折叠验证,亲和力评估,筛选排序" \
+  --message "已规划：4 个 binder 设计"
+```
+
+`--state queued` (or `idle`) marks it as waiting. The job appears in the
+menu's 排队中 group with every step grey, and moves to 运行中 on the first
+`--state running` call.
+
+**Declare a plan for anything over a few minutes.** It costs one flag and
+turns "正在生成主链骨架" into a route the user can read at a glance.
+
+The current step is matched **by name** against the plan, not by index — the
+`--step` you report is what the plan was written with. A name that does not
+appear in the plan leaves every step grey rather than lighting the wrong
+one, so keep the two spellings identical.
+
+A plan is declared once and carried forward: re-passing it on every step
+update is unnecessary, and omitting it after the first call does not lose it.
+
 ### Highlighting what you just changed
 
 `--highlight` names residues the viewer should select on arrival, so the

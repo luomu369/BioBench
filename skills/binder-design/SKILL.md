@@ -144,12 +144,28 @@ writes a visualization `.cif` you can inspect before committing to a run.
 
 ## Step 4 — Report progress
 
+A design run is 20–30 minutes, so declare the whole route before starting
+it. The viewer then shows the plan from the first second instead of
+revealing one step at a time:
+
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-python3 $PUB --status --state running --step "生成 binder 主链骨架" --index 1 --total 5 \
-  --skill binder-design --message "开始设计：生成 binder 主链骨架"
+python3 $PUB --status --state queued --skill binder-design --job boltz1 \
+  --plan "生成主链,折叠验证,结构预测,亲和力评估,汇总指标,筛选排序" \
+  --message "已规划：4 个 binder 设计，预计 25 分钟"
 ```
+
+Then report each step as it is reached, with the same `--job` so the entry is
+updated rather than duplicated:
+
+```bash
+python3 $PUB --status --state running --step "生成主链" --index 1 --total 6 \
+  --skill binder-design --job boltz1 --message "正在生成 4 个 binder 主链骨架"
+```
+
+The `--step` names must match the plan's spellings exactly — that is how the
+viewer knows which step to light up.
 
 ### What to report at each step
 
