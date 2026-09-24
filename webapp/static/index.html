@@ -2754,13 +2754,22 @@ async function renderSysinfo() {
 
 /* ---------------- status bar ---------------- */
 
-// The pill shows one job — whichever the publisher marked active. Everything
+// The pill shows one job — whichever the publisher marked active, or the one
+// that produced the structure on screen when `jobId` is given. Everything
 // else, running or finished, is in the pull-up menu behind the chevron.
-function renderStatus(s) {
+//
+// The two cases are different questions. While a run is in progress the
+// interesting one is "what is happening now", which is what active answers.
+// Once the user switches to an older structure it becomes "what made this",
+// and only the tab's own job can answer that.
+function renderStatus(s, jobId) {
   // The file may still be in the old single-object shape, written before
   // jobs existed. Reading it as one keeps the last run on screen instead of
   // blanking the pill.
-  const active = (s && s.active) || (s && s.state ? s : null);
+  let active = (s && s.active) || (s && s.state ? s : null);
+  if (jobId && s && Array.isArray(s.jobs)) {
+    active = s.jobs.find(j => j.id === jobId) || active;
+  }
   // "idle" is a queued job, not the absence of one — it has a plan and is
   // waiting its turn, so it belongs on screen. Only a missing active hides
   // the pill.
@@ -2788,6 +2797,11 @@ function renderStatus(s) {
 // waiting, and what has finished. Several skills can proceed at once — the
 // publisher tracks them as separate jobs — and without this only one of them
 // would be visible at a time.
+
+// The last status.json the poll saw. Kept so switching tabs can re-render
+// the pill for a different task without waiting for the next poll — the
+// file itself has not changed, only which part of it is relevant.
+let lastStatus = null;
 
 const stHistBtn = document.getElementById("st-hist");
 const stMenu = document.getElementById("st-menu");
@@ -3159,6 +3173,37 @@ function switchTab(i) {
   state.structureName = t.meta.name || null;
   renderStructure(t.text, t.meta, t.state);
   renderTabs();
+  // The pill describes the task that produced what is on screen. Switching
+  // to a structure from another task has to move it, or the progress bar
+  // and message keep describing a run whose result is no longer displayed.
+  syncPillToTab();
+}
+
+// Point the status pill at the job that produced the active tab's structure.
+//
+// The pill is normally driven by whatever published last, which is right
+// while a run is in progress. But once the user switches to an older
+// structure the two have come apart, and the honest answer to "what is this"
+// is the task that made it — not the most recent thing that happened.
+// Which job the pill should describe.
+//
+// Normally the one that produced the structure on screen — the pill answers
+// "what is this", and only the tab's own task can. The exception is a run in
+// progress: if something is running, its progress is what the user wants to
+// watch, and it takes the pill even while an older structure is displayed.
+// The pull-up menu still lists everything, so nothing is hidden either way.
+function pillJob() {
+  const t = state.tabs[state.activeTab];
+  const tabJob = t && t.meta ? (t.meta.job || "") : "";
+  const running = (lastStatus && lastStatus.jobs || [])
+    .find(j => j.state === "running");
+  if (running) return running.id;
+  return tabJob || undefined;
+}
+
+function syncPillToTab() {
+  if (!lastStatus) return;
+  renderStatus(lastStatus, pillJob());
 }
 
 /* ---------------- polling ---------------- */
@@ -3203,7 +3248,10 @@ async function poll() {
 
   try {
     const res = await fetch("status.json?t=" + Date.now());
-    if (res.ok) renderStatus(await res.json());
+    if (res.ok) {
+      lastStatus = await res.json();
+      renderStatus(lastStatus, pillJob());
+    }
   } catch (e) { /* no status file */ }
 
   // Sampled on the same 2s tick as the status file. The server measures CPU
