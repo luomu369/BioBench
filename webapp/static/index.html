@@ -261,6 +261,11 @@
   #seq-panel .seq-chain-seq {
     font-family: monospace;
     line-height: 1.7;
+    /* Letter spacing on the container, not the letters: it applies between
+       every pair including the last of one row and the first of the next,
+       so the grid stays even. 0.14em is enough to separate neighbouring
+       residues without making a 50-letter row overflow the panel. */
+    letter-spacing: 0.14em;
     /* No word-break: the sequence is laid out in fixed 50-residue rows
      * rather than wrapped wherever the panel happens to end. Rows of a
      * known length line up between chains, so the same position in two
@@ -271,10 +276,16 @@
   }
   /* One row of the sequence. `display: block` with the letters inline
      inside means the row is exactly as wide as its 50 letters and never
-     breaks, so every row starts at the same x. */
+     breaks, so every row starts at the same x.
+   *
+     The negative right margin cancels the trailing letter-spacing that
+     letter-spacing adds after the last letter — without it every row is
+     one gap wider than its content, and a short last row leaves a visible
+     stub of space. */
   #seq-panel .seq-row {
     display: block;
     white-space: nowrap;
+    margin-right: -0.14em;
   }
   #seq-panel .seq-aa { border-radius: 2px; }
   #seq-panel .seq-aa:hover { background: rgba(77,163,255,.22); }
