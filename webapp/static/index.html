@@ -1562,6 +1562,21 @@ function onAtomClick(atom) {
       addBondSelection(atom);
     }
   } else {
+    // An alpha-sphere cloud is keyed by chain, not residue: every sphere
+    // in a pocket shares residue number 1, so the residue key would never
+    // match the entry addSelection stored and a second click would not
+    // toggle it off.
+    if (atom.resn === "STP") {
+      const key = `chain:${atom.chain}`;
+      if (alt || selection[key]) {
+        delete selection[key];
+      } else {
+        addSelection(atom);
+      }
+      applyStyle();
+      renderSelectionPanel();
+      return;
+    }
     const key = selKey(atom);
     if (alt || selection[key]) {
       delete selection[key];

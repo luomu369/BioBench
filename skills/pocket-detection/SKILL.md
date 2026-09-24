@@ -86,12 +86,27 @@ Verify:
 
 ```
 0. Confirm parameters with the user   ← do not skip
-1. Run the detection
-2. Interpret the ranking
-3. Publish the top pockets             (structure-viewer publisher)
+1. Report progress                    (structure-viewer publisher)
+2. Run the detection
+3. Interpret the ranking
+4. Publish the top pockets             (structure-viewer publisher)
 ```
 
-## Step 1 — Run
+## Step 1 — Report progress
+
+```bash
+PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+
+python3 $PUB --status --state running --step "口袋发现" --index 1 --total 2 \
+  --skill pocket-detection --message "正在搜索结合口袋"
+```
+
+fpocket finishes in seconds, so there is little intermediate progress —
+but the status bar has to move off whatever the previous skill left there.
+Without this the viewer keeps showing the last run's message, which reads
+as though the new one never happened.
+
+## Step 2 — Run
 
 ```bash
 PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
@@ -133,7 +148,7 @@ against each other in the same structure, not to compare across structures.
 > is the largest, not the best. The script sorts by `drug_score` before
 > reporting; read the order it prints, not the IDs.
 
-## Step 2 — Interpret
+## Step 3 — Interpret
 
 Say what the top pockets are, in the user's terms:
 
@@ -147,7 +162,7 @@ Say what the top pockets are, in the user's terms:
 - **What the chemistry suggests.** A hydrophobic, enclosed pocket suits
   hydrophobic scaffolds; a polar, open one suits H-bonding ligands.
 
-## Step 3 — Publish
+## Step 4 — Publish
 
 Publish the receptor with the top pockets' lining residues highlighted, so
 the user sees where they are:
@@ -155,30 +170,40 @@ the user sees where they are:
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-$PY -c "
-import json
-d = json.load(open('pockets_out/pockets.json'))
-print(','.join(f\"{r['chain']}:{r['resi']}\" for p in d['pockets'][:3]
-               for r in p.get('lining', [])))
-" > /tmp/pocket_res.txt
+Build the visualisation first — the receptor with the top pockets' alpha
+spheres as their own chains — then publish that:
+
+```bash
+CLOUD=/home/asus_gx10/biobench/skills/pocket-detection/scripts/pocket_cloud.py
+
+$PY $CLOUD --pockets pockets_out/pockets.json --receptor 7XWQ.cif \
+  --out pockets_out/pockets_vis.pdb --top 3
 
 python3 $PUB \
-  --structure 7XWQ.cif \
+  --structure pockets_out/pockets_vis.pdb \
   --name "7XWQ_pockets" --source fpocket \
-  --highlight "$(cat /tmp/pocket_res.txt)" \
-  --metrics '{"pockets_found": {"label": "发现口袋数", "value": 19},
+  --roles "A=receptor,B=receptor,p=pocket_1,q=pocket_2,r=pocket_3" \
+  --metrics '{"pockets_found": {"label": "发现口袋数", "value": 40},
               "best_score": {"label": "最佳药物相似度", "value": 0.81},
-              "best_volume": {"label": "最佳口袋体积", "value": 503, "hint": "A^3"}}' \
+              "best_volume": {"label": "最佳口袋体积", "value": 508, "hint": "A^3"}}' \
   --notes "..." \
   --status --state done --step "口袋发现" --index 2 --total 2 \
-  --skill pocket-detection --message "发现 19 个口袋，最佳 3 个已发布"
+  --skill pocket-detection --message "发现 40 个口袋，最佳 3 个已发布"
 ```
 
-> **The pocket atom files are the clearest thing to show.** Each pocket
-> gets `<stem>_out/pocketN_atm.pdb` — the alpha spheres that define the
-> cavity. Publishing the receptor with those residues highlighted is
-> usually more useful than publishing the spheres themselves, which float
-> free of the structure.
+The viewer draws `STP` residues as white spheres, so the cavities read as
+volumes rather than as loose atoms. Clicking one selects it — it takes the
+selection colour and grows slightly, without changing opacity, which would
+reorder the transparent pass and fade the others with it.
+
+> **`--top` is capped at 26.** `pocket_cloud.py` names pocket chains from a
+> 26-letter alphabet, and fpocket routinely reports 40 pockets on a
+> multi-chain structure. Pass the number you actually want to see; the
+> ranking in `pockets.json` is already by `drug_score`, so the first N are
+> the best N.
+
+> **Publish the count you found, not the count you drew.** 40 pockets were
+> detected and 3 shown is a useful sentence; "3 pockets" is wrong.
 
 ## Handing a pocket to the next step
 
