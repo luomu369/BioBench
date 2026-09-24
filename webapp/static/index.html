@@ -1612,27 +1612,33 @@ function drawDistanceLines() {
 
   const d = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
 
-  const line = viewer.addShape({
-    cylinder: {
-      start: { x: a.x, y: a.y, z: a.z },
-      end: { x: b.x, y: b.y, z: b.z },
-      radius: 0.12,
-      // Dashed so it reads as a measurement rather than a bond. A solid
-      // line at this radius looks like a covalent connection between two
-      // residues that have nothing to do with each other.
-      dashed: true,
-      color: DIST_LINE_COLOR,
-    },
+  // addShape({cylinder: {...}}) does not work: GLShape's constructor stores
+  // the spec but only updateFromStyle reads it, and that handles colour and
+  // opacity — never geometry. The shape ends up with an empty bounding
+  // sphere and draws nothing. The geometry has to be added explicitly on
+  // the returned object.
+  const shape = viewer.addShape({});
+  shape.addCylinder({
+    start: { x: a.x, y: a.y, z: a.z },
+    end: { x: b.x, y: b.y, z: b.z },
+    radius: 0.12,
+    // Dashed so it reads as a measurement rather than a bond. A solid
+    // line at this radius looks like a covalent connection between two
+    // residues that have nothing to do with each other.
+    dashed: true,
+    color: DIST_LINE_COLOR,
   });
-  distShapes.push(line);
+  distShapes.push(shape);
 
   const label = viewer.addLabel(`${d.toFixed(2)} Å`, {
     position: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 },
     backgroundColor: DIST_LABEL_BG,
     fontColor: DIST_LINE_COLOR,
-    fontSize: 12,
+    // 14 rather than 12: the label is the point of the line, and at 12 it
+    // read as a caption for the structure rather than a measurement.
+    fontSize: 14,
     font: "monospace",
-    padding: 3,
+    padding: 4,
     borderThickness: 0,
   });
   distLabels.push(label);
