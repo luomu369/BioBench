@@ -621,6 +621,40 @@
     font-size: 10.5px;
     color: var(--muted);
   }
+  /* Group headings — 运行中 / 排队中 / 已完成. Small caps rather than a
+     coloured bar: the menu is already dense, and the dot on each row carries
+     the state. */
+  #status .st-group {
+    padding: 8px 9px 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+    opacity: .75;
+  }
+  #status .st-group:first-child { padding-top: 4px; }
+  /* The job currently on the pill, so the menu says which row is the one
+     being shown at the bottom of the screen. */
+  #status .st-row.on { background: rgba(77,163,255,.14); }
+  /* A running job's progress, inline under its message. Narrower than the
+     pill's bar — this one is a glance, not the primary readout. */
+  #status .st-row .st-bar {
+    width: 100%;
+    height: 3px;
+    margin-top: 5px;
+    background: rgba(34,48,64,.9);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #status .st-row .st-bar > div {
+    height: 100%;
+    background: var(--accent);
+    transition: width .5s ease;
+  }
+  /* The flat log underneath the job list. Dimmer, so it reads as the record
+     rather than as something to act on. */
+  #status .st-row.st-log { opacity: .6; }
+  #status .st-row.st-log .st-msg { font-size: 11.5px; }
   #status .st-row .st-skill { color: var(--accent); opacity: .8; }
   #status .st-empty {
     padding: 14px;
@@ -2664,20 +2698,26 @@ async function renderSysinfo() {
 
 /* ---------------- status bar ---------------- */
 
+// The pill shows one job — whichever the publisher marked active. Everything
+// else, running or finished, is in the pull-up menu behind the chevron.
 function renderStatus(s) {
-  if (!s || s.state === "idle") {
+  // The file may still be in the old single-object shape, written before
+  // jobs existed. Reading it as one keeps the last run on screen instead of
+  // blanking the pill.
+  const active = (s && s.active) || (s && s.state ? s : null);
+  if (!active || active.state === "idle") {
     statusBar.classList.remove("show");
     return;
   }
-  statusBar.dataset.state = s.state;
-  statusBar.querySelector(".msg").textContent = s.message || s.state;
+  statusBar.dataset.state = active.state;
+  statusBar.querySelector(".msg").textContent = active.message || active.state;
 
-  const total = s.step_total || 0;
-  const idx = s.step_index || 0;
+  const total = active.step_total || 0;
+  const idx = active.step_index || 0;
   const pct = total > 0 ? Math.round((idx / total) * 100) : 0;
   statusBar.querySelector(".bar > div").style.width = pct + "%";
   statusBar.querySelector(".step").textContent =
-    total > 0 ? `${idx}/${total} ${s.step || ""}`.trim() : "";
+    total > 0 ? `${idx}/${total} ${active.step || ""}`.trim() : "";
 
   statusBar.classList.add("show");
   renderStatusHistory(s);
@@ -2685,10 +2725,10 @@ function renderStatus(s) {
 
 /* ---------------- status history ---------------- */
 
-// The pill shows one status — the newest. Everything a run reported before
-// that is gone, so "what did the docking score?" means re-running it. The
-// publisher keeps the last 20 statuses in status.json's history array; this
-// renders them newest-first behind the chevron at the right end of the pill.
+// The pill shows one job. This menu shows the rest: what is running, what is
+// waiting, and what has finished. Several skills can proceed at once — the
+// publisher tracks them as separate jobs — and without this only one of them
+// would be visible at a time.
 
 const stHistBtn = document.getElementById("st-hist");
 const stMenu = document.getElementById("st-menu");
@@ -2701,12 +2741,80 @@ function stTime(iso) {
   return t ? t.slice(0, 8) : iso;
 }
 
+// Elapsed time from an ISO start to an ISO end, as "3m 12s". Ends in the
+// future are clamped to zero rather than showing a negative duration, which
+// happens when the two timestamps come from clocks a hair apart.
+function stElapsed(startIso, endIso) {
+  if (!startIso) return "";
+  const t0 = new Date(startIso).getTime();
+  const t1 = endIso ? new Date(endIso).getTime() : Date.now();
+  let s = Math.max(0, Math.round((t1 - t0) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  s -= m * 60;
+  if (m < 60) return `${m}m ${s}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function stGroupLabel(text) {
+  const h = document.createElement("div");
+  h.className = "st-group";
+  h.textContent = text;
+  return h;
+}
+
+function stJobRow(j, isActive) {
+  const row = document.createElement("div");
+  row.className = "st-row" + (isActive ? " on" : "");
+  row.dataset.state = j.state || "";
+
+  const dot = document.createElement("span");
+  dot.className = "st-dot";
+  row.appendChild(dot);
+
+  const body = document.createElement("div");
+  body.className = "st-body";
+
+  const msg = document.createElement("div");
+  msg.className = "st-msg";
+  msg.textContent = j.message || j.state || "";
+  body.appendChild(msg);
+
+  // A running job gets its own progress bar, so the menu answers "how far
+  // along" without having to switch the pill to it.
+  if (j.state === "running" && j.step_total) {
+    const bar = document.createElement("div");
+    bar.className = "st-bar";
+    const fill = document.createElement("div");
+    fill.style.width =
+      Math.round((j.step_index || 0) / j.step_total * 100) + "%";
+    bar.appendChild(fill);
+    body.appendChild(bar);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "st-meta";
+  const bits = [];
+  if (j.step_total) bits.push(`${j.step_index || 0}/${j.step_total} ${j.step || ""}`.trim());
+  if (j.skill) bits.push(j.skill);
+  bits.push(stElapsed(j.started, j.state === "running" ? null : j.updated));
+  meta.textContent = bits.filter(Boolean).join(" · ");
+  body.appendChild(meta);
+
+  row.appendChild(body);
+  return row;
+}
+
 function renderStatusHistory(s) {
+  // Old single-object files carry no jobs; fall back to the flat history so
+  // the menu is never empty when there is something to show.
+  const jobs = (s && s.jobs) || [];
   const history = (s && s.history) || [];
-  stHistBtn.hidden = history.length === 0;
+  const activeId = s && s.active ? s.active.id : null;
+  stHistBtn.hidden = !jobs.length && !history.length;
 
   stMenu.innerHTML = "";
-  if (!history.length) {
+  if (!jobs.length && !history.length) {
     const empty = document.createElement("div");
     empty.className = "st-empty";
     empty.textContent = "暂无历史任务";
@@ -2714,36 +2822,57 @@ function renderStatusHistory(s) {
     return;
   }
 
-  // Newest first — the run the user just watched is the one they want.
-  [...history].reverse().forEach(h => {
-    const row = document.createElement("div");
-    row.className = "st-row";
-    row.dataset.state = h.state || "";
+  // Three groups, in the order the user cares: what is running now, what is
+  // waiting behind it, what has finished. A queued job is one the publisher
+  // has recorded but that has not started — it shows as "idle" state.
+  const running = jobs.filter(j => j.state === "running");
+  const queued = jobs.filter(j => j.state === "idle" || j.state === "queued");
+  const finished = jobs.filter(j => j.state === "done" || j.state === "error");
 
-    const dot = document.createElement("span");
-    dot.className = "st-dot";
-    row.appendChild(dot);
+  if (running.length) {
+    stMenu.appendChild(stGroupLabel(`运行中 · ${running.length}`));
+    running.forEach(j => stMenu.appendChild(stJobRow(j, j.id === activeId)));
+  }
+  if (queued.length) {
+    stMenu.appendChild(stGroupLabel(`排队中 · ${queued.length}`));
+    queued.forEach(j => stMenu.appendChild(stJobRow(j, j.id === activeId)));
+  }
+  if (finished.length) {
+    stMenu.appendChild(stGroupLabel(`已完成 · ${finished.length}`));
+    // Newest first — the run the user just watched is the one they want.
+    [...finished].reverse().forEach(
+      j => stMenu.appendChild(stJobRow(j, j.id === activeId)));
+  }
 
-    const body = document.createElement("div");
-    body.className = "st-body";
-
-    const msg = document.createElement("div");
-    msg.className = "st-msg";
-    msg.textContent = h.message || h.state || "";
-    body.appendChild(msg);
-
-    const meta = document.createElement("div");
-    meta.className = "st-meta";
-    const bits = [];
-    if (h.step_total) bits.push(`${h.step_index || 0}/${h.step_total} ${h.step || ""}`.trim());
-    if (h.skill) bits.push(h.skill);
-    bits.push(stTime(h.updated));
-    meta.textContent = bits.filter(Boolean).join(" · ");
-    body.appendChild(meta);
-
-    row.appendChild(body);
-    stMenu.appendChild(row);
-  });
+  // The flat log underneath, for the messages a job superseded. A job keeps
+  // only its latest status, so "2/4 designs generated" is gone once it moves
+  // to 3/4 — this is where those went.
+  if (history.length) {
+    stMenu.appendChild(stGroupLabel("全部消息"));
+    [...history].reverse().slice(0, 12).forEach(h => {
+      const row = document.createElement("div");
+      row.className = "st-row st-log";
+      row.dataset.state = h.state || "";
+      const dot = document.createElement("span");
+      dot.className = "st-dot";
+      row.appendChild(dot);
+      const body = document.createElement("div");
+      body.className = "st-body";
+      const msg = document.createElement("div");
+      msg.className = "st-msg";
+      msg.textContent = h.message || h.state || "";
+      body.appendChild(msg);
+      const meta = document.createElement("div");
+      meta.className = "st-meta";
+      const bits = [];
+      if (h.skill) bits.push(h.skill);
+      bits.push(stTime(h.updated));
+      meta.textContent = bits.filter(Boolean).join(" · ");
+      body.appendChild(meta);
+      row.appendChild(body);
+      stMenu.appendChild(row);
+    });
+  }
 }
 
 stHistBtn.addEventListener("click", ev => {

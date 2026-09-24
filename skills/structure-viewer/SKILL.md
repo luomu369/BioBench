@@ -279,6 +279,35 @@ dropdown shows their purpose.
 Both actions can be combined in one call by passing `--structure` and
 `--status` together.
 
+### Running several jobs at once
+
+Several skills can proceed simultaneously — a BoltzGen design on the GPU
+while Vina docks on the CPU. Each one reports progress under its own `--job`
+id, and the viewer tracks them separately instead of letting the second run
+overwrite the first's status.
+
+```bash
+# two jobs, side by side
+python3 $PUB --status --state running --step "设计主链" --index 1 --total 5 \
+  --skill binder-design --job boltz1 --message "BoltzGen 设计 4 个 binder"
+
+python3 $PUB --status --state running --step "分子生成" --index 1 --total 3 \
+  --skill pocket-molecule-design --job resgen1 --message "ResGen 生成口袋分子"
+```
+
+`--job` defaults to the skill name, so re-running a skill updates its entry
+rather than adding a duplicate — the same rule the viewer's tabs follow.
+Pass a distinct value to run two of the same skill side by side.
+
+The pill at the bottom shows one job: the newest running one, or the result
+of whichever just finished. Everything else is in the pull-up menu behind the
+chevron, grouped into 运行中 / 排队中 / 已完成, each with its own progress
+bar and elapsed time.
+
+**Use `--job` whenever a run may overlap another.** Without it two
+concurrent runs of the same skill share one entry and clobber each other's
+progress — the pill would jump between the two.
+
 ### Highlighting what you just changed
 
 `--highlight` names residues the viewer should select on arrival, so the

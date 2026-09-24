@@ -25,7 +25,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 VIEWER = Path(os.environ.get(
@@ -201,7 +201,7 @@ def publish_structure(args) -> int:
         "chains": chains,
         "metrics": json.loads(args.metrics) if args.metrics else {},
         "notes": args.notes or "",
-        "updated": datetime.now().isoformat(timespec="seconds"),
+        "updated": utcnow_iso(),
     }
     highlight = parse_highlight(args.highlight)
     if highlight:
@@ -228,11 +228,53 @@ def publish_selection(residues) -> int:
     """
     payload = {
         "residues": residues,
-        "updated": datetime.now().isoformat(timespec="seconds"),
+        "updated": utcnow_iso(),
     }
     atomic_write(VIEWER / "select.json", json.dumps(payload, indent=2))
     print(f"select: {len(residues)} residues requested")
     return 0
+
+
+# How many past statuses to keep in status.json's history array. Enough to
+# scroll back through a session's runs without the file growing without
+# bound.
+STATUS_HISTORY = 20
+
+# How many jobs to keep in the job list. Finished jobs are the ones worth
+# keeping — a running job is already visible on the pill — so the cap is
+# generous.
+MAX_JOBS = 30
+
+
+def utcnow_iso():
+    """UTC now, with the zone spelled out.
+
+    A bare isoformat() gives local time with no offset, and the browser
+    reads it in *its* zone. On a machine set to UTC serving a browser set to
+    GMT+0800 that puts every timestamp eight hours off, which turned a
+    20-second job into "8h 0m". The trailing Z removes the ambiguity.
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def load_status():
+    """The current status file, or an empty one.
+
+    Tolerates the old single-object format: a file written before jobs
+    existed has no "jobs" key, and reading it as one is the difference
+    between the viewer showing the last run and showing nothing.
+    """
+    path = VIEWER / "status.json"
+    if not path.exists():
+        return {"active": None, "jobs": [], "history": []}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"active": None, "jobs": [], "history": []}
+    if "jobs" not in data:
+        # Old format: the whole object was the active status.
+        data = {"active": data, "jobs": [], "history": data.get("history") or []}
+    return data
 
 
 def publish_status(args) -> int:
@@ -243,30 +285,64 @@ def publish_status(args) -> int:
         "step_index": args.index or 0,
         "step_total": args.total or 0,
         "message": args.message or "",
-        "updated": datetime.now().isoformat(timespec="seconds"),
+        "updated": utcnow_iso(),
     }
     if args.state == "error" and args.message:
         status["error"] = args.message
 
-    # Keep the last N statuses so the viewer can show a history. The pill
-    # only ever shows the newest one, so a run that finished minutes ago
-    # leaves no trace of what it did — and the messages are the only record
-    # of which skill ran and what it found.
-    path = VIEWER / "status.json"
-    history = []
-    if path.exists():
-        try:
-            old = json.loads(path.read_text())
-            history = old.get("history") or []
-        except (json.JSONDecodeError, OSError):
-            history = []
-    # Append a copy, not the dict itself: the new status carries the history
-    # it was built from, so appending it directly would make the file
-    # contain itself.
-    history.append(dict(status))
-    status["history"] = history[-STATUS_HISTORY:]
+    data = load_status()
+    jobs = data.get("jobs") or []
 
-    atomic_write(path, json.dumps(status, indent=2))
+    # A job is identified by --job, defaulting to the skill name. Two runs of
+    # the same skill without --job are the same job, so re-running one
+    # updates its entry rather than piling up duplicates — the same rule the
+    # viewer's tabs follow.
+    job_id = args.job or args.skill or "job"
+    status["id"] = job_id
+
+    existing = next((j for j in jobs if j.get("id") == job_id), None)
+    if existing:
+        # Keep the original start time so elapsed time survives a step
+        # update; only the state and message move.
+        status["started"] = existing.get("started") or status["updated"]
+        jobs[jobs.index(existing)] = status
+    else:
+        status["started"] = status["updated"]
+        jobs.append(status)
+
+    # The pill shows one job. --job decides which: without it the newest
+    # running job takes the front, so a background task that finishes does
+    # not steal the display from one still working.
+    if args.job:
+        data["active"] = status
+    elif status["state"] == "running":
+        data["active"] = status
+    elif data.get("active") and data["active"].get("id") == job_id:
+        # This job was on screen and has stopped; fall back to whatever is
+        # still running, or to it if nothing is.
+        still_running = next((j for j in reversed(jobs)
+                              if j.get("state") == "running"), None)
+        data["active"] = still_running or status
+
+    # Finished and failed jobs drop out of the active list once nothing is
+    # running, so the pill does not sit on a stale "done" while a new job
+    # waits behind it.
+    if not any(j.get("state") == "running" for j in jobs):
+        if data.get("active") and data["active"].get("state") != "running":
+            newest = next((j for j in reversed(jobs)
+                           if j.get("state") in ("done", "error")), None)
+            if newest:
+                data["active"] = newest
+
+    data["jobs"] = jobs[-MAX_JOBS:]
+
+    # History is the flat log of every status ever written, which is what the
+    # pull-up menu shows. Jobs are the current picture; history is the record.
+    history = data.get("history") or []
+    history.append(dict(status))
+    data["history"] = history[-STATUS_HISTORY:]
+
+    atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
     print(f"status: {args.state}"
           + (f" {args.index}/{args.total} {args.step}" if args.total else "")
           + (f" — {args.message}" if args.message else ""))
@@ -301,6 +377,12 @@ def main() -> int:
     ap.add_argument("--total", type=int, help="total step count")
     ap.add_argument("--message", help="human-readable progress message")
     ap.add_argument("--skill", help="skill name for attribution")
+    ap.add_argument("--job",
+                    help="identify this run so several can proceed at once. "
+                         "Defaults to the skill name, so re-running a skill "
+                         "updates its entry instead of adding a duplicate. "
+                         "Pass a distinct value to run two of the same skill "
+                         "side by side.")
 
     args = ap.parse_args()
 
