@@ -831,6 +831,16 @@ const seqLen = document.getElementById("seq-len");
 const seqBody = document.getElementById("seq-body");
 const statusBar = document.getElementById("status");
 
+// Shapes and labels are kept separately because 3Dmol removes them through
+// different calls — removeShape for the cylinder, removeLabel for the text
+// sprite. Passing one to the other's remover is a silent no-op, which would
+// leave the old label on screen forever.
+//
+// Declared here, next to the other DOM handles, because renderStructure
+// clears them and runs long before the distance-line code below.
+let distShapes = [];
+let distLabels = [];
+
 const AA3TO1 = {
   ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLN:'Q', GLU:'E', GLY:'G',
   HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S',
@@ -1048,6 +1058,12 @@ function renderStructure(data, meta, snap) {
   // removeModel(id) is not an alternative: viewer.models is a sparse array
   // keyed by ID, and deleting a middle entry leaves its length unchanged,
   // so the model count climbs on every poll even though only one is drawn.
+  //
+  // Any distance line belongs to the model going away — its coordinates are
+  // meaningless in the new structure's frame. Clearing it here rather than
+  // in drawDistanceLines keeps a stale line from flashing for one frame
+  // between the model swap and the next applyStyle.
+  clearDistanceLines();
   viewer.removeAllModels();
   viewer.addModel(data, fmt);
 
@@ -1499,6 +1515,8 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
     viewer.setStyle(hoverSel(state.hover), hoverHighlightSpec(kind));
   }
 
+  drawDistanceLines();
+
   viewer.render();
 
   // Report the view to any agent reading selection.json. applyStyle runs
@@ -1532,6 +1550,92 @@ function persistView() {
   if (sig === lastViewSig) return;
   lastViewSig = sig;
   persistSelection(Object.keys(state.selection));
+}
+
+/* ---------------- distance lines ---------------- */
+
+// When exactly two residues are selected, draw a dashed line between them
+// with the distance at its midpoint. "How far apart are these two?" is the
+// first question anyone asks of a pair of residues, and answering it meant
+// leaving the viewer for a script.
+//
+// Only two residues trigger it. With three or more the lines cross and the
+// labels overlap into noise, and the question "how far apart" no longer has
+// a single answer. Chain and atom selections are ignored for the same
+// reason: a whole chain has no single position to measure from.
+//
+// The line is drawn between centroids rather than the closest atom pair.
+// Centroids are symmetric — the line reads as "these two residues" — while
+// a closest-atom line lands on whatever side chain happens to point the
+// right way and looks arbitrary. The trade-off is that the number is the
+// centroid distance, not the contact distance; the label says which.
+
+const DIST_LINE_COLOR = "#93c5fd";
+const DIST_LABEL_BG = "rgba(11,15,20,.85)";
+
+function clearDistanceLines() {
+  distShapes.forEach(s => {
+    try { viewer.removeShape(s); } catch (e) { /* already gone */ }
+  });
+  distShapes = [];
+  distLabels.forEach(l => {
+    try { viewer.removeLabel(l); } catch (e) { /* already gone */ }
+  });
+  distLabels = [];
+}
+
+// Centroid of a residue's atoms, or null if the residue is not in the model.
+function residueCentroid(chain, resi) {
+  const model = viewer.getModel();
+  if (!model) return null;
+  const atoms = (model.atoms || []).filter(
+    a => a.chain === chain && a.resi === resi);
+  if (!atoms.length) return null;
+  let x = 0, y = 0, z = 0;
+  atoms.forEach(a => { x += a.x; y += a.y; z += a.z; });
+  return { x: x / atoms.length, y: y / atoms.length, z: z / atoms.length };
+}
+
+function drawDistanceLines() {
+  clearDistanceLines();
+
+  // Residue selections only: chain, atom, bond and pocket entries have no
+  // single position to measure from.
+  const residues = Object.values(state.selection).filter(
+    it => it && it.sel && it.sel.resi !== undefined && !it.chain
+        && !it.atom && !it.bond && !it.pocket);
+  if (residues.length !== 2) return;
+
+  const a = residueCentroid(residues[0].sel.chain, residues[0].sel.resi);
+  const b = residueCentroid(residues[1].sel.chain, residues[1].sel.resi);
+  if (!a || !b) return;
+
+  const d = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+
+  const line = viewer.addShape({
+    cylinder: {
+      start: { x: a.x, y: a.y, z: a.z },
+      end: { x: b.x, y: b.y, z: b.z },
+      radius: 0.12,
+      // Dashed so it reads as a measurement rather than a bond. A solid
+      // line at this radius looks like a covalent connection between two
+      // residues that have nothing to do with each other.
+      dashed: true,
+      color: DIST_LINE_COLOR,
+    },
+  });
+  distShapes.push(line);
+
+  const label = viewer.addLabel(`${d.toFixed(2)} Å`, {
+    position: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 },
+    backgroundColor: DIST_LABEL_BG,
+    fontColor: DIST_LINE_COLOR,
+    fontSize: 12,
+    font: "monospace",
+    padding: 3,
+    borderThickness: 0,
+  });
+  distLabels.push(label);
 }
 
 stylePicker.addEventListener("change", applyStyle);
