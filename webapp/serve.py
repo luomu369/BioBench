@@ -136,6 +136,23 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def do_DELETE(self):
+        # Only select.json is deletable, and only by the viewer consuming a
+        # request it has just applied. Without the delete the same request
+        # would re-apply on every poll, re-selecting residues the user had
+        # since dismissed by hand.
+        if self.path.split("?")[0].rstrip("/") != "/select.json":
+            self.send_error(404, "only DELETE /select.json is supported")
+            return
+        target = STATIC / "select.json"
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
     def do_POST(self):
         if self.path.rstrip("/") != "/selection.json":
             self.send_error(404, "only POST /selection.json is supported")

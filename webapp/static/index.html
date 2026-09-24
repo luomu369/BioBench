@@ -2465,6 +2465,31 @@ async function poll() {
   // across a 250ms window, so this is a real reading rather than a
   // since-boot average.
   renderSysinfo();
+
+  // A skill asking the viewer to select residues in what is already on
+  // screen. selection.json only flows the other way, so without this a
+  // computed result — the residues within 5 A of a click, say — has nowhere
+  // to go.
+  await pollSelect();
+}
+
+// Read select.json, apply it to the loaded model, then delete it.
+//
+// The delete matters: without it the same request would re-apply on every
+// poll, re-selecting residues the user had since dismissed by hand. The
+// server exposes DELETE for this one file.
+async function pollSelect() {
+  try {
+    const res = await fetch("select.json?t=" + Date.now());
+    if (!res.ok) return;
+    const req = await res.json();
+    if (Array.isArray(req.residues) && req.residues.length) {
+      applyHighlights({ highlight: req.residues });
+      renderSelectionPanel();
+      persistSelection(Object.keys(state.selection));
+    }
+    await fetch("select.json", { method: "DELETE" });
+  } catch (e) { /* no pending request */ }
 }
 
 poll();

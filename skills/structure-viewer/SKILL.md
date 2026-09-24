@@ -307,6 +307,25 @@ skill may name a chain it dropped, or numbering that shifted between the
 input and the output. Derive the list from the file you are actually
 publishing, not from the input.
 
+### Selecting residues in what is already on screen
+
+`--select` does the same job as `--highlight` but applies to the structure
+the user is already looking at, without publishing anything:
+
+```bash
+python3 $PUB --select "hA:466,hA:468,hA:463"
+```
+
+This is the answer to "select everything within 5 A of this residue" and
+anything else a skill computes from the loaded model. `selection.json` only
+flows viewer → skill, so without this channel a computed result has nowhere
+to go.
+
+The viewer polls for the request, applies it, then deletes the file — so a
+stale request cannot re-apply later and re-select residues the user has
+since dismissed by hand. Residues already selected are left alone rather
+than duplicated.
+
 ### `--metrics` and `--notes` are yours to shape
 
 The viewer renders whatever you put in `--metrics` and `--notes` — it keeps

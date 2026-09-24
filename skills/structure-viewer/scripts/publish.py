@@ -214,6 +214,27 @@ def publish_structure(args) -> int:
     return 0
 
 
+def publish_selection(residues) -> int:
+    """Ask the viewer to select residues in the structure already on screen.
+
+    selection.json is one-way — the viewer writes it, skills read it — so a
+    skill that computes something the user should see (the residues within
+    5 A of a click, say) has had no way to put it on screen. This writes a
+    separate file the viewer polls for and applies to the loaded model.
+
+    The residues are selected exactly as if the user had clicked them: same
+    colours, same panel rows, same selection.json. The file is consumed by
+    the viewer, which deletes it, so a stale request cannot re-apply later.
+    """
+    payload = {
+        "residues": residues,
+        "updated": datetime.now().isoformat(timespec="seconds"),
+    }
+    atomic_write(VIEWER / "select.json", json.dumps(payload, indent=2))
+    print(f"select: {len(residues)} residues requested")
+    return 0
+
+
 def publish_status(args) -> int:
     status = {
         "state": args.state,
@@ -267,6 +288,11 @@ def main() -> int:
                          '"A:385,A:386,B:12". The viewer selects them as '
                          'if the user had clicked, so what a skill just '
                          'changed is visible without hunting for it.')
+    ap.add_argument("--select",
+                    help='residues to select in the structure already on '
+                         'screen, e.g. "A:385,A:386". Same effect as '
+                         '--highlight but applies to the loaded model '
+                         'instead of waiting for the next publish.')
 
     ap.add_argument("--status", action="store_true", help="also write status")
     ap.add_argument("--state", choices=["idle", "running", "done", "error"])
@@ -278,12 +304,14 @@ def main() -> int:
 
     args = ap.parse_args()
 
-    if not args.structure and not args.status:
-        ap.error("nothing to do: pass --structure and/or --status")
+    if not args.structure and not args.status and not args.select:
+        ap.error("nothing to do: pass --structure, --select and/or --status")
 
     rc = 0
     if args.structure:
         rc = publish_structure(args) or rc
+    if args.select:
+        rc = publish_selection(parse_highlight(args.select)) or rc
     if args.status:
         if not args.state:
             ap.error("--status requires --state")
