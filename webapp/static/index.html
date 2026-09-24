@@ -254,6 +254,57 @@
   #seq-panel .seq-eye:hover { opacity: 1; }
   #seq-panel .seq-eye.off { color: var(--muted); opacity: .8; }
   #seq-panel .seq-chain-seq { color: var(--text); }
+  /* One span per residue so a drag can hit-test. Monospace keeps the
+     letters on a fixed grid, which makes a drag across them land where the
+     user expects rather than wherever a proportional font happens to put
+     the next glyph. */
+  #seq-panel .seq-chain-seq {
+    font-family: monospace;
+    line-height: 1.7;
+    /* No word-break: the sequence is laid out in fixed 50-residue rows
+     * rather than wrapped wherever the panel happens to end. Rows of a
+     * known length line up between chains, so the same position in two
+     * chains sits at the same x — which is what makes a comparison
+     * readable. */
+    user-select: none;
+    cursor: crosshair;
+  }
+  /* One row of the sequence. `display: block` with the letters inline
+     inside means the row is exactly as wide as its 50 letters and never
+     breaks, so every row starts at the same x. */
+  #seq-panel .seq-row {
+    display: block;
+    white-space: nowrap;
+  }
+  #seq-panel .seq-aa { border-radius: 2px; }
+  #seq-panel .seq-aa:hover { background: rgba(77,163,255,.22); }
+  /* The range being dragged right now. A hard colour rather than a tint:
+     the letters underneath are already coloured by chain, and a translucent
+     overlay on top of that reads as "dimmed" rather than "selected". */
+  #seq-panel .seq-aa.seq-drag {
+    background: var(--accent);
+    color: #0b0f14;
+  }
+  /* Inside the drag and already selected: this one comes off when the
+     mouse is released. Hollow rather than filled, so the two directions of
+     the toggle read differently at a glance. */
+  #seq-panel .seq-aa.seq-drag-off {
+    background: transparent;
+    color: var(--muted);
+    text-decoration: line-through;
+    opacity: .55;
+  }
+  /* Selected residues. The colour is set inline from the selection's own
+     swatch, so a letter matches the highlight in the 3D view and the row in
+     the Selection panel.
+   *
+   * No font-weight change: the sequence is monospace, and bolding it makes
+   * every glyph wider, so selecting a residue shifts the letters after it
+   * and the whole row reflows. The background already says "selected" — the
+   * weight only made the text jump. */
+  #seq-panel .seq-aa.seq-sel {
+    color: #0b0f14;
+  }
 
   /* ---------- state.selection panel ---------- */
   #selection {
@@ -887,6 +938,13 @@ const EYE_ON =
 const EYE_OFF =
   '<svg viewBox="0 0 24 24"><path d="M2 4.3 3.4 3 21 20.6 19.6 22l-3.1-3.1A11 11 0 0 1 12 19c-5 0-9.3-3.1-11-7a12.6 12.6 0 0 1 4.2-5.2L2 4.3zM12 7a5 5 0 0 1 4.7 6.7l-2-2A3 3 0 0 0 10.3 9.3l-2-2A5 5 0 0 1 12 7zm10 5c-.6 1.4-1.6 2.7-2.9 3.8l-1.5-1.5A9.9 9.9 0 0 0 19.4 12a9.8 9.8 0 0 0-4.4-4.3l-1.5-1.5A11 11 0 0 1 12 5c5 0 9.3 3.1 11 7z"/></svg>';
 
+// Residues per line in the sequence panel. A fixed count rather than
+// wrapping to the panel width: rows of a known length line up between
+// chains, so the same position in two chains sits at the same x and the
+// two can be read against each other. 50 is the convention sequence
+// viewers have settled on and fits the panel without scrolling.
+const SEQ_ROW_LEN = 50;
+
 // One row per chain: an eye toggle on the left, the chain name, and the
 // sequence underneath. Clicking the eye hides that chain in the 3D view.
 function chainRow(chainId, label, seqText) {
@@ -922,11 +980,176 @@ function chainRow(chainId, label, seqText) {
   if (seqText) {
     const body = document.createElement("div");
     body.className = "seq-chain-seq";
-    body.textContent = seqText;
+    // One span per residue rather than a single text node: a drag across
+    // the sequence has to know which residues it crossed, and that needs
+    // something to hit-test against. `residues` is the parallel array of
+    // residue numbers from extractChains — same order as the letters.
+    const resNums = (state.chains.find(c => c.chain === chainId) || {}).residues || [];
+    const letters = [...seqText];
+    // Fixed-width rows of SEQ_ROW_LEN. Letting the browser wrap wherever
+    // the panel ends puts a different number of letters on each line, so
+    // residue 100 sits at one x in chain A and another in chain B — the two
+    // sequences cannot be read against each other. Rows of a known length
+    // line up, and the last row is simply short.
+    for (let start = 0; start < letters.length; start += SEQ_ROW_LEN) {
+      const line = document.createElement("span");
+      line.className = "seq-row";
+      for (let i = start; i < Math.min(start + SEQ_ROW_LEN, letters.length); i++) {
+        const s = document.createElement("span");
+        s.className = "seq-aa";
+        s.textContent = letters[i];
+        s.dataset.chain = chainId;
+        if (resNums[i] !== undefined) s.dataset.resi = resNums[i];
+        line.appendChild(s);
+      }
+      body.appendChild(line);
+    }
     row.appendChild(body);
   }
   return row;
 }
+
+/* ---------------- sequence drag selection ---------------- */
+
+// Dragging across the sequence selects every residue crossed, the same way
+// dragging across text in an editor selects a range. Clicking a single
+// letter still selects just that residue.
+//
+// The letters are spans with data-chain / data-resi, so the range is read
+// off the DOM rather than computed from pixel offsets — which would need
+// the font metrics and break the moment the panel is scrolled or wrapped.
+
+let seqDrag = null;   // { chain, anchorResi, currentResi } while dragging
+let seqDragMoved = false;
+
+function seqLetterFromEvent(ev) {
+  const el = ev.target.closest ? ev.target.closest(".seq-aa") : null;
+  if (!el || el.dataset.resi === undefined) return null;
+  return { chain: el.dataset.chain, resi: el.dataset.resi, el };
+}
+
+// Residues between two positions in one chain, inclusive, in sequence
+// order. The letters are laid out in the order extractChains saw them, so
+// the index range is the answer — no need to sort by residue number, which
+// would be wrong for a chain with insertion codes or non-contiguous
+// numbering.
+function seqRange(chainId, fromResi, toResi) {
+  const info = state.chains.find(c => c.chain === chainId);
+  if (!info) return [];
+  const i = info.residues.findIndex(r => String(r) === String(fromResi));
+  const j = info.residues.findIndex(r => String(r) === String(toResi));
+  if (i < 0 || j < 0) return [];
+  const [lo, hi] = i <= j ? [i, j] : [j, i];
+  return info.residues.slice(lo, hi + 1);
+}
+
+function seqApplyDrag() {
+  if (!seqDrag) return;
+  const { chain, anchorResi, currentResi } = seqDrag;
+  const range = seqRange(chain, anchorResi, currentResi);
+
+  // Toggle the dragged range against what is already selected.
+  //
+  // A drag adds the residues it covers, except the ones already selected —
+  // those come off. That makes the gesture its own inverse: drag the same
+  // stretch twice and it is back to unselected, and dragging across a
+  // selection that runs off the end of the range trims it rather than
+  // growing it. Selecting a set of hotspots is a process of refinement, and
+  // without this the only way to remove a residue is to find its row in the
+  // Selection panel and click the ×.
+  //
+  // A plain click on one letter lands here with a one-element range, so it
+  // toggles that single residue — the same behaviour as clicking it in the
+  // 3D view.
+  range.forEach(resi => {
+    const key = `${chain}:${resi}`;
+    if (state.selection[key]) {
+      delete state.selection[key];
+      return;
+    }
+    const atom = (viewer.getModel().atoms || [])
+      .find(a => a.chain === chain && String(a.resi) === String(resi));
+    state.selection[key] = {
+      sel: { chain, resi: isNaN(Number(resi)) ? resi : Number(resi) },
+      label: atom ? selLabel(atom) : `${chain}:${resi}`,
+      color: nextColor(chain),
+    };
+  });
+  applyStyle();
+  renderSelectionPanel();
+  persistSelection(Object.keys(state.selection));
+}
+
+// Paint the range as it is dragged, so the user sees what the gesture will
+// do. Letters already selected and inside the range are marked for removal
+// rather than addition — the preview has to show the toggle, not just the
+// add, or dragging over an existing selection looks like it will do
+// nothing.
+function seqPaintDrag() {
+  if (!seqDrag) return;
+  const { chain, anchorResi, currentResi } = seqDrag;
+  const inRange = new Set(seqRange(chain, anchorResi, currentResi).map(String));
+  document.querySelectorAll(".seq-aa").forEach(el => {
+    if (el.dataset.chain !== chain) return;
+    el.classList.remove("seq-drag", "seq-drag-off");
+    if (!inRange.has(el.dataset.resi)) return;
+    const key = `${chain}:${el.dataset.resi}`;
+    if (state.selection[key]) {
+      el.classList.add("seq-drag-off");
+    } else {
+      el.classList.add("seq-drag");
+    }
+  });
+}
+
+document.addEventListener("mousedown", ev => {
+  // Ignore a press that lands outside the sequence, and ignore a second
+  // press while a drag is already running — without the guard a stray
+  // mousedown mid-drag re-anchors the range and the selection jumps to
+  // wherever the pointer happened to be.
+  if (seqDrag) return;
+  const hit = seqLetterFromEvent(ev);
+  if (!hit) return;
+  // Only the primary button starts a drag; a right-click should still open
+  // the context menu.
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  seqDrag = { chain: hit.chain, anchorResi: hit.resi, currentResi: hit.resi };
+  seqDragMoved = false;
+  seqPaintDrag();
+});
+
+document.addEventListener("mousemove", ev => {
+  if (!seqDrag) return;
+  const hit = seqLetterFromEvent(ev);
+  // A drag stays inside one chain: crossing into another chain's block
+  // leaves the range where it was rather than measuring across two
+  // different sequences, whose residue numbers are unrelated.
+  if (!hit || hit.chain !== seqDrag.chain) return;
+  if (hit.resi !== seqDrag.currentResi) {
+    seqDrag.currentResi = hit.resi;
+    seqDragMoved = true;
+    seqPaintDrag();
+  }
+});
+
+document.addEventListener("mouseup", () => {
+  if (!seqDrag) return;
+  const drag = seqDrag;
+  seqDrag = null;
+  // Both preview classes, not just the add one. Leaving seq-drag-off
+  // behind strands the strikethrough on letters that are no longer being
+  // dragged — and since the class also drops the background, the letter
+  // reads as deselected while the Selection panel still lists it.
+  document.querySelectorAll(".seq-aa.seq-drag, .seq-aa.seq-drag-off")
+    .forEach(el => el.classList.remove("seq-drag", "seq-drag-off"));
+  // A click that never moved is a single-residue selection, which
+  // seqApplyDrag already produces from a one-element range — so both paths
+  // go through the same code.
+  seqDrag = drag;
+  seqApplyDrag();
+  seqDrag = null;
+});
 
 function renderSequence(chainInfo) {
   if (!chainInfo) {
@@ -1519,6 +1742,11 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
 
   viewer.render();
 
+  // The sequence panel is the other half of the same picture: a residue
+  // highlighted in the 3D view has to be highlighted there too, or the two
+  // halves of the screen disagree about what is selected.
+  paintSequenceSelection();
+
   // Report the view to any agent reading selection.json. applyStyle runs
   // on every tab switch, style change and chain toggle, so this is the one
   // place that sees all of them — persistSelection alone only fires when
@@ -2054,6 +2282,52 @@ document.getElementById("viewer-wrap").addEventListener("mousemove", (e) => {
 document.getElementById("viewer-wrap").addEventListener("mouseleave", () => {
   hoverTip.hidden = true;
 });
+
+// Paint the sequence letters to match state.selection. Without this a
+// residue chosen in the 3D view — or by a drag, or by a skill through
+// --select — shows up in the Selection panel and in the structure but the
+// sequence still reads as untouched, so the two halves of the screen
+// disagree about what is chosen.
+//
+// Runs from applyStyle, which every selection change already routes
+// through, so there is no second place to keep in sync.
+function paintSequenceSelection() {
+  // Residue keys are "chain:resi"; chain selections cover every letter of
+  // that chain. Atom and bond selections name no residue, so they leave
+  // the sequence alone — an atom is smaller than a letter can show.
+  const byChain = {};
+  Object.entries(state.selection).forEach(([key, item]) => {
+    if (item.atom || item.bond || item.pocket) return;
+    if (item.chain) {
+      byChain[item.sel.chain] = { all: true, color: item.color };
+      return;
+    }
+    if (item.sel && item.sel.resi !== undefined) {
+      const c = item.sel.chain;
+      if (!byChain[c]) byChain[c] = { all: false, resi: {}, color: item.color };
+      byChain[c].resi[String(item.sel.resi)] = item.color;
+    }
+  });
+
+  document.querySelectorAll(".seq-aa").forEach(el => {
+    const c = byChain[el.dataset.chain];
+    let color = null;
+    if (c) {
+      color = c.all ? c.color : (c.resi[el.dataset.resi] || null);
+    }
+    if (color) {
+      el.style.background = color;
+      el.style.color = "#0b0f14";
+      el.classList.add("seq-sel");
+      el.title = `${el.dataset.chain}:${el.dataset.resi}`;
+    } else {
+      el.style.background = "";
+      el.style.color = "";
+      el.classList.remove("seq-sel");
+      el.title = "";
+    }
+  });
+}
 
 function renderSelectionPanel() {
   const keys = Object.keys(state.selection);
