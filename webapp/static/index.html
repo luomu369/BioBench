@@ -1559,17 +1559,19 @@ function persistView() {
 // first question anyone asks of a pair of residues, and answering it meant
 // leaving the viewer for a script.
 //
-// Two residues draw one line with its length. Three draw the triangle's
+// Two selections draw one line with its length. Three draw the triangle's
 // three edges with their lengths, plus the angle at each corner — the
 // shape three points make is the question "are these three arranged the way
 // I think", and lengths alone do not answer it. Four or more draw nothing:
 // the edges cross, the labels overlap into noise, and there is no longer a
 // single shape to read.
 //
-// Chain and atom selections are ignored: a whole chain has no single
-// position to measure from.
+// Residues and atoms both count, and the two can be mixed — "how far is
+// this side-chain oxygen from that residue" is the same question. Chain,
+// bond and pocket selections are dropped: a whole chain, a pair of atoms,
+// and a cloud of spheres have no single position to measure from.
 //
-// The lines run between centroids rather than the closest atom pair.
+// Residues measure from their centroid rather than the closest atom pair.
 // Centroids are symmetric — the line reads as "these two residues" — while
 // a closest-atom line lands on whatever side chain happens to point the
 // right way and looks arbitrary. The trade-off is that the numbers are
@@ -1677,19 +1679,34 @@ function angleAt(v, p, q) {
   return Math.acos(c) * 180 / Math.PI;
 }
 
+// Position of one selection entry, or null if it has none.
+//
+// Residues measure from their centroid; atoms from the atom itself. Chain,
+// bond and pocket entries have no single position — a whole chain, a pair
+// of atoms, or a cloud of spheres — so they return null and are dropped.
+function selectionPoint(item) {
+  if (!item || !item.sel) return null;
+  if (item.atom) {
+    const model = viewer.getModel();
+    const a = (model && model.atoms || []).find(x => x.index === item.sel.index);
+    return a ? { x: a.x, y: a.y, z: a.z } : null;
+  }
+  if (item.chain || item.bond || item.pocket) return null;
+  if (item.sel.resi !== undefined) {
+    return residueCentroid(item.sel.chain, item.sel.resi);
+  }
+  return null;
+}
+
 function drawDistanceLines() {
   clearDistanceLines();
 
-  // Residue selections only: chain, atom, bond and pocket entries have no
-  // single position to measure from.
-  const residues = Object.values(state.selection).filter(
-    it => it && it.sel && it.sel.resi !== undefined && !it.chain
-        && !it.atom && !it.bond && !it.pocket);
-  if (residues.length < 2 || residues.length > 3) return;
-
-  const pts = residues.map(r =>
-    residueCentroid(r.sel.chain, r.sel.resi));
-  if (pts.some(p => !p)) return;
+  // Residue and atom selections. Chain, bond and pocket entries are dropped
+  // by selectionPoint — none of them has one position to measure from.
+  const pts = Object.values(state.selection)
+    .map(selectionPoint)
+    .filter(Boolean);
+  if (pts.length < 2 || pts.length > 3) return;
 
   if (pts.length === 2) {
     addDashedLine(pts[0], pts[1]);
