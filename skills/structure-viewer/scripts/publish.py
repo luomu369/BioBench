@@ -305,24 +305,50 @@ def publish_status(args) -> int:
         # Keep the original start time so elapsed time survives a step
         # update; only the state and message move.
         status["started"] = existing.get("started") or status["updated"]
+        # A plan is declared once and then carried forward. Re-declaring it
+        # on every step update would be redundant, and dropping it would
+        # lose the route map the moment the first step reported in.
+        if existing.get("plan") and not args.plan:
+            status["plan"] = existing["plan"]
         jobs[jobs.index(existing)] = status
     else:
         status["started"] = status["updated"]
         jobs.append(status)
 
-    # The pill shows one job. --job decides which: without it the newest
-    # running job takes the front, so a background task that finishes does
-    # not steal the display from one still working.
+    # The plan, if one was given. Split on commas, and also on ">" and "→"
+    # so a route written either way parses the same.
+    if args.plan:
+        steps = [s.strip() for s in re.split(r"[,>→]", args.plan)]
+        status["plan"] = [s for s in steps if s]
+
+    # The pill shows one job. Priority: whatever is running beats whatever is
+    # waiting, and a job that just finished beats one still queued — the user
+    # wants to see the result of the work that just completed, not the next
+    # thing in line.
+    #
+    # An explicit --job still wins outright: naming a job is how a skill says
+    # "this is the one to look at", and second-guessing it would make the
+    # flag useless.
     if args.job:
         data["active"] = status
     elif status["state"] == "running":
         data["active"] = status
+    elif status["state"] in ("done", "error"):
+        # Only take the front if nothing is running — a finished background
+        # job must not displace the one still working.
+        if not any(j.get("state") == "running" for j in jobs):
+            data["active"] = status
     elif data.get("active") and data["active"].get("id") == job_id:
-        # This job was on screen and has stopped; fall back to whatever is
+        # This job was on screen and has gone quiet; fall back to whatever is
         # still running, or to it if nothing is.
         still_running = next((j for j in reversed(jobs)
                               if j.get("state") == "running"), None)
         data["active"] = still_running or status
+    elif status["state"] == "idle":
+        # A newly queued job does not take the front on its own — it has not
+        # done anything yet. It appears in the menu's 排队中 group.
+        if not data.get("active"):
+            data["active"] = status
 
     # Finished and failed jobs drop out of the active list once nothing is
     # running, so the pill does not sit on a stale "done" while a new job
@@ -336,8 +362,10 @@ def publish_status(args) -> int:
 
     data["jobs"] = jobs[-MAX_JOBS:]
 
-    # History is the flat log of every status ever written, which is what the
-    # pull-up menu shows. Jobs are the current picture; history is the record.
+    # History is the flat log of every status ever written. The viewer no
+    # longer shows it — the job list covers what is on screen — but it costs
+    # a few hundred bytes and is the only record of messages a job
+    # superseded, so it stays for anything that wants to read the file.
     history = data.get("history") or []
     history.append(dict(status))
     data["history"] = history[-STATUS_HISTORY:]
@@ -371,7 +399,10 @@ def main() -> int:
                          'instead of waiting for the next publish.')
 
     ap.add_argument("--status", action="store_true", help="also write status")
-    ap.add_argument("--state", choices=["idle", "running", "done", "error"])
+    ap.add_argument("--state",
+                    choices=["idle", "queued", "running", "done", "error"],
+                    help="idle and queued both mean waiting; queued says so "
+                         "more plainly when a plan has been declared")
     ap.add_argument("--step", help="current step name")
     ap.add_argument("--index", type=int, help="current step number")
     ap.add_argument("--total", type=int, help="total step count")
@@ -383,6 +414,13 @@ def main() -> int:
                          "updates its entry instead of adding a duplicate. "
                          "Pass a distinct value to run two of the same skill "
                          "side by side.")
+    ap.add_argument("--plan",
+                    help='declare the whole run up front, e.g. '
+                         '"生成主链,折叠验证,亲和力评估,筛选排序". The '
+                         'viewer shows the full route before anything has '
+                         'run, and lights each step up as it is reached — '
+                         'so a 25-minute job says what it is going to do '
+                         'rather than revealing one step at a time.')
 
     args = ap.parse_args()
 
