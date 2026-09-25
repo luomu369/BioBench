@@ -158,6 +158,36 @@ The design converged on the neurokinin-1 receptor family, as expected for
 a binder raised against NK1R. The 62% hit is the target itself.
 ```
 
+### When the query is a de novo design
+
+**Zero hits is the expected result, and it is good news.** A designed
+sequence has no evolutionary history, so there is nothing in the PDB for it
+to match. Reporting "no homologues found" as a failure misreads the search.
+
+What the search is actually checking is whether the design accidentally
+reproduced something already known:
+
+- **0 hits** — the sequence is novel. Say so plainly, and note the database
+  size so the number means something ("0 hits against 1.56 M PDB
+  sequences").
+- **A hit at high identity** — the design converged on a known fold. That is
+  worth reporting, but it is not a problem; it usually means the target
+  family has a well-explored binding mode.
+- **A hit at low identity but high coverage** — possible remote homology.
+  Worth a look before dismissing.
+
+Confirm a null result before reporting it. A 12-residue query against a
+sensitivity of 7.5 can come back empty because the query is short, not
+because it is novel. Re-run with a looser threshold and check it is still
+empty:
+
+```bash
+$MM search qDB $DB resultDB2 tmp2 --gpu 1 -s 4.0 -e 100 --max-seqs 100 --cov-mode 0
+$MM convertalis qDB $DB resultDB2 hits.tsv --format-output "query,target,pident,alnlen,evalue,bits"
+```
+
+Still empty at e-value 100 is a real null. Report both runs.
+
 ### Clustering a set of sequences
 
 Answers "did these designs converge on one fold":
@@ -201,10 +231,26 @@ Small searches show no benefit — 200 queries against 5,000 targets runs in
 |---------|-------|-----|
 | `Database X is not a valid GPU database` | Target built without GPU mode | `createdb --createdb-mode 2` |
 | GPU utilisation 0% | GPU path not engaged | Check the database mode |
+| `No datafile could be found for <db>` | The database's main data file is missing — only `.index`/`.lookup`/`.dbtype` survived, usually from an interrupted `createdb` | Rebuild from the source FASTA (below) |
 | No hits at all | Query too short, or wrong database | Check the query length; try `-s 7` |
 | Hits look like noise | Sensitivity too high | Raise `-e` (stricter e-value) |
 | Search very slow | Single-threaded | Pass `--threads 20` |
 | Database errors after an upgrade | Databases are version-specific | Rebuild with `createdb` |
+
+### Rebuilding a truncated database
+
+`No datafile could be found` means the `.dbtype` is present but the main
+data file is not — the build was killed partway. If the source FASTA is
+still there, rebuild rather than re-downloading:
+
+```bash
+cd ~/mmseqs-db
+$MM createdb pdb_seqs.fasta pdb --createdb-mode 2
+```
+
+`--createdb-mode 2` writes the database in the layout the GPU prefilter
+needs. Without it the search falls back to CPU with
+`Database X is not a valid GPU database`.
 
 ## References
 

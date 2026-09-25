@@ -162,6 +162,67 @@ Say what the top pockets are, in the user's terms:
 - **What the chemistry suggests.** A hydrophobic, enclosed pocket suits
   hydrophobic scaffolds; a polar, open one suits H-bonding ligands.
 
+### When the structure has a co-crystallised ligand
+
+**Match pockets against the ligand, not against `drug_score`.** The
+highest-scoring pocket is often not the one the ligand occupies — a
+co-crystallised complex has its binding site already filled, so fpocket
+reports the *empty* cavities around it and ranks those highest.
+
+Compute the ligand's centroid and find the pocket nearest to it:
+
+```bash
+$PY -c "
+import gemmi, numpy as np, glob, os, re, json
+AA = set('ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL MSE'.split())
+st = gemmi.read_structure('receptor.pdb')
+# The ligand chain — exclude waters and standard amino acids
+lig = [r for ch in st[0] for r in ch if r.name not in AA and r.name not in ('HOH','WAT','DOD')]
+if not lig:
+    raise SystemExit('no ligand chain found')
+pc = np.array([[a.pos.x,a.pos.y,a.pos.z] for r in lig for a in r]).mean(axis=0)
+print('ligand centroid:', pc.round(1))
+
+d = json.load(open('pockets_out/pockets.json'))
+rows = []
+for p in d['pockets']:
+    dist = float(np.linalg.norm(np.array(p['centroid']) - pc))
+    rows.append((dist, p))
+rows.sort(key=lambda r: r[0])
+for dist, p in rows[:3]:
+    print(f\"  pocket {p['id']:3d}  {dist:6.1f} A from ligand  score {p['drug_score']:.3f}  vol {p['volume']:.0f}\")
+"
+```
+
+A pocket within ~15 Å of the ligand centroid is the binding site. Report
+both numbers — the distance and the score — because a pocket that is close
+but scores poorly is still the right one to design against.
+
+### Verify which chain is the receptor before extracting one
+
+**Do not assume chain A is the target.** Multi-chain PDB entries routinely
+put the receptor in a later chain, and the first chain is often a G-protein
+partner, an antibody, or a second conformation.
+
+In 6X18 (GLP-1R + GLP-1 + G protein) the receptor is chain **R**, not
+chain A. Extracting "A + peptide" produced two chains 50 Å apart with no
+residue of A anywhere near the peptide, and every pocket found was
+meaningless. The check that catches it takes one command:
+
+```bash
+$PY -c "
+import gemmi, numpy as np
+st = gemmi.read_structure('complex.cif')
+for ch in st[0]:
+    pts = np.array([[a.pos.x,a.pos.y,a.pos.z] for r in ch for a in r])
+    print(f'  {ch.name}: {len(ch):4d} res  centroid {pts.mean(axis=0).round(1)}')
+"
+```
+
+The chain whose centroid sits nearest the ligand's is the receptor. Confirm
+it before handing anything downstream — a design run against the wrong chain
+costs twenty minutes of GPU time and produces a binder for nothing.
+
 ## Step 4 — Publish
 
 Publish the receptor with the top pockets' lining residues highlighted, so
@@ -221,6 +282,40 @@ print(' '.join(str(round(c)) for c in p['centroid']))
 Feed it to `molecular-docking` as `--center`, or to
 `pocket-molecule-design` as `--center`. A box of 20–22 Å around the
 centroid covers a pocket of this size with room for the ligand to move.
+
+### Handing hotspots to a design run
+
+A design run needs residues, not a centroid. When the structure has a
+co-crystallised ligand, the interface residues are the receptor residues
+within a cutoff of the ligand's centroid:
+
+```bash
+$PY -c "
+import gemmi, numpy as np
+AA = set('ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL MSE'.split())
+st = gemmi.read_structure('receptor.pdb')
+lig = [r for ch in st[0] for r in ch if r.name not in AA and r.name not in ('HOH','WAT','DOD')]
+pc = np.array([[a.pos.x,a.pos.y,a.pos.z] for r in lig for a in r]).mean(axis=0)
+hot = []
+for ch in st[0]:
+    for r in ch:
+        if r.name not in AA: continue
+        d = min(np.linalg.norm([a.pos.x,a.pos.y,a.pos.z] - pc) for a in r)
+        if d <= 8.0: hot.append((ch.name, r.seqid.num, r.name))
+print(' '.join(f'{c}:{n}' for c,n,nm in hot))
+"
+```
+
+8 Å from the centroid is the cutoff that worked on the GLP-1R/GLP-1
+interface and returned 7 residues — enough to bias a design without
+over-constraining it. Pass them to `binder-design` as the `binding` block,
+and to the publisher as `--highlight` so the user sees where the design was
+built.
+
+> **Exclude waters and non-standard residues from the ligand set.** A
+> co-crystallised complex carries dozens of waters, and including them drags
+> the centroid into the solvent. Filter on the standard amino-acid names as
+> above rather than assuming the ligand is the only non-protein chain.
 
 ## Troubleshooting
 

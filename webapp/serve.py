@@ -16,6 +16,7 @@ beyond the standard library.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -141,16 +142,141 @@ class Handler(SimpleHTTPRequestHandler):
         # request it has just applied. Without the delete the same request
         # would re-apply on every poll, re-selecting residues the user had
         # since dismissed by hand.
-        if self.path.split("?")[0].rstrip("/") != "/select.json":
-            self.send_error(404, "only DELETE /select.json is supported")
+        route = self.path.split("?")[0].rstrip("/")
+        if route == "/select.json":
+            target = STATIC / "select.json"
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
             return
-        target = STATIC / "select.json"
+        if route == "/task.json":
+            self.delete_task()
+            return
+        self.send_error(404, "only DELETE /select.json and /task.json are supported")
+
+    def delete_task(self):
+        """Drop one task's steps, and the structures nothing else points at.
+
+        The viewer's task list is the record of every run this session, and a
+        finished one stays there forever. There was no way to clear a task the
+        user is done with, so the menu grew into a history of everything
+        rather than a list of what is currently open.
+
+        Deleting the steps alone would leave their structures behind as tabs
+        with no way to reach them, so the structures go too — but only the
+        ones no surviving step references. A structure another task also
+        published, or one the user opened by hand, stays.
+        """
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b"{}"
         try:
-            target.unlink()
-        except FileNotFoundError:
+            req = json.loads(raw)
+        except json.JSONDecodeError:
+            self.send_error(400, "invalid JSON")
+            return
+        group = (req.get("group") or "").strip()
+        if not group:
+            self.send_error(400, "group is required")
+            return
+
+        status_path = STATIC / "status.json"
+        try:
+            data = json.loads(status_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.send_error(404, "no status file")
+            return
+
+        jobs = data.get("jobs") or []
+        doomed = [j for j in jobs if (j.get("group") or j.get("id")) == group]
+        if not doomed:
+            self.send_error(404, f"no such task: {group}")
+            return
+
+        # Structures only this task referenced. A structure another surviving
+        # step still points at is kept. The active pill's structure counts as
+        # used too — unless the pill is describing a step of the task being
+        # deleted, in which case it is going away with it.
+        survivors = [j for j in jobs if (j.get("group") or j.get("id")) != group]
+        still_used = {j.get("structure") for j in survivors if j.get("structure")}
+        active = data.get("active") or {}
+        active_id = active.get("id") or ""
+        active_group = active.get("group") or active_id.split("/")[0]
+        if active_group != group and active.get("structure"):
+            still_used.add(active["structure"])
+
+        orphaned = sorted({j.get("structure") for j in doomed
+                           if j.get("structure")} - still_used)
+
+        data["jobs"] = survivors
+        (data.get("groups") or {}).pop(group, None)
+        # The pill must not keep describing a task that no longer exists.
+        # Fall back to the newest surviving step rather than to nothing: a
+        # null active hides the pill entirely, and the user just deleted one
+        # task out of several — the rest are still worth showing.
+        if active_group == group:
+            finished = [j for j in survivors
+                        if j.get("state") in ("done", "error")]
+            running = [j for j in survivors if j.get("state") == "running"]
+            pick = (running or finished or survivors)
+            data["active"] = pick[-1] if pick else None
+
+        tmp = status_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, status_path)
+
+        # Drop the archived copies too, so a reload does not bring the task
+        # back as a set of tabs with nothing pointing at them.
+        index_path = STATIC / "structures.json"
+        removed_files = []
+        try:
+            index = json.loads(index_path.read_text())
+            entries = index if isinstance(index, list) else index.get("structures", [])
+            kept = [e for e in entries if e.get("name") not in orphaned]
+            if len(kept) != len(entries):
+                if isinstance(index, list):
+                    index_path.write_text(json.dumps(kept, indent=2))
+                else:
+                    index["structures"] = kept
+                    index_path.write_text(json.dumps(index, indent=2))
+                for name in orphaned:
+                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name) or "structure"
+                    for ext in ("cif", "pdb"):
+                        f = STATIC / "structures" / f"{safe}.{ext}"
+                        if f.is_file():
+                            f.unlink()
+                            removed_files.append(f.name)
+        except (FileNotFoundError, json.JSONDecodeError):
             pass
+
+        body = json.dumps({
+            "ok": True,
+            "removed_steps": len(doomed),
+            "removed_structures": orphaned,
+            "removed_files": removed_files,
+        }).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        # CORS preflight. A POST carrying Content-Type: application/json is
+        # not a "simple" request, so the browser asks first with OPTIONS —
+        # and the base class answers 501, which fails the preflight and stops
+        # the POST from ever being sent. The viewer's fire-and-forget write
+        # swallows that, so selection.json silently stops updating while the
+        # selection itself keeps working on screen.
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
     def do_POST(self):

@@ -35,6 +35,36 @@ hERG liability, or toxicity from a learned model. Those need trained models
 on experimental data, which are not installed. The structural alerts below
 are the closest rule-based proxy, and they are a proxy.
 
+### These rules were written for small molecules
+
+**Lipinski, Ghose and Veber do not apply to peptides, and a peptide failing
+them is not a finding.** All three were derived from orally absorbed small
+molecules. A 12-residue cyclic peptide measures MW ~1200, TPSA ~500, HBD/HBA
+~17 each — it breaks every cutoff by construction, and QED collapses to
+~0.03 because QED is a weighted product over the same descriptors.
+
+Run the numbers anyway, because they are facts about the molecule, but
+report them with the caveat attached:
+
+```
+MW 1219 Da, cLogP -4.73, TPSA 510 Ų, QED 0.028.
+Lipinski/Ghose/Veber all fail — expected for a peptide: these rules were
+derived from oral small molecules. The relevant route for a peptide
+therapeutic is injection, where none of these cutoffs govern.
+```
+
+What *is* worth reading for a peptide: the amino-acid composition, the net
+charge, and the molecular weight. Those say whether it is in the range of
+known peptide drugs (roughly 500–3000 Da, and mostly under 30 residues) and
+whether it will survive a syringe.
+
+| Instead of | Read |
+|------------|------|
+| QED | MW, residue count, net charge |
+| Lipinski | Whether the route is oral or injected |
+| SA score | Peptide synthesis is routine; SA is not the constraint |
+| PAINS / Brenk | Still useful — reactive side chains matter in any modality |
+
 ## When to Use
 
 - "Is this molecule drug-like?"

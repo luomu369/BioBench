@@ -135,7 +135,35 @@ $PY $DOCK --receptor r.cif --ligand-file mol.sdf \
 
 ### Batch screening
 
-Run the script once per ligand and compare `best_affinity` across runs.
+After a generation run produces a set of SMILES, dock them all in one call
+with `--ligands-file` — one SMILES per line:
+
+```bash
+$PY $DOCK --receptor r.cif --ligands-file molecules.txt \
+  --center -15.9 -39.9 7.6 --size 20 20 20 \
+  --num-modes 5 --exhaustiveness 8 --out docking
+```
+
+Each ligand gets its own subdirectory (`docking/ligand_1/`, `ligand_2/`, …)
+with the same `summary.json` and `complex.pdb` a single run writes, and the
+script adds `docking/ranked.json` listing every ligand by affinity:
+
+```
+docked 20/20
+  ligand_14    -8.91 kcal/mol  Cc1nc2ccc(C(=O)NCc3ccc(...)cc2o1
+  ligand_15    -8.64 kcal/mol  COc1ccc(CCCNC(=O)NCc2ccc(...)cc1
+  ...
+```
+
+A ligand that fails to prepare or dock is recorded with `"error": true` and
+the rest still run — one bad SMILES does not cost the batch. Read
+`ranked.json` for the full list, and publish the top hit's `complex_pdb`.
+
+> **One `--center` for the whole batch.** Every ligand is docked into the
+> same box, which is what makes the affinities comparable. Get it from the
+> co-crystallised ligand's centroid or from `pocket-detection` — a box that
+> missed the pocket scores everything around +6 kcal/mol and the ranking is
+> noise.
 
 ### Parameters
 

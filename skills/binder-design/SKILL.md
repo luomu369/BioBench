@@ -46,6 +46,11 @@ Confirm these four things:
 If the user gave a number ("design 8 binders"), use it — do not re-ask. If
 they did not, **ask** rather than assuming.
 
+**"Cyclic" is a spec field, not a description.** If the request says cyclic
+peptide, the entity needs `cyclic: true` — see "A cyclic peptide needs
+`cyclic: true`" below. Leaving it out produces a linear peptide that passes
+every check.
+
 Only proceed to Step 5 after the user confirms.
 
 ## Workflow
@@ -123,10 +128,61 @@ entities:
       binding:
         - chain:
             id: A
-            residue: [216, 217, 220]
+            res_index: [216, 217, 220]
 ```
 
 BoltzGen then biases the design toward contacting those residues.
+
+> **The key is `res_index`, not `residue`.** `boltzgen check` rejects
+> `residue` with `Found invalid keys in yaml file: {'residue'}` and lists
+> the valid ones. The error names the fix, but it costs a round trip — the
+> spec above is the form that passes.
+
+> **Residue numbers are the file's, not the PDB's auth numbers.** When the
+> target comes from a local file, `res_index` counts positions in that file.
+> Extract the receptor chain first and check what numbering it carries
+> before writing the block — see `pocket-detection` for how to get the
+> interface residues and which chain is the receptor.
+
+### A cyclic peptide needs `cyclic: true`
+
+**A peptide entity is linear by default, and nothing warns you otherwise.**
+`boltzgen check` passes, the run completes, the metrics look normal — and the
+result is an open chain. The field is a boolean on the protein entity:
+
+```yaml
+entities:
+  - protein:
+      id: B
+      sequence: 12..18
+      cyclic: true      # head-to-tail bond: first residue's N to last's C
+```
+
+Without it BoltzGen sets `cyclic_period = 0` and adds no closing bond. A
+comment saying "cyclic peptide" does nothing — the field is the only thing
+that does.
+
+**Verify the ring in the output before publishing.** Count the covalent bonds
+between the designed chain's first and last residue:
+
+```bash
+$PY -c "
+import gemmi
+st = gemmi.read_structure('rank1_design.cif')
+ch = [c for c in st[0] if len(c) < 40][0]   # the designed peptide
+res = list(ch)
+first, last = res[0], res[-1]
+n1 = {a.name for a in first if a.element.name == 'N'}
+c1 = {a.name for a in last if a.element.name == 'C'}
+print(f'{ch.name}: {len(res)} res, first {first.name} last {last.name}')
+print('N atoms in first:', n1, ' C atoms in last:', c1)
+"
+```
+
+A ring shows the closing bond in the structure's bond records; a linear
+peptide has a free N-terminus and C-terminus. Check it before publishing —
+calling a linear peptide cyclic in `--notes` is a claim about the molecule
+that the file does not support.
 
 **If `selection.json` is missing or `count` is 0**, the user has not selected
 anything — ask them to click residues in the viewer first rather than guessing
@@ -305,6 +361,43 @@ See `structure-viewer` for how `--notes` is shown. What to put in it:
 | ipTM < 0.5 | 界面置信度偏低；增加设计数量或调整约束残基 |
 | ipTM > 0.8 | 界面可信；可进入序列设计阶段 |
 | plddt < 70 | 折叠本身不可靠，需重新设计 |
+
+### Reading the metrics CSV
+
+`results/intermediate_designs/aggregate_metrics_analyze.csv` has one row per
+design and ~200 columns. The ones worth reading:
+
+```bash
+python3 -c "
+import csv
+for r in csv.DictReader(open('results/intermediate_designs/aggregate_metrics_analyze.csv')):
+    print(f\"{r['id']}  {r['designed_sequence']}\")
+    print(f\"  ipTM {float(r['iptm']):.3f}  pTM {float(r['ptm']):.3f}  pLDDT {float(r['complex_plddt']):.2f}\")
+    print(f\"  min_interaction_pae {float(r['min_interaction_pae']):.2f}  hbonds {r['plip_hbonds']}  saltbridges {r['plip_saltbridge']}\")
+    print(f\"  delta_sasa {float(r['delta_sasa_original']):.0f}  liability {r['liability_score']}\")
+"
+```
+
+**`min_interaction_pae` is the number to check alongside ipTM.** It is the
+predicted aligned error across the interface in Å — lower is better, and
+anything above ~10 means the model is unsure where the two chains sit
+relative to each other. A design with ipTM 0.50 and PAE 10.4 is weaker than
+one with ipTM 0.57 and PAE 6.1, even though both ipTMs look similar.
+
+**`plip_hbonds` and `plip_saltbridge` count specific contacts.** Zero of both
+does not mean the design failed — a binder held by hydrophobic burial shows
+neither. Read `delta_sasa` with them: a large buried surface with no
+hydrogen bonds is a hydrophobic interface, which is a real binding mode, not
+an absence of one.
+
+**`designability_rmsd_2` / `_4` are booleans in the CSV**, not floats. They
+say whether the designed backbone refolds to within 2 or 4 Å of itself —
+`True` is the pass. Do not try to `float()` them.
+
+**Ranked output lands in `final_ranked_designs/final_30_designs/`**, named
+`rank1_<design>.cif`, `rank2_...`. The rank is BoltzGen's own ordering;
+check the metrics before trusting it, since it weighs columns this skill does
+not.
 
 ## Output layout
 

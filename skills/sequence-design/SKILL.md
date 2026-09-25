@@ -54,6 +54,33 @@ If the user gave a number, use it. Otherwise ask.
 5. Publish the backbone      (structure-viewer publisher)
 ```
 
+### Mutating the residues the user selected
+
+"Mutate what I selected" is a different job from "design a sequence for this
+backbone": the positions are given, and the question is what to put there.
+`scripts/mutate_selection.py` does the whole thing — reads the selection,
+converts the numbering, runs the scan, writes the mutant:
+
+```bash
+python3 /home/asus_gx10/biobench/skills/sequence-design/scripts/mutate_selection.py \
+  --pdb backbone.pdb --out mutant_dir --chain A
+```
+
+| Mode | What it answers |
+|------|-----------------|
+| `--mode per-position` (default) | Best replacement at each site, one run per position |
+| `--mode combined` | Several sequences with every site mutated at once |
+
+It prints the mutation table, writes `mutant.pdb` with the replacements
+applied, and saves `mutations.json`. Publish that PDB with `--highlight` on
+the mutated positions.
+
+> **Check where the selected residues are before promising a result.** A
+> selection can be a stretch of surface far from the binding site — mutating
+> it will not change ligand binding, and saying so up front is better than
+> letting the user assume otherwise. Compare against the pocket residues
+> (`pocket-detection`) or the co-crystallised ligand's centroid.
+
 ## Step 1 — Prepare the backbone
 
 **ProteinMPNN only reads PDB format.** mmCIF input crashes with
@@ -131,23 +158,96 @@ Each entry is `[[positions], [amino acids to exclude]]`. The model then
 picks freely among the remaining 19. To force a *specific* substitution
 instead, use `--bias-by-res-jsonl` to weight the target residue strongly.
 
+> **`--omit-AA-jsonl` positions are 1-based; `parse_PDB` indices are
+> 0-based.** `tied_featurize` does `idx_AA = np.array(item[0])-1`, so the
+> number in the JSONL is one higher than the index you read out of the
+> sequence. Passing the 0-based index mutates the residue *before* the one
+> you meant — and nothing complains. The run succeeds, the FASTA looks
+> normal, and the position you asked to change still holds its wild-type
+> amino acid. We saw exactly that: a scan meant to mutate PDB 11–22 instead
+> reported D→D, E→E, P→P, A→A, D→D, S→S unchanged, because every omit had
+> landed one residue early.
+>
+> Convert once, and verify the conversion before running:
+>
+> ```bash
+> python3 -c "
+> import sys
+> sys.path.insert(0, '<site-packages>')
+> from proteinmpnn.protein_mpnn_utils import parse_PDB
+> seq = parse_PDB('backbone.pdb')[0]['seq_chain_A']
+> pdb, wt = 11, 'D'          # what you want to mutate
+> idx = pdb - min_resn        # 0-based index into seq
+> assert seq[idx] == wt, f'index {idx} is {seq[idx]}, expected {wt}'
+> print(idx + 1)              # <- this is what goes in the JSONL
+> "
+> ```
+>
+> The `assert` is the part that matters. It catches an off-by-one, a wrong
+> `min_resn`, or a chain whose numbering is not what you assumed — all three
+> produce a plausible-looking run against the wrong residues.
+
+### Scanning many positions at once
+
+A saturation scan omits every position's wild-type amino acid in **one run** —
+the JSONL takes as many entries as you like, and the model replaces them all
+together:
+
+```bash
+read_selection.py --chain A --format mpnn-omit --pdb-path backbone.pdb > omit.jsonl
+
+/path/to/env/bin/protein_mpnn_run \
+  --pdb-path backbone.pdb --out-folder scan \
+  --model-name v_48_020 --num-seq-per-target 8 \
+  --sampling-temp 0.1 --seed 42 --batch-size 1 \
+  --omit-AA-jsonl omit.jsonl
+```
+
+One run mutating fifteen positions takes the same ~6 s as one mutating a
+single position, so prefer it over a loop. Raise `--num-seq-per-target` to get
+several independent combinations of replacements.
+
+**A per-position loop is the alternative when you want each position's best
+replacement in isolation** — one run per position, each omitting only that
+one. That is the form to use when the question is "what is the best
+substitution at each site", rather than "give me a mutated sequence":
+
+```bash
+for i in "${!POS[@]}"; do
+  cat > omit_${POS[$i]}.jsonl <<EOF
+{"backbone": {"A": [[[${IDX[$i]}], ["${WT[$i]}"]]]}}
+EOF
+  /path/to/env/bin/protein_mpnn_run \
+    --pdb-path backbone.pdb --out-folder scan_${POS[$i]} \
+    --model-name v_48_020 --num-seq-per-target 4 \
+    --sampling-temp 0.1 --seed 42 --batch-size 1 \
+    --omit-AA-jsonl omit_${POS[$i]}.jsonl
+done
+```
+
+> **Use the executable's full path.** `protein_mpnn_run` is not on `PATH`
+> unless the conda env is activated, and a loop that redirects to a log file
+> swallows the `command not found` — every iteration prints "done" and
+> writes nothing. Check that the first run produced a `.fa` before trusting
+> the loop:
+>
+> ```bash
+> ls scan_${POS[0]}/seqs/*.fa || echo "LOOP PRODUCED NOTHING"
+> ```
+
+Read each position's replacement out of its own FASTA at the same 0-based
+index, and take the lowest-score sample. A position whose best replacement
+is still its wild-type amino acid means the omit did not land — see the
+1-based note above.
+
 ### Using residues the user selected in the viewer
 
 If the user selected residues and asked to design around / keep them, read
 `webapp/static/selection.json` and turn it into a fixed-positions JSONL:
 
 ```bash
-python3 -c "
-import json
-sel = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
-if not sel.get('count'):
-    raise SystemExit('no residues selected — ask the user to pick some')
-# Positions are per-chain in the viewer; ProteinMPNN wants one flat list
-# per PDB, so keep only the chain being designed.
-chain = 'A'
-pos = sorted(r['resi'] for r in sel['residues'] if r['chain'] == chain)
-print(json.dumps({'backbone.pdb': pos}))
-" > fixed.jsonl
+python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/read_selection.py \
+  --chain A --format mpnn --pdb-name backbone.pdb
 ```
 
 Then pass `--fixed-positions-jsonl fixed.jsonl`.
@@ -155,6 +255,27 @@ Then pass `--fixed-positions-jsonl fixed.jsonl`.
 **If `selection.json` is missing or `count` is 0**, the user has not selected
 anything — ask them to click residues in the viewer rather than guessing which
 positions matter.
+
+> **`--format mpnn` prints PDB numbers, which are the wrong numbering for
+> ProteinMPNN.** Use `--format mpnn-index` or `--format mpnn-omit` with
+> `--pdb-path` instead — they convert to ProteinMPNN's indices and verify
+> each one against the wild type in the file:
+>
+> ```bash
+> # indices for --fixed-positions-jsonl
+> read_selection.py --chain A --format mpnn-index --pdb-path backbone.pdb
+> # -> {"backbone": [10, 11, 12, ...]}
+>
+> # one omit entry per position, for a saturation scan
+> read_selection.py --chain A --format mpnn-omit --pdb-path backbone.pdb
+> # -> {"backbone": {"A": [[[10], ["V"]], [[11], ["E"]], ...]}}
+> ```
+>
+> The conversion reads the file's lowest residue number and counts from
+> there, so a PDB numbered from -1 puts PDB 8 at index 10. It warns when the
+> viewer's residue name disagrees with the file's — usually because the
+> selection came from a different structure, such as a mutant published
+> earlier.
 
 ## Step 3 — Report progress
 
@@ -292,6 +413,10 @@ See `structure-viewer` for how `--notes` is shown. What to put in it:
 | `ModuleNotFoundError: pkg_resources` | setuptools 81+ | `pip install "setuptools<81"` |
 | CUDA OOM | batch too large | Lower `--batch-size` |
 | All sequences identical | `--sampling-temp` too low | Raise to 0.2–0.5 |
+| `protein_mpnn_run: command not found` | Env not activated | Use the full path `<env>/bin/protein_mpnn_run` |
+| Loop prints "done" but no `.fa` appears | The line above, hidden by `> log 2>&1` | Check `ls scan_*/seqs/*.fa` after the first iteration |
+| A scanned position still shows its wild type | `--omit-AA-jsonl` index off by one | Positions there are 1-based; add 1 to the `parse_PDB` index |
+| Every position reports the same score | Reading the wrong index out of the FASTA | Re-derive the index and assert it matches the wild type |
 
 ## References
 

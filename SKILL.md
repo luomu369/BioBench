@@ -30,6 +30,8 @@ biobench/
     ├── vina-deploy/          install AutoDock Vina
     ├── molecular-docking/    dock ligands into a receptor
     ├── conformational-analysis/ scan bond torsions with a force field
+    ├── molecular-dynamics-deploy/ install OpenMM for simulation
+    ├── molecular-dynamics/    simulate a protein over time with OpenMM
     ├── admet-prediction/     drug-likeness and structural alerts
     └── pocket-detection/     find binding pockets with fpocket
 ```
@@ -65,6 +67,8 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "design a binder for X" | `binder-design` | BoltzGen runs on the local GPU; result published |
 | "design around the residues I selected" | `binder-design` | Reads `selection.json`, uses them as hotspots |
 | "design a sequence for this backbone" | `sequence-design` | ProteinMPNN runs locally; backbone published |
+| "mutate the residues I selected" | `sequence-design` | Saturation scan per position; mutant published |
+| "what should I change at these positions?" | `sequence-design` | Same scan, reported as a mutation table |
 | "generate some molecules" | `molecule-generation` | GenMol runs locally; SMILES reported |
 | "grow this fragment" / "link these fragments" | `molecule-generation` | GenMol fragment modes |
 | "design a molecule for this pocket" | `pocket-molecule-design` | ResGen pocket-aware generation |
@@ -84,6 +88,10 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "what is the lowest-energy state around this bond?" | `conformational-analysis` | MMFF94 torsion scan; profile and minimum published |
 | "how much energy to rotate this side chain?" | `conformational-analysis` | Same scan, reported as a barrier |
 | "is this residue in a strained conformation?" | `conformational-analysis` | Compares the crystal rotamer against the preferred one |
+| "simulate this structure" / "run MD on it" | `molecular-dynamics` | OpenMM in explicit water; trajectory and stability metrics |
+| "is this design stable?" / "relax this complex" | `molecular-dynamics` | Minimisation, equilibration, production, RMSD/Rg |
+| "how much does the binding site move?" | `molecular-dynamics` | Trajectory analysis over the selected residues |
+| "install OpenMM" / "can this machine run MD?" | `molecular-dynamics-deploy` | Env, platforms, force fields, GPU check |
 | "install GenMol" | `genmol-deploy` | Environment + weights setup |
 | "install ResGen" | `resgen-deploy` | Repo + Google Drive weights + 3 patches |
 | "install Foldseek" | `foldseek-deploy` | Static binary install |
@@ -152,6 +160,49 @@ examples, is in `structure-viewer` under "Every skill reports the same way".
 
 Short commands (git, grep, reading a file, a quick check) run in the
 foreground; they finish before the user notices.
+
+## Multi-skill pipelines
+
+A request like "design a cyclic peptide for GLP-1R and validate it" spans
+several skills. Run them as **one task with one plan**, not as several
+unrelated runs:
+
+```bash
+# 1. publish the input first — the viewer has something to show immediately
+python3 $PUB --structure 6X18.cif --name glp1r_input --source rcsb \
+  --job glp1r --roles "R=receptor,P=peptide"
+
+# 2. declare the whole route, under one --job
+python3 $PUB --status --state queued --skill biobench --job glp1r \
+  --label "GLP-1R 环肽设计" \
+  --plan "获取结构,口袋发现,环肽设计,序列验证,性质评估,发布结果"
+
+# 3. each skill reports its own step, naming itself in --skill
+python3 $PUB --status --state running --step "口袋发现" --index 2 --total 6 \
+  --skill pocket-detection --job glp1r --message "..."
+```
+
+The `--job` stays constant across every skill; the `--skill` on each report
+is what attributes the step. The viewer then shows one task with six steps,
+each naming the tool that did it, and each finished step clickable back to
+what it produced.
+
+**Publish the input before declaring the plan.** A task that only declares a
+route leaves the viewer on the *previous* task's structure — for the twenty
+minutes a simulation runs the user is looking at something unrelated, with no
+way to see what this task is even working on. One `--structure` call binds
+the task to the viewer from the first second.
+
+**Split the plan to the granularity the user would want to inspect.** Six
+small steps read as a record of what happened; two big ones read as a black
+box. A step that produces no structure — a sequence search, a property
+analysis — still gets reported, with the finding in `--message`.
+
+**Verify the chain before designing against it.** Multi-chain PDB entries
+routinely put the receptor in a later chain. In 6X18 the GLP-1R is chain R,
+not chain A, and extracting the wrong one produced a target 50 Å from its
+ligand. The check is one command — see `pocket-detection` under "Verify
+which chain is the receptor".
 
 ## The publishing contract
 

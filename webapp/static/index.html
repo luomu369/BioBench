@@ -135,6 +135,15 @@
     color: var(--muted);
     display: none;
     backdrop-filter: blur(8px);
+    /* A generated structure name can be long — "nk2r_mutant_8to22" plus a
+       source tag. Without a cap the box grows until it runs under the
+       control bar at the top centre, and the name breaks mid-word where the
+       two overlap. Cap it, ellipsize, and let the title attribute carry the
+       full text. */
+    max-width: min(46vw, 420px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   #structure-label.show { display: block; }
   #structure-label .src { color: var(--accent); }
@@ -586,11 +595,66 @@
     scrollbar-width: thin;
   }
   #status .st-menu:empty { display: none; }
+  /* ---------- a task and its steps ---------- */
+  /* A long run is a sequence of small tasks. Each step keeps its own row so
+     a finished one stays visible and clickable, and the task heading above
+     them says which run they belong to and how far it has got. */
+  #status .st-task {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 9px 9px 3px;
+    font-size: 11.5px;
+    color: var(--text);
+  }
+  #status .st-task-name {
+    font-weight: 600;
+    letter-spacing: .01em;
+  }
+  #status .st-task-prog {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Clear the whole task. The task list is the record of every run this
+     session, and without this it grows into a history of everything rather
+     than a list of what is open now. It sits on the heading rather than a
+     step because it removes all of them, and it is quiet until hovered so
+     the heading still reads as a name and a count. */
+  #status .st-task-del {
+    margin-left: 6px;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .12s, background .12s, color .12s;
+  }
+  #status .st-task:hover .st-task-del { opacity: .7; }
+  #status .st-task-del:hover {
+    opacity: 1;
+    background: rgba(255,107,107,.16);
+    color: #ff8f8f;
+  }
+  #status .st-task-del:disabled {
+    cursor: default;
+    opacity: .25;
+  }
+  /* Steps sit under their task heading, indented so the hierarchy reads at
+     a glance without a tree widget. */
   #status .st-row {
     display: flex;
     align-items: flex-start;
     gap: 9px;
-    padding: 7px 9px;
+    padding: 7px 9px 7px 20px;
     border-radius: 7px;
     font-size: 12px;
     line-height: 1.45;
@@ -633,15 +697,15 @@
     opacity: .75;
   }
   #status .st-group:first-child { padding-top: 4px; }
-  /* The job currently on the pill, so the menu says which row is the one
+  /* The step currently on the pill, so the menu says which row is the one
      being shown at the bottom of the screen. */
   #status .st-row.on { background: rgba(77,163,255,.14); }
-  /* A finished task leads somewhere. The pointer and the hover tint say so
+  /* A finished step leads somewhere. The pointer and the hover tint say so
      without adding a chevron or a label — the row already carries a state
      dot, and a third affordance would be noise. */
   #status .st-row.st-clickable { cursor: pointer; }
   #status .st-row.st-clickable:hover { background: rgba(77,163,255,.12); }
-  /* A running job's progress, inline under its message. Narrower than the
+  /* A running step's progress, inline under its message. Narrower than the
      pill's bar — this one is a glance, not the primary readout. */
   #status .st-row .st-bar {
     width: 100%;
@@ -656,50 +720,34 @@
     background: var(--accent);
     transition: width .5s ease;
   }
-
-  /* ---------- the declared route ---------- */
-  /* A run's plan, shown before it starts and lit up as it proceeds. The
-     point is that a 25-minute job says what it will do up front rather than
-     revealing one step at a time. */
-  #status .st-plan {
-    margin-top: 7px;
-    padding-left: 2px;
+  #status .st-row .st-skill { color: var(--accent); opacity: .8; }
+  /* A step's own numbers, under its message. Same label/value layout as the
+     metrics panel so a figure reads identically in both places, at the
+     smaller size the menu runs at. */
+  #status .st-metrics {
+    margin-top: 5px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
   }
-  #status .st-plan-step {
+  #status .st-metrics .m-row {
     display: flex;
-    align-items: baseline;
-    gap: 7px;
+    justify-content: space-between;
+    gap: 12px;
     font-size: 11px;
     line-height: 1.5;
-    color: var(--muted);
-    opacity: .55;
   }
-  #status .st-plan-mark {
-    flex-shrink: 0;
-    width: 11px;
-    font-size: 9px;
-    text-align: center;
+  #status .st-metrics .m-row .k { color: var(--muted); }
+  #status .st-metrics .m-row .v {
+    color: var(--text);
     font-variant-numeric: tabular-nums;
   }
-  #status .st-plan-name { flex: 1; }
-  /* Reached and finished: full contrast, and the name reads as done. */
-  #status .st-plan-step.done {
+  #status .st-metrics .m-hint {
+    color: var(--muted);
+    font-size: 10px;
+    margin-left: 6px;
     opacity: .8;
-    color: var(--text);
   }
-  #status .st-plan-step.done .st-plan-mark { color: var(--ok); }
-  /* The step in progress: the accent colour, and the only one at full
-     weight — the eye should land here first. */
-  #status .st-plan-step.now {
-    opacity: 1;
-    color: var(--accent);
-    font-weight: 600;
-  }
-  #status .st-plan-step.now .st-plan-mark { color: var(--accent); }
-  #status .st-row .st-skill { color: var(--accent); opacity: .8; }
   #status .st-empty {
     padding: 14px;
     text-align: center;
@@ -942,6 +990,18 @@ const state = {
   tabs: [],
   /** Index into tabs of the structure on screen */
   activeTab: -1,
+  /**
+   * Job id the user pinned by clicking a status row, or null.
+   *
+   * Clicking a step shows the structure that step belongs to, which is not
+   * always a structure that step's task produced — "preparing the receptor"
+   * points at the input, which another task published. Deriving the pill
+   * from the tab alone would then show that other task's status, and the row
+   * the user just clicked would stop being the one on screen. The pin keeps
+   * the clicked step selected until something else takes over: a new
+   * publish, or the user clicking another row.
+   */
+  pinnedJob: null,
 };
 
 // Snapshot the per-structure part of the state, so a tab can restore it.
@@ -1068,8 +1128,14 @@ function chainRow(chainId, label, seqText) {
     } else {
       state.hiddenChains.add(chainId);
     }
-    applyStyle();
+    // Rebuild the sequence first, then style. applyStyle ends with
+    // paintSequenceSelection, which paints the selection onto the
+    // .seq-aa elements — and renderSequence replaces those elements via
+    // innerHTML. The other order paints the old DOM and the new letters
+    // come up blank, so a selected residue loses its highlight the moment
+    // any chain's eye is toggled.
     renderSequence(null);
+    applyStyle();
   });
 
   const name = document.createElement("span");
@@ -1292,13 +1358,19 @@ function renderSequence(chainInfo) {
 // e-value of 1.4e-30 and a bit score of 1516 both have to stay readable.
 // toFixed(3) turns the former into "0.000", so very small and very large
 // magnitudes fall back to exponential / compact notation.
+//
+// Decimals are kept as written rather than rounded to a fixed width: a
+// cLogP of -4.73 is a measurement with two significant decimals, and
+// showing -4.7 silently drops one. Only trailing zeros are trimmed, so
+// 0.570 still reads as 0.57 and 12 stays 12.
 function formatMetric(v) {
   if (typeof v !== "number") return String(v);
   if (v === 0) return "0";
   const abs = Math.abs(v);
   if (abs < 0.001 || abs >= 1e6) return v.toExponential(2);
   if (Number.isInteger(v)) return String(v);
-  return v.toFixed(abs < 1 ? 3 : 1);
+  // Enough places to keep the value's own precision, then trim the zeros.
+  return parseFloat(v.toFixed(4)).toString();
 }
 
 // A metric entry is either a bare value or an object the skill wrote
@@ -1428,6 +1500,11 @@ function renderStructure(data, meta, snap) {
     src.textContent = `  ·  ${meta.source}`;
     label.appendChild(src);
   }
+  // The label ellipsizes when the name is long, so the full text goes in the
+  // tooltip — otherwise a truncated name is all the user ever sees.
+  const fullName = (meta.name || "structure") +
+                   (meta.source ? `  ·  ${meta.source}` : "");
+  label.title = fullName;
   label.classList.add("show");
 
   // The view is always the whole complex; per-chain control lives in the
@@ -1616,6 +1693,12 @@ function styleSpec(kind, scheme, chains) {
 // `thick` is set when the protein is drawn as a surface: that shell is
 // depth-sorted and opaque, so anything inside the pocket needs extra
 // visual weight to read through it.
+// A ligand chain's rendering style, chosen independently of the protein's.
+//
+// This is the style the user picked, applied as-is. Isolated atoms — metal
+// ions — need a sphere on top, because stick and line render only bonds and
+// a single atom has none; that is added by the caller, per atom, so a
+// bonded molecule's appearance is untouched.
 function ligandStyleSpec(kind, thick) {
   switch (kind) {
     case "stick":
@@ -1631,6 +1714,17 @@ function ligandStyleSpec(kind, thick) {
         sphere: { scale: thick ? 0.42 : 0.32, colorscheme: "Jmol" }
       };
   }
+}
+
+// The sphere an isolated atom needs to be visible at all. A metal ion has
+// no bonds, and stick and line draw only bonds, so without this a zinc ion
+// renders as nothing while the chain panel lists it as a ligand.
+const ION_SPHERE = { sphere: { scale: 0.32, colorscheme: "Jmol" } };
+
+// True when an atom has no bonds to anything — a lone ion rather than part
+// of a molecule.
+function isIsolatedAtom(atom) {
+  return !atom.bonds || atom.bonds.length === 0;
 }
 
 // How a selected residue is marked. It has to match the style the protein
@@ -1750,6 +1844,15 @@ function applyStyle() {
   if (ligandChains.length) {
     const spec = ligandStyleSpec(ligandStylePicker.value, kind === "surface");
     ligandChains.forEach(ch => viewer.setStyle({ chain: ch }, spec));
+    // A lone ion has no bonds, so stick and line draw nothing for it. Give
+    // those atoms a sphere of their own; bonded molecules are untouched.
+    // `index` is 3Dmol's own atom index — `serial` is the PDB atom number,
+    // which is a different thing and selects nothing here.
+    const ions = (viewer.getModel().atoms || []).filter(
+      a => ligandChains.includes(a.chain) && isIsolatedAtom(a));
+    if (ions.length) {
+      viewer.setStyle({ index: ions.map(a => a.index) }, ION_SPHERE);
+    }
   }
 
 // Alpha-sphere clouds from fpocket are a point set, not a molecule: the
@@ -1815,6 +1918,16 @@ viewer.setStyle({ resn: "STP" }, { sphere: { ...POCKET_SPHERE } });
       const styled = {};
       for (const [k, v] of Object.entries(spec)) {
         styled[k] = { ...v, colorscheme: { prop: "elem", map } };
+      }
+      // A selected ion needs the same treatment an unselected one does, or
+      // selecting it makes it vanish.
+      if (!styled.sphere) {
+        const lone = (viewer.getModel().atoms || []).filter(
+          a => a.chain === item.sel.chain && isIsolatedAtom(a));
+        if (lone.length) {
+          styled.sphere = { ...ION_SPHERE.sphere,
+                            colorscheme: { prop: "elem", map } };
+        }
       }
       viewer.setStyle(item.sel, styled);
       return;
@@ -2780,8 +2893,10 @@ function renderStatus(s, jobId) {
   statusBar.dataset.state = active.state;
   statusBar.querySelector(".msg").textContent = active.message || active.state;
 
-  const total = active.step_total || 0;
-  const idx = active.step_index || 0;
+  // A step of a larger task reports its position within it, so the pill
+  // reads "3/6 环肽设计" rather than a bare step name.
+  const total = active.total || 0;
+  const idx = active.index || 0;
   const pct = total > 0 ? Math.round((idx / total) * 100) : 0;
   statusBar.querySelector(".bar > div").style.width = pct + "%";
   statusBar.querySelector(".step").textContent =
@@ -2842,17 +2957,21 @@ function stJobRow(j, isActive) {
 
   const msg = document.createElement("div");
   msg.className = "st-msg";
-  msg.textContent = j.message || j.state || "";
+  // A step that has not started has no message of its own — it has only the
+  // name the plan gave it. Showing the raw state there instead would put
+  // "queued" on screen four times, which says nothing the dot and the
+  // group heading do not already say.
+  msg.textContent = j.message || j.step || j.state || "";
   body.appendChild(msg);
 
-  // A running job gets its own progress bar, so the menu answers "how far
+  // A running step gets its own progress bar, so the menu answers "how far
   // along" without having to switch the pill to it.
-  if (j.state === "running" && j.step_total) {
+  if (j.state === "running" && j.total) {
     const bar = document.createElement("div");
     bar.className = "st-bar";
     const fill = document.createElement("div");
     fill.style.width =
-      Math.round((j.step_index || 0) / j.step_total * 100) + "%";
+      Math.round((j.index || 0) / j.total * 100) + "%";
     bar.appendChild(fill);
     body.appendChild(bar);
   }
@@ -2860,89 +2979,187 @@ function stJobRow(j, isActive) {
   const meta = document.createElement("div");
   meta.className = "st-meta";
   const bits = [];
-  if (j.step_total) bits.push(`${j.step_index || 0}/${j.step_total} ${j.step || ""}`.trim());
   if (j.skill) bits.push(j.skill);
-  bits.push(stElapsed(j.started, j.state === "running" ? null : j.updated));
+  // Elapsed time only once the step has actually run. A queued step's
+  // "started" is when the plan was declared, so counting from it would
+  // report the whole task's age as this step's — "0s" for a step that has
+  // not begun, which reads as a measurement rather than an absence.
+  if (j.state === "running" || j.state === "done" || j.state === "error") {
+    bits.push(stElapsed(j.started, j.state === "running" ? null : j.updated));
+  }
   meta.textContent = bits.filter(Boolean).join(" · ");
   body.appendChild(meta);
 
-  // The route map, when the run declared one. Shown for every state: before
-  // anything has run it is the whole point — a 25-minute job says what it is
-  // going to do instead of revealing one step at a time.
-  if (Array.isArray(j.plan) && j.plan.length) {
-    body.appendChild(stPlan(j));
+  // The step's own numbers, when it reported any.
+  //
+  // The metrics panel reads them off the structure on screen, so a step that
+  // published none — a sequence search, a property analysis — had nowhere to
+  // show what it found. Rendering them here puts them where the finding
+  // belongs, and reuses the panel's formatting so a number reads the same in
+  // both places.
+  if (j.metrics && typeof j.metrics === "object") {
+    const keys = Object.keys(j.metrics);
+    if (keys.length) {
+      const rows = document.createElement("div");
+      rows.className = "st-metrics";
+      keys.forEach(k => {
+        const { label, value, hint } = metricParts(k, j.metrics[k]);
+        const row = document.createElement("div");
+        row.className = "m-row";
+        row.innerHTML = `<span class="k"></span><span class="v"></span>`;
+        row.querySelector(".k").textContent = label;
+        const v = row.querySelector(".v");
+        v.textContent = (value === undefined || value === null)
+          ? "" : formatMetric(value);
+        if (hint) {
+          const h = document.createElement("span");
+          h.className = "m-hint";
+          h.textContent = hint;
+          v.appendChild(h);
+        }
+        rows.appendChild(row);
+      });
+      body.appendChild(rows);
+    }
   }
 
   row.appendChild(body);
 
-  // A finished task is the way to reach what it produced. Clicking it jumps
-  // to the last structure published under this job — which is why the tab
-  // switcher groups by job too: a task that published several structures
-  // shows them together, and this click lands on the most recent.
+  // A finished step is the way to reach what it produced. Clicking it jumps
+  // to the structure that step published — which is why the tab switcher
+  // groups by task too: a task that published several structures shows them
+  // together, and this click lands on the right one rather than the first.
   //
-  // Running and queued tasks are not clickable: there is nothing to show
-  // yet, and a row that looks like a button but does nothing is worse than
-  // one that plainly is not.
+  // A step that published nothing of its own — preparing a receptor,
+  // analysing a trajectory — inherits the task's structure, so every row
+  // leads somewhere. Several steps sharing one structure is intended: they
+  // are all part of producing it, and clicking any of them shows what the
+  // task made. The publisher does the assigning, so a row without a
+  // structure means the task never published one at all.
   if (j.state === "done" || j.state === "error") {
-    row.classList.add("st-clickable");
-    row.title = "Show this task's result";
-    row.addEventListener("click", () => {
-      const idx = state.tabs.findIndex(t => (t.meta.job || "") === j.id);
-      if (idx >= 0) {
+    const idx = j.structure
+      ? state.tabs.findIndex(t => t.meta.name === j.structure)
+      : -1;
+    if (idx >= 0) {
+      row.classList.add("st-clickable");
+      row.title = "Show this task's result";
+      row.addEventListener("click", () => {
+        // Close the menu first. switchTab returns early when the target is
+        // already on screen, and putting the close after it left the menu
+        // hanging open over the very structure the user just asked for.
+        stMenu.hidden = true;
+        // Pin this step, so the pill and the menu highlight keep describing
+        // it. The structure it opens may belong to another task — the input
+        // this run prepared — and without the pin the pill would follow the
+        // tab to that task and drop the row the user clicked. switchTab
+        // clears the pin, so this goes after it.
         switchTab(idx);
-        closeSwitcherMenu();
-      }
-    });
+        state.pinnedJob = j.id;
+        syncPillToTab();
+      });
+    }
   }
   return row;
 }
 
-// The declared route, with each step marked by where the run has got to.
-//
-// The current step is matched by name against the plan, not by index: a
-// skill reports its own step names, and they are what the plan was written
-// with. A name that does not appear in the plan leaves every step grey,
-// which is the honest answer — better than guessing an index and lighting
-// the wrong one.
-function stPlan(j) {
-  const wrap = document.createElement("div");
-  wrap.className = "st-plan";
+// The task a step belongs to, as the user should read it. The id is what a
+// skill passes to --job and what a structure records, so it stays short and
+// stable; the label is what the publisher declared for display.
+function stGroupName(g, groups) {
+  const entry = (groups || {})[g];
+  return (entry && entry.label) || g;
+}
 
-  const done = j.state === "done" || j.state === "error";
-  // How far along: a finished job has done everything, a failed one has got
-  // as far as its last reported step.
-  let reached = -1;
-  if (done && j.state === "done") {
-    reached = j.plan.length;
-  } else if (j.step) {
-    reached = j.plan.indexOf(j.step);
-    // Fall back to the step index when the name does not match — a skill
-    // may report a step the plan did not name.
-    if (reached < 0 && j.step_total) {
-      reached = Math.min(j.step_index || 0, j.plan.length);
+// How far a task has got, as "3/6". Steps are numbered by the publisher
+// when the plan is declared, so this is a lookup rather than a count.
+function stGroupProgress(g, jobs) {
+  const steps = jobs.filter(j => (j.group || j.id) === g);
+  if (!steps.length) return "";
+  const total = Math.max(...steps.map(j => j.total || 0));
+  if (!total) return "";
+  const done = steps.filter(j => j.state === "done" || j.state === "error").length;
+  return `${done}/${total}`;
+}
+
+// The menu's last rendered fingerprint. Null forces a rebuild.
+let stMenuSig = null;
+
+// Clear a task: its steps, and the structures nothing else points at.
+//
+// The task list is the record of every run this session, and a finished one
+// stays there forever — the menu grows into a history of everything rather
+// than a list of what is currently open. This is the way out.
+//
+// The server does the deleting because only it can see every task's
+// references at once: a structure two tasks published, or one the user
+// opened by hand, has to survive. The viewer then closes the tabs that went
+// away, which it can only do after the server says which those were.
+async function stDeleteTask(group, btn) {
+  if (btn) btn.disabled = true;
+  let result = null;
+  try {
+    const res = await fetch("task.json", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group }),
+    });
+    result = await res.json();
+    if (!res.ok) {
+      console.warn("delete task failed:", result);
+      if (btn) btn.disabled = false;
+      return;
+    }
+  } catch (e) {
+    console.warn("delete task failed:", e);
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  // Close the tabs whose structures were dropped. A tab left open would show
+  // a structure that no longer exists in the archive, so a reload would
+  // silently lose it — and the user just asked for it to go.
+  const gone = new Set(result.removed_structures || []);
+  if (gone.size) {
+    for (let i = state.tabs.length - 1; i >= 0; i--) {
+      if (gone.has(state.tabs[i].meta.name)) closeTab(i);
     }
   }
 
-  j.plan.forEach((name, i) => {
-    const step = document.createElement("div");
-    let cls = "st-plan-step";
-    if (i < reached) cls += " done";
-    else if (i === reached) cls += " now";
-    step.className = cls;
+  // The pinned step may have been one of the deleted ones.
+  if (state.pinnedJob &&
+      (state.pinnedJob === group || state.pinnedJob.startsWith(group + "/"))) {
+    state.pinnedJob = null;
+  }
 
-    const mark = document.createElement("span");
-    mark.className = "st-plan-mark";
-    mark.textContent = i < reached ? "✓" : (i === reached ? "▸" : (i + 1));
-    step.appendChild(mark);
+  // Force a rebuild even though the next poll would also do it: the user
+  // should see the task leave now, not up to two seconds later.
+  stMenuSig = null;
+  if (lastStatus) renderStatus(lastStatus, pillJob());
+}
 
-    const label = document.createElement("span");
-    label.className = "st-plan-name";
-    label.textContent = name;
-    step.appendChild(label);
-
-    wrap.appendChild(step);
-  });
-  return wrap;
+// A fingerprint of everything the menu renders. The poll runs every 2s and
+// used to rebuild the menu each time, which wiped the rows out from under
+// the user's cursor: a row they were about to click left the DOM, the click
+// landed on nothing, and the menu read as broken. Rebuilding only when the
+// content actually changed keeps the rows alive between polls.
+//
+// Only what the rows themselves show goes in here. The highlighted row is
+// deliberately left out — it follows the tab on screen, which changes as the
+// user navigates, and including it would make the signature differ on every
+// tab switch and rebuild the menu for a change that is one CSS class. The
+// highlight is applied by re-rendering only when the content changed, so a
+// stale highlight is corrected on the next real change.
+function stMenuSignature(s) {
+  const jobs = (s && s.jobs) || [];
+  const groups = (s && s.groups) || {};
+  const rows = jobs.map(j => [
+    j.id, j.group || j.id, j.step, j.index, j.total, j.state,
+    j.message, j.skill, j.structure, j.started, j.updated,
+    j.metrics ? JSON.stringify(j.metrics) : "",
+  ].join("\u0001")).join("\u0002");
+  const labels = Object.keys(groups).sort()
+    .map(g => g + "\u0001" + (groups[g] || {}).label).join("\u0002");
+  return rows + "\u0003" + labels;
 }
 
 function renderStatusHistory(s) {
@@ -2955,6 +3172,16 @@ function renderStatusHistory(s) {
   const shownId = pillJob() || (s && s.active ? s.active.id : null);
   stHistBtn.hidden = !jobs.length;
 
+  // Nothing changed since the last render — leave the rows alone so an open
+  // menu stays open and its rows stay clickable. The highlight still moves,
+  // because it follows the tab on screen rather than the status file.
+  const sig = stMenuSignature(s);
+  if (sig === stMenuSig && stMenu.childElementCount) {
+    stHighlight(shownId);
+    return;
+  }
+  stMenuSig = sig;
+
   stMenu.innerHTML = "";
   if (!jobs.length) {
     const empty = document.createElement("div");
@@ -2964,27 +3191,102 @@ function renderStatusHistory(s) {
     return;
   }
 
-  // Three groups, in the order the user cares: what is running now, what is
-  // waiting behind it, what has finished. A queued job is one the publisher
-  // has recorded but that has not started — it shows as "idle" state.
-  const running = jobs.filter(j => j.state === "running");
-  const queued = jobs.filter(j => j.state === "idle" || j.state === "queued");
-  const finished = jobs.filter(j => j.state === "done" || j.state === "error");
+  // Grouped by task, in the order the user cares: what is running now, what
+  // is waiting behind it, what has finished. A task's steps stay together
+  // under one heading — the finished ones are the record of what it did, and
+  // the ones still queued are what it will do next.
+  const groups = (s && s.groups) || {};
+  const order = [];
+  const byGroup = {};
+  jobs.forEach(j => {
+    const g = j.group || j.id;
+    if (!byGroup[g]) {
+      byGroup[g] = [];
+      order.push(g);
+    }
+    byGroup[g].push(j);
+  });
 
-  if (running.length) {
-    stMenu.appendChild(stGroupLabel(`运行中 · ${running.length}`));
-    running.forEach(j => stMenu.appendChild(stJobRow(j, j.id === shownId)));
-  }
-  if (queued.length) {
-    stMenu.appendChild(stGroupLabel(`排队中 · ${queued.length}`));
-    queued.forEach(j => stMenu.appendChild(stJobRow(j, j.id === shownId)));
-  }
-  if (finished.length) {
-    stMenu.appendChild(stGroupLabel(`已完成 · ${finished.length}`));
-    // Newest first — the run the user just watched is the one they want.
-    [...finished].reverse().forEach(
-      j => stMenu.appendChild(stJobRow(j, j.id === shownId)));
-  }
+  const rank = g => {
+    const steps = byGroup[g];
+    if (steps.some(j => j.state === "running")) return 0;
+    if (steps.some(j => j.state === "queued" || j.state === "idle")) return 1;
+    return 2;
+  };
+  order.sort((a, b) => rank(a) - rank(b));
+
+  const LABEL = {0: "运行中", 1: "排队中", 2: "已完成"};
+  let lastRank = -1;
+  order.forEach(g => {
+    const r = rank(g);
+    if (r !== lastRank) {
+      const n = order.filter(x => rank(x) === r).length;
+      stMenu.appendChild(stGroupLabel(`${LABEL[r]} · ${n}`));
+      lastRank = r;
+    }
+    // The task heading carries its name and how far it has got, so a
+    // six-step pipeline reads as one thing with six parts rather than six
+    // unrelated rows.
+    const head = document.createElement("div");
+    head.className = "st-task";
+    const name = document.createElement("span");
+    name.className = "st-task-name";
+    name.textContent = stGroupName(g, groups);
+    head.appendChild(name);
+    const prog = stGroupProgress(g, jobs);
+    if (prog) {
+      const p = document.createElement("span");
+      p.className = "st-task-prog";
+      p.textContent = prog;
+      head.appendChild(p);
+    }
+    // Clear the task. Everything under this heading goes, and with it the
+    // structures nothing else points at — the server decides which those
+    // are, because only it can see every task's references at once.
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "st-task-del";
+    del.textContent = "×";
+    del.title = `删除任务：${stGroupName(g, groups)}`;
+    del.addEventListener("click", ev => {
+      // The heading is not itself clickable, but the menu closes on an
+      // outside click and this button is inside it — stop the event here so
+      // the menu stays open long enough to show the task disappear.
+      ev.stopPropagation();
+      stDeleteTask(g, del);
+    });
+    head.appendChild(del);
+    stMenu.appendChild(head);
+
+    // Steps in the order the task declared them, so the list reads as the
+    // route rather than as whatever happened to publish last.
+    byGroup[g]
+      .slice()
+      .sort((a, b) => (a.index || 0) - (b.index || 0))
+      .forEach(j => {
+        const row = stJobRow(j, j.id === shownId);
+        // The job id on the element, so the highlight can be moved without
+        // rebuilding the row. See stHighlight below.
+        row.dataset.jobId = j.id;
+        stMenu.appendChild(row);
+      });
+  });
+
+  stHighlight(shownId);
+}
+
+// Move the "this is what is on screen" highlight without touching the rows.
+//
+// The rows are rebuilt only when their content changes, so the highlight —
+// which follows the tab the user is looking at — has to be applied on its
+// own. Rebuilding for it would defeat the whole point of the signature.
+function stHighlight(shownId) {
+  stMenu.querySelectorAll(".st-row.on").forEach(r => {
+    r.classList.remove("on");
+  });
+  if (!shownId) return;
+  const row = stMenu.querySelector(`.st-row[data-job-id="${CSS.escape(shownId)}"]`);
+  if (row) row.classList.add("on");
 }
 
 stHistBtn.addEventListener("click", ev => {
@@ -3162,8 +3464,11 @@ function closeTab(i) {
   // to be drawn regardless — render it directly.
   const t = state.tabs[state.activeTab];
   state.structureName = t.meta.name || null;
+  // The pinned step described a structure that may be the one just closed.
+  state.pinnedJob = null;
   renderStructure(t.text, t.meta, t.state);
   renderTabs();
+  syncPillToTab();
 }
 
 function switchTab(i) {
@@ -3181,6 +3486,11 @@ function switchTab(i) {
   // The pill describes the task that produced what is on screen. Switching
   // to a structure from another task has to move it, or the progress bar
   // and message keep describing a run whose result is no longer displayed.
+  //
+  // The pin goes too: arriving by tab means the user chose a structure, not
+  // a step, so the pill should describe the structure's own task. A caller
+  // that wants the pin — a status row click — sets it after this returns.
+  state.pinnedJob = null;
   syncPillToTab();
 }
 
@@ -3190,20 +3500,41 @@ function switchTab(i) {
 // while a run is in progress. But once the user switches to an older
 // structure the two have come apart, and the honest answer to "what is this"
 // is the task that made it — not the most recent thing that happened.
-// Which job the pill should describe.
+// Which step the pill should describe.
 //
 // Normally the one that produced the structure on screen — the pill answers
 // "what is this", and only the tab's own task can. The exception is a run in
 // progress: if something is running, its progress is what the user wants to
 // watch, and it takes the pill even while an older structure is displayed.
 // The pull-up menu still lists everything, so nothing is hidden either way.
+//
+// A structure records the task that made it, not the step, so the tab's job
+// is matched against a step's group. The publisher records which structure
+// each step produced, so that is the exact match; the task's newest step is
+// the fallback for a structure no step claimed.
+//
+// A pin wins over all of it. Clicking a status row is the user saying "show
+// me this step", and the structure it opens may belong to a different task —
+// the input a docking run prepared, say. Following the tab there would swap
+// the pill to that other task and lose the row the user chose.
 function pillJob() {
+  if (state.pinnedJob) return state.pinnedJob;
   const t = state.tabs[state.activeTab];
   const tabJob = t && t.meta ? (t.meta.job || "") : "";
-  const running = (lastStatus && lastStatus.jobs || [])
-    .find(j => j.state === "running");
+  const tabName = t && t.meta ? (t.meta.name || "") : "";
+  const jobs = (lastStatus && lastStatus.jobs) || [];
+  const running = jobs.find(j => j.state === "running");
   if (running) return running.id;
-  return tabJob || undefined;
+  if (tabJob) {
+    const mine = jobs.filter(j => (j.group || j.id) === tabJob);
+    const exact = mine.find(j => j.structure === tabName);
+    if (exact) return exact.id;
+    if (mine.length) {
+      return mine.reduce((a, b) =>
+        ((b.index || 0) > (a.index || 0) ? b : a)).id;
+    }
+  }
+  return undefined;
 }
 
 function syncPillToTab() {
@@ -3246,6 +3577,10 @@ async function poll() {
           renderStructure(text, meta, null);
         }
         state.contractUpdated = meta.updated;
+        // A new publish is newer than whatever step the user had pinned, so
+        // the pin goes and the pill follows the run again. Leaving it would
+        // freeze the pill on a step that finished before this one started.
+        state.pinnedJob = null;
         renderTabs();
       }
     }
@@ -3279,6 +3614,11 @@ async function poll() {
 async function pollSelect() {
   try {
     const res = await fetch("select.json?t=" + Date.now());
+    // 404 is the normal case — the file exists only while a skill has a
+    // pending request. Letting it through to the console as a failed
+    // resource fills the log with an error every two seconds for something
+    // that is working exactly as intended.
+    if (res.status === 404) return;
     if (!res.ok) return;
     const req = await res.json();
     if (Array.isArray(req.residues) && req.residues.length) {
@@ -3290,8 +3630,57 @@ async function pollSelect() {
   } catch (e) { /* no pending request */ }
 }
 
-poll();
-setInterval(poll, 2000);
+// Reopen the structures published before this page load.
+//
+// current.cif holds only the latest publish, so a reload would otherwise
+// show one structure and forget the rest — and the task list's finished
+// steps, which promise to show what each step produced, would lead nowhere.
+// The publisher archives every publish and lists them in structures.json,
+// so the tabs can be rebuilt here.
+//
+// The newest entry is left out: the poll below picks it up through the
+// normal path, which also sets the contract timestamp. Adding it here as
+// well would give it two tabs.
+async function restoreTabs() {
+  try {
+    const res = await fetch("structures.json?t=" + Date.now());
+    if (!res.ok) return;
+    const entries = await res.json();
+    if (!Array.isArray(entries) || !entries.length) return;
+
+    for (const e of entries.slice(0, -1)) {
+      if (!e || !e.file || !e.meta) continue;
+      // Already open — a reload of a page that had been running a while.
+      if (state.tabs.some(t => t.meta.name === e.meta.name)) continue;
+      try {
+        const r = await fetch(e.file + "?t=" + Date.now());
+        if (!r.ok) continue;
+        addTab(await r.text(), e.meta, false);
+      } catch (err) { /* one unreadable entry must not lose the rest */ }
+    }
+    // Land on the newest restored tab rather than the oldest, so the view
+    // opens on the most recent thing that happened. The poll then adds the
+    // one entry left out above and activates it, which is why activeTab is
+    // pointed at the end here: the poll's "am I on the newest tab" test has
+    // to answer yes for the latest publish to take the screen.
+    if (state.tabs.length) {
+      state.activeTab = state.tabs.length - 1;
+      const t = state.tabs[state.activeTab];
+      state.structureName = t.meta.name || null;
+      renderStructure(t.text, t.meta, null);
+      renderTabs();
+    }
+  } catch (e) { /* no archive yet */ }
+}
+
+// Restore first, then start polling. Both are async and both touch the tab
+// list, so running them concurrently lets the poll's "am I on the newest
+// tab" test answer against a half-built list — which decides whether the
+// latest publish takes the screen or is quietly added behind it.
+restoreTabs().then(() => {
+  poll();
+  setInterval(poll, 2000);
+});
 </script>
 </body>
 </html>

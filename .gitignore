@@ -8,6 +8,8 @@ runs/
 webapp/static/current.cif
 webapp/static/current.json
 webapp/static/status.json
+webapp/static/structures.json
+webapp/static/structures/
 webapp/static/selection.json
 webapp/static/*.tmp
 

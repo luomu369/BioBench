@@ -218,9 +218,157 @@ def publish_structure(args) -> int:
 
     atomic_write(VIEWER / "current.cif", text)
     atomic_write(VIEWER / "current.json", json.dumps(meta, indent=2))
+    archive_structure(meta, text)
+    # Which step produced this. A task publishes several structures over its
+    # run — the target, the pocket, the design — and the task list's finished
+    # steps each promise to show what they made. Without this the viewer can
+    # only fall back to the task's first structure, so every step leads to
+    # the same one.
+    if args.step:
+        record_step_structure(args, meta["name"])
+    # The index of the step that published, so the backfill can tell which
+    # steps came before it. Falls back to 0 when the caller did not say,
+    # which makes this publish the task's earliest structure.
+    backfill_group_structures(meta["job"], meta["name"],
+                              published_index=args.index or 0)
     print(f"published structure: {meta['name']} "
           f"({len(chains)} chains, {fmt})")
     return 0
+
+
+def record_step_structure(args, name: str) -> None:
+    """Note that a step published a structure, so the viewer can find it."""
+    data = load_status()
+    jobs = data.get("jobs") or []
+    group_id = args.job or args.skill or "job"
+    target = None
+    if args.step:
+        target = next((j for j in jobs
+                       if (j.get("group") or j.get("id")) == group_id
+                       and j.get("step") == args.step), None)
+    if target is None and args.index:
+        target = next((j for j in jobs
+                       if (j.get("group") or j.get("id")) == group_id
+                       and j.get("index") == args.index), None)
+    if target is None:
+        return
+    target["structure"] = name
+    # Marks this step as a source rather than a borrower. The backfill reads
+    # the flag to tell the two apart, so an inherited structure is never
+    # mistaken for one the step produced itself.
+    target["published"] = True
+    atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
+
+
+def backfill_group_structures(group_id: str, name: str,
+                              published_index: int = 0) -> None:
+    """Give every step of a task a structure to show.
+
+    A task's steps do not each produce a structure. Preparing a receptor,
+    scoring a batch, analysing a trajectory — those steps have a finding but
+    no file of their own, and the viewer's step rows are only clickable when
+    they point at one. The result is a menu where some rows do nothing when
+    clicked, which reads as a broken row rather than as a step that had
+    nothing to publish.
+
+    So a step that published nothing inherits a structure — but not blindly
+    the newest one. A step shows the state of the work *at that point*:
+    "preparing the receptor" belongs to the structure it was preparing, and
+    "docking complete" belongs to the docked complex. Handing every step the
+    final result would send the user to a structure the step had nothing to
+    do with.
+
+    The rule is therefore by position: a step takes the structure published
+    by the latest step at or before its own index. Steps after the last
+    publish take that one, which is the task's result and what they are
+    working towards.
+    """
+    if not group_id:
+        return
+    data = load_status()
+    jobs = data.get("jobs") or []
+    in_group = [j for j in jobs
+                if (j.get("group") or j.get("id")) == group_id]
+    if not in_group:
+        return
+
+    # Structures this task has published, with the step index that made them.
+    # Only steps that published their own count — a step that inherited one
+    # is not a source, or the inheritance would feed itself.
+    published = sorted((j.get("index") or 0, j["structure"]) for j in in_group
+                       if j.get("structure") and j.get("published"))
+    if not published:
+        return
+
+    changed = False
+    for j in in_group:
+        # A step that published its own structure keeps it. A step that only
+        # inherited one is recomputed every time, because a later publish may
+        # be the better match for it — the inheritance is a default, not a
+        # decision the step made.
+        if j.get("published"):
+            continue
+        idx = j.get("index") or 0
+        # Latest publish at or before this step. If the step sits before
+        # every publish, it takes the first one — the task's input, which is
+        # what an early step is working on.
+        candidates = [s for i, s in published if i <= idx]
+        name_for_step = candidates[-1] if candidates else published[0][1]
+        if j.get("structure") != name_for_step:
+            j["structure"] = name_for_step
+            changed = True
+
+    if changed:
+        atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
+
+
+# Where published structures are kept so the viewer can restore them.
+ARCHIVE = VIEWER / "structures"
+ARCHIVE_INDEX = VIEWER / "structures.json"
+# How many to keep. A pipeline publishes a handful; a long session of
+# separate runs publishes dozens. The cap is on structures, not runs, so it
+# has room for several pipelines' worth.
+MAX_ARCHIVE = 40
+
+
+def archive_structure(meta: dict, text: str) -> None:
+    """Keep every published structure so the viewer can reopen it.
+
+    current.cif holds only the latest publish, so a reload of the viewer
+    shows one structure and forgets the rest — and the task list's finished
+    steps, which promise to show what each step produced, then lead nowhere.
+    Archiving each publish under its own name and listing them in an index
+    lets the viewer rebuild its tabs on startup.
+
+    A republish of the same name overwrites its entry rather than adding a
+    second one, matching how the viewer's tabs already behave.
+    """
+    try:
+        ARCHIVE.mkdir(parents=True, exist_ok=True)
+        name = meta["name"]
+        # The name reaches a filename, so anything that is not safe in one is
+        # not safe in the other. Replacing rather than rejecting keeps a
+        # publish working; the display name in meta is untouched.
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", name) or "structure"
+        (ARCHIVE / f"{safe}.{meta['format']}").write_text(text)
+
+        index = []
+        if ARCHIVE_INDEX.exists():
+            try:
+                index = json.loads(ARCHIVE_INDEX.read_text())
+            except (json.JSONDecodeError, OSError):
+                index = []
+        index = [e for e in index if e.get("name") != name]
+        index.append({
+            "name": name,
+            "file": f"structures/{safe}.{meta['format']}",
+            "meta": meta,
+        })
+        atomic_write(ARCHIVE_INDEX, json.dumps(index[-MAX_ARCHIVE:], indent=2))
+    except OSError as e:
+        # An archive that cannot be written costs the viewer its history, not
+        # its current view — the publish itself has already succeeded.
+        print(f"warning: could not archive structure: {e}", file=sys.stderr)
 
 
 def publish_selection(residues) -> int:
@@ -249,10 +397,18 @@ def publish_selection(residues) -> int:
 # bound.
 STATUS_HISTORY = 20
 
-# How many jobs to keep in the job list. Finished jobs are the ones worth
-# keeping — a running job is already visible on the pill — so the cap is
-# generous.
-MAX_JOBS = 30
+# How many jobs to keep in the job list. A declared plan becomes one job
+# per step, so a six-step pipeline occupies six entries — the cap counts
+# steps, not runs, and has to be generous enough to hold several pipelines'
+# worth of them.
+MAX_JOBS = 60
+
+# Soft ceiling on a status message's length. The pill at the bottom of the
+# screen is one line tall and the menu rows are narrow; past this the text
+# wraps and the pill grows into a block that covers the viewer. A warning,
+# not a limit — the caller may have a reason, and refusing the publish would
+# be worse than a tall pill.
+MSG_SOFT_LIMIT = 60
 
 
 def utcnow_iso():
@@ -287,96 +443,185 @@ def load_status():
 
 
 def publish_status(args) -> int:
-    status = {
-        "state": args.state,
-        "skill": args.skill or "",
-        "step": args.step or "",
-        "step_index": args.index or 0,
-        "step_total": args.total or 0,
-        "message": args.message or "",
-        "updated": utcnow_iso(),
-    }
-    if args.state == "error" and args.message:
-        status["error"] = args.message
-
     data = load_status()
     jobs = data.get("jobs") or []
+    now = utcnow_iso()
 
-    # A job is identified by --job, defaulting to the skill name. Two runs of
-    # the same skill without --job are the same job, so re-running one
-    # updates its entry rather than piling up duplicates — the same rule the
-    # viewer's tabs follow.
-    job_id = args.job or args.skill or "job"
-    status["id"] = job_id
+    # A run is identified by --job, defaulting to the skill name. Everything
+    # reported under one id belongs to one task, however many steps it has.
+    group_id = args.job or args.skill or "job"
 
-    existing = next((j for j in jobs if j.get("id") == job_id), None)
-    if existing:
-        # Keep the original start time so elapsed time survives a step
-        # update; only the state and message move.
-        status["started"] = existing.get("started") or status["updated"]
-        # A plan is declared once and then carried forward. Re-declaring it
-        # on every step update would be redundant, and dropping it would
-        # lose the route map the moment the first step reported in.
-        if existing.get("plan") and not args.plan:
-            status["plan"] = existing["plan"]
-        jobs[jobs.index(existing)] = status
-    else:
-        status["started"] = status["updated"]
-        jobs.append(status)
-
-    # The plan, if one was given. Split on commas, and also on ">" and "→"
-    # so a route written either way parses the same.
+    # A declared plan becomes one job per step.
+    #
+    # A long run is a sequence of small tasks, and the ones already finished
+    # are the record of what it did. Collapsing them into a single row with
+    # a roadmap beside it hides everything but the step in progress — the
+    # user cannot go back and look at what the run already produced. Each
+    # step instead keeps its own start time, message and state, so the menu
+    # reads as a list of things that happened rather than one thing that is
+    # happening.
+    plan = None
     if args.plan:
         steps = [s.strip() for s in re.split(r"[,>→]", args.plan)]
-        status["plan"] = [s for s in steps if s]
+        plan = [s for s in steps if s]
+        for i, name in enumerate(plan, 1):
+            jid = f"{group_id}/{name}"
+            existing = next((j for j in jobs if j.get("id") == jid), None)
+            if existing:
+                # Re-declaring a plan must not restart a step that already
+                # ran, so only the structural fields move.
+                existing["group"] = group_id
+                existing["step"] = name
+                existing["index"] = i
+                existing["total"] = len(plan)
+            else:
+                jobs.append({
+                    "id": jid,
+                    "group": group_id,
+                    "step": name,
+                    "index": i,
+                    "total": len(plan),
+                    "state": "queued",
+                    "skill": args.skill or "",
+                    "message": "",
+                    "started": now,
+                    "updated": now,
+                })
 
-    # The pill shows one job. Priority: whatever is running beats whatever is
-    # waiting, and a job that just finished beats one still queued — the user
-    # wants to see the result of the work that just completed, not the next
-    # thing in line.
-    #
-    # An explicit --job still wins outright: naming a job is how a skill says
-    # "this is the one to look at", and second-guessing it would make the
-    # flag useless.
-    if args.job:
-        data["active"] = status
-    elif status["state"] == "running":
-        data["active"] = status
-    elif status["state"] in ("done", "error"):
-        # Only take the front if nothing is running — a finished background
-        # job must not displace the one still working.
-        if not any(j.get("state") == "running" for j in jobs):
-            data["active"] = status
-    elif data.get("active") and data["active"].get("id") == job_id:
-        # This job was on screen and has gone quiet; fall back to whatever is
-        # still running, or to it if nothing is.
-        still_running = next((j for j in reversed(jobs)
-                              if j.get("state") == "running"), None)
-        data["active"] = still_running or status
-    elif status["state"] == "idle":
-        # A newly queued job does not take the front on its own — it has not
-        # done anything yet. It appears in the menu's 排队中 group.
-        if not data.get("active"):
-            data["active"] = status
+    # The step this report is about. Matched by name inside the task — that
+    # is what a skill reports and what the plan was written with — then by
+    # position, then by being the task's only step.
+    target = None
+    if args.step or args.index:
+        in_group = [j for j in jobs
+                    if (j.get("group") or j.get("id")) == group_id]
+        if args.step:
+            target = next((j for j in in_group
+                           if j.get("step") == args.step), None)
+        if target is None and args.index:
+            target = next((j for j in in_group
+                           if j.get("index") == args.index), None)
+        if target is None and len(in_group) == 1:
+            target = in_group[0]
+        if target is None:
+            # A step the plan did not name, or the first report of a run
+            # that declared none. It becomes a step of its own rather than
+            # overwriting an unrelated one.
+            target = {
+                "id": f"{group_id}/{args.step or ('step%d' % args.index)}",
+                "group": group_id,
+                "step": args.step or "",
+                "index": args.index or 0,
+                "total": args.total or 0,
+                "started": now,
+            }
+            jobs.append(target)
 
-    # Finished and failed jobs drop out of the active list once nothing is
-    # running, so the pill does not sit on a stale "done" while a new job
-    # waits behind it.
-    if not any(j.get("state") == "running" for j in jobs):
-        if data.get("active") and data["active"].get("state") != "running":
-            newest = next((j for j in reversed(jobs)
-                           if j.get("state") in ("done", "error")), None)
-            if newest:
-                data["active"] = newest
+    if target is not None:
+        target["state"] = args.state
+        target["updated"] = now
+        target["message"] = args.message or ""
+        # The pill is one line tall and the menu rows are narrow. A long
+        # message is not truncated — it wraps, and the pill grows from a slim
+        # bar into a block that covers the viewer. Warn rather than refuse:
+        # the caller may have a reason, and a blocked publish is worse than a
+        # tall pill.
+        if len(target["message"]) > MSG_SOFT_LIMIT:
+            print(f"warning: --message is {len(target['message'])} characters "
+                  f"(soft limit {MSG_SOFT_LIMIT}). The status pill wraps and "
+                  f"grows tall. Put the numbers in --metrics and keep the "
+                  f"message to what happened.", file=sys.stderr)
+        if args.skill:
+            target["skill"] = args.skill
+        if args.step:
+            target["step"] = args.step
+        if args.index:
+            target["index"] = args.index
+        if args.total:
+            target["total"] = args.total
+        # A step's own numbers. The metrics panel reads them off the
+        # structure on screen, so a step that published none — a sequence
+        # search, a property analysis — has nowhere to show what it found.
+        # Attaching them to the step puts them on its row instead, where the
+        # finding belongs.
+        #
+        # --metrics is the one flag a skill has to remember. When the call
+        # carries no --structure there is nothing for the panel to read, so
+        # the same numbers go to the step instead of being dropped. Passing
+        # --step-metrics explicitly still wins, for the rare call that
+        # publishes a structure and also wants numbers on the step.
+        step_metrics = args.step_metrics or (
+            args.metrics if not args.structure else None)
+        if step_metrics:
+            try:
+                target["metrics"] = json.loads(step_metrics)
+            except json.JSONDecodeError as e:
+                print(f"warning: --step-metrics is not valid JSON: {e}",
+                      file=sys.stderr)
+        target.setdefault("started", now)
+        if args.state == "error" and args.message:
+            target["error"] = args.message
+
+    # Reaching a step means the ones before it are finished. A skill that
+    # reports only its last step would otherwise leave every earlier one
+    # waiting forever, and the menu would show a task that never started
+    # next to one that did.
+    reached = (target or {}).get("index") or 0
+    if reached:
+        for j in jobs:
+            if j is target:
+                continue
+            if (j.get("group") or j.get("id")) != group_id:
+                continue
+            if (j.get("index") or 0) < reached and \
+                    j.get("state") in ("queued", "idle", "running"):
+                j["state"] = "done"
+                j["updated"] = now
+
+    # A task's display name. The id is what a skill passes to --job and what
+    # a structure records as its task, so it has to stay short and stable;
+    # the label is what the user reads.
+    if args.label:
+        groups = data.get("groups") or {}
+        entry = dict(groups.get(group_id) or {})
+        entry["label"] = args.label
+        if plan:
+            entry["total"] = len(plan)
+        groups[group_id] = entry
+        data["groups"] = groups
 
     data["jobs"] = jobs[-MAX_JOBS:]
+
+    # The pill shows one job. Whatever is running wins — that is what the
+    # user is waiting for. Otherwise the step this report just finished, so
+    # the pill rests on a result; then a freshly declared plan, which the
+    # user asked to see; then whatever was already there.
+    running = [j for j in jobs if j.get("state") == "running"]
+    finished = [j for j in jobs if j.get("state") in ("done", "error")]
+    prev = (data.get("active") or {}).get("id")
+    prev_live = next((j for j in jobs if j.get("id") == prev), None)
+
+    if running:
+        mine = [j for j in running
+                if (j.get("group") or j.get("id")) == group_id]
+        data["active"] = (mine or running)[-1]
+    elif target is not None and args.state in ("done", "error"):
+        data["active"] = target
+    elif plan:
+        data["active"] = next(
+            (j for j in jobs if (j.get("group") or j.get("id")) == group_id),
+            target or prev_live)
+    else:
+        data["active"] = prev_live or (finished[-1] if finished else None) \
+            or target
 
     # History is the flat log of every status ever written. The viewer no
     # longer shows it — the job list covers what is on screen — but it costs
     # a few hundred bytes and is the only record of messages a job
     # superseded, so it stays for anything that wants to read the file.
     history = data.get("history") or []
-    history.append(dict(status))
+    if target is not None:
+        history.append(dict(target))
     data["history"] = history[-STATUS_HISTORY:]
 
     atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
@@ -396,6 +641,12 @@ def main() -> int:
     ap.add_argument("--notes", help="free-text context")
     ap.add_argument("--roles", help='chain roles, e.g. "A=target,B=binder"')
     ap.add_argument("--metrics", help="JSON object of metrics")
+    ap.add_argument("--step-metrics",
+                    help='metrics for the step itself rather than the '
+                         'structure, e.g. \'{"hits": 0}\'. Only needed when '
+                         'a call publishes a structure and also wants '
+                         'numbers on the step — a call with no --structure '
+                         'sends --metrics there on its own.')
     ap.add_argument("--highlight",
                     help='residues to highlight on arrival, e.g. '
                          '"A:385,A:386,B:12". The viewer selects them as '
@@ -425,11 +676,16 @@ def main() -> int:
                          "side by side.")
     ap.add_argument("--plan",
                     help='declare the whole run up front, e.g. '
-                         '"生成主链,折叠验证,亲和力评估,筛选排序". The '
-                         'viewer shows the full route before anything has '
-                         'run, and lights each step up as it is reached — '
-                         'so a 25-minute job says what it is going to do '
-                         'rather than revealing one step at a time.')
+                         '"生成主链,折叠验证,亲和力评估,筛选排序". Each step '
+                         'becomes its own entry in the viewer\'s task list, '
+                         'so a finished step stays visible and clickable '
+                         'instead of collapsing into a roadmap beside the '
+                         'step in progress.')
+    ap.add_argument("--label",
+                    help='display name for the task identified by --job, e.g. '
+                         '"GLP-1R 环肽设计". The id has to stay short and '
+                         'stable — structures record it — so anything the '
+                         'user should read goes here.')
 
     args = ap.parse_args()
 

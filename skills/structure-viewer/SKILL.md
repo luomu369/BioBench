@@ -255,25 +255,42 @@ Call it whenever the task moves to a new phase. Typical points:
 This is the convention, not one skill's habit. Whatever you are running —
 a design, a docking sweep, a pocket search — the sequence is the same:
 
-1. **Declare the plan** before starting, so the user sees the route.
-2. **Report each step** as it is reached, with matching `--step` names.
-3. **Mark it done** with the result in `--message`.
+1. **Publish the input structure first**, so the viewer has something to
+   show from the first second.
+2. **Declare the plan**, so the user sees the route.
+3. **Report each step** as it is reached, with matching `--step` names.
+4. **Mark it done** with the result in `--message`.
 
 ```bash
 PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
 
-# 1. the whole route, before anything runs
+# 1. the input, before anything runs — the user watches THIS while waiting
+python3 $PUB --structure receptor.pdb --name nk2r_input \
+  --source rcsb --roles "A=receptor" \
+  --job <run-id> --message "输入结构"
+
+# 2. the whole route
 python3 $PUB --status --state queued --skill <your-skill> --job <run-id> \
+  --label "<what the user should read>" \
   --plan "步骤一,步骤二,步骤三" --message "已规划：<what>，预计 <how long>"
 
-# 2. each step as it is reached — same --job, --step matching the plan
+# 3. each step as it is reached — same --job, --step matching the plan
 python3 $PUB --status --state running --step "步骤一" --index 1 --total 3 \
   --skill <your-skill> --job <run-id> --message "正在<doing what>"
 
-# 3. finished
+# 4. finished
 python3 $PUB --status --state done --step "步骤三" --index 3 --total 3 \
   --skill <your-skill> --job <run-id> --message "<the result>"
 ```
+
+> **Step 1 is not optional.** A task that declares a plan but publishes
+> nothing leaves the viewer showing the *previous* task's structure — so for
+> the twenty minutes a simulation runs, the user is looking at something
+> unrelated and has no way to see what the current task is even working on.
+> Publishing the input costs one call and binds the task to the viewer
+> immediately. If the task's input is a structure you already published
+> under another job, republish it under this job's id so the tab groups
+> correctly.
 
 **Declare a plan for anything over a few minutes.** It costs one flag and
 turns "正在生成主链骨架" into a route the user can read from the first
@@ -282,14 +299,150 @@ enough. Where the line falls is your call: a docking sweep that takes ninety
 seconds probably is not worth a plan, a pocket search that takes four minutes
 probably is.
 
+**A plan is a list of small tasks, not one big one.** Each step becomes its
+own entry in the viewer's task list, with its own start time, message and
+state. That is deliberate: a long run is a sequence of small tasks, and the
+ones already finished are the record of what it did. Collapsing them into a
+single row with a roadmap beside it hides everything but the step in
+progress — the user cannot go back and look at what the run already
+produced. So split the plan to the granularity the user would want to
+inspect: "获取结构,口袋发现,环肽设计,序列验证,性质评估,发布结果" rather than
+"设计,验证".
+
 **Give every run its own `--job` id.** Several skills can proceed at once —
 a GPU design alongside a CPU docking run — and without distinct ids they
 share one entry and clobber each other's progress. `--job` defaults to the
 skill name, so re-running a skill updates its entry rather than adding a
 duplicate; pass a distinct value to run two of the same skill side by side.
 
-The viewer shows one job on the pill and the rest in the pull-up menu,
-grouped into 排队中 / 运行中 / 已完成.
+**Use `--label` for anything the user should read.** The `--job` id is what a
+structure records as its task, so it has to stay short and stable —
+`glp1r`, not `GLP-1R 环肽设计流程`. Pass the readable name separately:
+
+```bash
+python3 $PUB --status --state queued --skill biobench --job glp1r \
+  --label "GLP-1R 环肽设计" --plan "..."
+```
+
+The viewer shows one step on the pill and the rest in the pull-up menu,
+grouped by task into 排队中 / 运行中 / 已完成. A finished step is clickable
+and jumps to the structure its task published.
+
+### Reporting a multi-skill pipeline
+
+When one request spans several skills — "design a cyclic peptide for GLP-1R
+and validate it" runs pocket detection, binder design, sequence search and
+ADMET — keep them under **one `--job`** with one plan, and let each skill
+report its own step:
+
+```bash
+# The pipeline declares the whole route once
+python3 $PUB --status --state queued --skill biobench --job glp1r \
+  --label "GLP-1R 环肽设计" \
+  --plan "获取结构,口袋发现,环肽设计,序列验证,性质评估,发布结果" \
+  --message "已规划：GLP-1R 从靶点发现到环肽设计全流程"
+
+# Each skill reports its own step, naming itself in --skill
+python3 $PUB --status --state running --step "口袋发现" --index 2 --total 6 \
+  --skill pocket-detection --job glp1r --message "正在用 fpocket 搜索结合口袋"
+
+python3 $PUB --status --state done --step "口袋发现" --index 2 --total 6 \
+  --skill pocket-detection --job glp1r --message "Pocket 3 为 GLP-1 结合位点"
+```
+
+The `--skill` on each report is what attributes the step, so the menu shows
+which tool did what. The `--job` stays constant across all of them, which is
+what keeps the six steps in one group instead of six unrelated entries.
+
+**A step that produces no structure still gets reported.** Sequence search
+and property analysis produce findings, not files — report them with
+`--state done` and put the finding in `--message`. You do **not** need to
+pass `--structure` for such a step: the publisher gives every step of the
+task a structure to point at, so all of them are clickable.
+
+The structure a step gets is the one that matches **where the task was at
+that point**, not simply the newest one:
+
+- A step that published its own structure keeps it.
+- A step that published none takes the structure from the latest step **at
+  or before its own index** — so "preparing the receptor" points at the
+  receptor being prepared, and "docking complete" points at the docked
+  complex.
+- A step before every publish takes the first one, which is the task's
+  input.
+
+This is why publishing the input structure as step 1 matters beyond keeping
+the viewer busy: it is what the early steps point at. Publish it with
+`--index 1` so the publisher knows where it sits:
+
+```bash
+python3 $PUB --structure receptor.pdb --name nk2r_input --source rcsb \
+  --job nk2r --step "获取结构" --index 1 --total 6 --message "输入结构"
+```
+
+So the rule is: **publish each structure as the step that produced it, with
+its `--index`, and do not hand-wire `--structure` onto steps that have
+none.** The only case where a step stays unclickable is a task that never
+published any structure at all.
+
+### Keep `--message` short
+
+The pill at the bottom of the screen is one line tall. A long message does
+not get truncated — it wraps, and the pill grows from a slim bar into a
+block six lines tall that covers the middle of the viewer. The task menu
+rows have the same problem, and there the long text pushes the other steps
+out of view.
+
+**Aim for under 30 characters. Hard ceiling 60.** Count Chinese characters
+and digits as one each.
+
+| | |
+|---|---|
+| `正在预测复合物结构并计算 pLDDT` | 17 — good |
+| `Pocket 3 为 GLP-1 结合位点` | 18 — good |
+| `20/20 分子对接成功，最佳 -8.91 kcal/mol` | 28 — good |
+| `MW 1533 Da、cLogP -3.6、TPSA 634、QED 0.03、SA 6.46。Lipinski/Ghose/Veber 全未过，Brenk 警示 2 处` | 70 — too long |
+
+The numbers still have a home. Put them in `--metrics`, which renders on the
+step's row in the menu and in the metrics panel, both of which are built for
+tabular data:
+
+```bash
+# The message says what happened; the numbers go where they can be read.
+python3 $PUB --status --state done --step "性质评估" --index 5 --total 6 \
+  --skill admet-prediction --job glp1r \
+  --metrics '{"mw": {"label": "分子量", "value": 1533, "hint": "Da"},
+             "qed": {"label": "QED", "value": 0.03},
+             "lipinski": {"label": "Lipinski", "value": "未过"}}' \
+  --message "类药性评估完成，多项规则未过"
+```
+
+A message that needs a sentence to be honest is usually two facts. Keep the
+one the user is waiting for; the other belongs in `--metrics` or in the
+structure's `--notes`, which has no length limit and is shown in full in the
+metrics panel.
+
+**`--metrics` goes wherever it can be seen.** The metrics panel reads numbers
+off the structure on screen, so a call with no `--structure` has nothing for
+it to read — the same flag then attaches them to the step instead, and the
+viewer renders them on its row in the panel's format:
+
+```bash
+# no --structure: --metrics lands on the step
+python3 $PUB --status --state done --step "序列验证" --index 4 --total 6 \
+  --skill sequence-search --job glp1r \
+  --metrics '{"hits": {"label": "PDB 同源命中", "value": 0, "hint": "1.56M 序列中"}}' \
+  --message "0 命中 — 全新序列"
+
+# with --structure: --metrics lands on the structure, in the panel
+python3 $PUB --structure pocket.cif --name my_pocket --source fpocket \
+  --job glp1r --step "口袋发现" --index 2 --total 6 \
+  --metrics '{"druggability": 0.57}'
+```
+
+So there is one flag to remember. `--step-metrics` exists only for the call
+that publishes a structure *and* wants numbers on the step as well — pass
+both and each goes to its own place.
 
 ### Status fields
 
@@ -297,19 +450,24 @@ grouped into 排队中 / 运行中 / 已完成.
 |-------|---------|
 | `state` | `queued`/`idle` (waiting), `running`, `done`, `error` |
 | `step` | 当前阶段的说明文字，直接显示在进度条上 |
-| `step_index` / `step_total` | Drives the progress bar |
+| `index` / `total` | Drives the progress bar |
 | `message` | Human-readable detail |
 | `skill` | Which skill is running, for attribution |
-| `job` | Identifies the run so several can proceed at once |
+| `group` | The task this step belongs to; set from `--job` |
 | `plan` | The whole route, declared up front |
 
 **`--step` names must match the plan's spellings exactly.** That is how the
-viewer knows which step to light up. A name that does not appear in the plan
-leaves every step grey rather than lighting the wrong one — so if the plan
-says `结构预测`, report `--step "结构预测"`, not `--step "folding"`.
+viewer knows which step a report is about. A name that does not appear in the
+plan becomes a step of its own rather than overwriting an unrelated one — so
+if the plan says `结构预测`, report `--step "结构预测"`, not
+`--step "folding"`.
 
 A plan is declared once and carried forward: re-passing it on every step
 update is unnecessary, and omitting it after the first call does not lose it.
+
+**Reaching a step finishes the ones before it.** Reporting step 3 marks
+steps 1 and 2 done, so a skill that reports only its last step does not
+leave earlier ones waiting forever.
 
 **The plan is yours to write.** Nothing checks it against what the run
 actually does. Phrase the steps for the user rather than after a tool's
@@ -335,6 +493,64 @@ dropdown shows their purpose.
 
 Both actions can be combined in one call by passing `--structure` and
 `--status` together.
+
+### Ligands sharing a chain with the protein
+
+**A ligand must never be dropped, and it must be visible as a ligand.** Many
+entries put the small molecule in the same `auth_asym_id` as the protein it
+binds — 1HNN has SAH and SKF inside chains A and B. `parse_chains` decides
+whether a chain is a ligand by asking whether *most* of its residues are
+non-amino-acid, so a ligand sharing a chain with 260 residues is never
+marked: it vanishes from the chain panel, renders in the protein's cartoon
+style instead of its own stick style, and the ligand style control has
+nothing to act on.
+
+The atoms are not missing — only the metadata. Split them out first:
+
+```bash
+python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/split_ligands.py \
+  --structure 1HNN.cif --out 1HNN_split.pdb
+```
+
+```
+wrote 1HNN_split.pdb
+  protein residues : 528
+  ligand residues  : 4 in 4 chains
+  waters           : 126 (dropped)
+  ligand chains    : L1 (C), L2 (D), L3 (E), L4 (F)
+```
+
+It groups by mmCIF subchain (`label_asym_id`), which already records each
+ligand separately, so two copies of the same ligand in one entry become two
+chains rather than collapsing into one. Waters are dropped by default — they
+dominate the atom count and render as noise; `--keep-waters` keeps them.
+
+Then publish the split file with roles naming each ligand:
+
+```bash
+python3 .../publish.py --structure 1HNN_split.pdb --name 1hnn \
+  --roles "A=protease,B=protease,L1=sah,L2=skf,L3=sah,L4=skf"
+```
+
+> **Check the chain panel after publishing.** If a ligand you know is in the
+> file does not appear there, it is sharing a chain with the protein — split
+> it. The 3D view will still show the atoms, which is exactly what makes this
+> easy to miss: the structure looks complete while the ligand is unlabelled
+> and unstyleable.
+
+**Pass `--step` with `--structure` when the run has a plan.** That records
+which step produced this structure, so the task list's finished steps each
+lead to what they made rather than all falling back to the task's first
+publish:
+
+```bash
+python3 .../publish.py --structure pocket.cif --name my_pocket \
+  --source fpocket --job glp1r --step "口袋发现" --index 2 --total 6
+```
+
+Every publish is also archived under `webapp/static/structures/` and listed
+in `structures.json`, so a reload of the viewer reopens the whole session's
+structures as tabs instead of only the latest one.
 
 ### Highlighting what you just changed
 
@@ -484,6 +700,29 @@ def publish(cif_text: str, meta: dict, viewer: Path):
    Residue counts should match the inputs, and gaps should match the
    source structure's own unresolved regions — no more. Extra gaps mean
    the merge dropped residues.
+
+9. **Every task reports what it is doing, including the trivial ones.**
+   Loading a structure is a task: declare it, report it, publish it. A
+   structure that appears with no status history leaves the user guessing
+   what produced it, and a task that runs for minutes with no reports
+   leaves them watching something unrelated. The minimum for any task:
+
+   ```bash
+   # the input, first — the viewer has something to show immediately
+   python3 $PUB --structure input.pdb --name my_input --source rcsb --job <id>
+   # the route
+   python3 $PUB --status --state queued --skill <skill> --job <id> \
+     --label "<readable name>" --plan "步骤一,步骤二"
+   # each step, with the structure it produced
+   python3 $PUB --status --state done --step "步骤一" --index 1 --total 2 \
+     --skill <skill> --job <id> --structure out.pdb --name out \
+     --message "<what happened>"
+   ```
+
+10. **A ligand is never optional.** If the input has one, it reaches the
+    viewer — as its own chain, with its own style. See "Ligands sharing a
+    chain with the protein" above; the check is whether it appears in the
+    chain panel, not whether the 3D view looks full.
 
 ## When the user says the structure looks wrong
 
