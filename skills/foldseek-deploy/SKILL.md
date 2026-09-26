@@ -108,7 +108,9 @@ rm -rf dltmp        # reclaims ~2.3 GB of cached tarball
 Then verify:
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/foldseek-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/foldseek-deploy/scripts/preflight.py
 ```
 
 ### Using the database
@@ -129,7 +131,9 @@ structures and fail with `No structures found in given input`.
 ## Verifying an existing installation
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/foldseek-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/foldseek-deploy/scripts/preflight.py
 ```
 
 Checks that the binary exists, is executable, reports a version, can run a

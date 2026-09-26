@@ -17,6 +17,7 @@ biobench/
     ├── structure-viewer/     publish structures and progress to the viewer
     ├── boltzgen-deploy/      install BoltzGen and its weights
     ├── binder-design/        run a BoltzGen binder design
+    ├── ligand-binding-design/ design a binder for a small-molecule ligand
     ├── proteinmpnn-deploy/   install ProteinMPNN
     ├── sequence-design/      design sequences for a fixed backbone
     ├── genmol-deploy/        install GenMol and its weights
@@ -30,10 +31,55 @@ biobench/
     ├── vina-deploy/          install AutoDock Vina
     ├── molecular-docking/    dock ligands into a receptor
     ├── conformational-analysis/ scan bond torsions with a force field
+    ├── molecule-editing/       change a selected fragment in place
     ├── molecular-dynamics-deploy/ install OpenMM for simulation
     ├── molecular-dynamics/    simulate a protein over time with OpenMM
     ├── admet-prediction/     drug-likeness and structural alerts
     └── pocket-detection/     find binding pockets with fpocket
+```
+
+## Where things are
+
+No path in any skill is written out in full. Every command uses these five
+variables, and every script resolves them the same way — see
+`skills/_shared/biobench_paths.py`, which is the one place the defaults live.
+
+| Variable | What it points at | Default |
+|----------|-------------------|---------|
+| `$BB` | the repository root | `$HOME/biobench` |
+| `$CONDA` | the conda installation | `$HOME/miniconda3` |
+| `$MODELS` | downloaded model weights | `$HOME/models` |
+| `$TOOLS` | binaries built outside conda | `$HOME/tools` |
+| `$FOLDSEEK_DB` | the foldseek search database | `$MODELS/foldseek-db` |
+
+A command that needs them defines them first, so it can be copied and run as
+it stands:
+
+```bash
+BB="${BB:-$HOME/biobench}"
+CONDA="${CONDA:-$HOME/miniconda3}"
+MODELS="${MODELS:-$HOME/models}"
+TOOLS="${TOOLS:-$HOME/tools}"
+FOLDSEEK_DB="${FOLDSEEK_DB:-$MODELS/foldseek-db}"
+```
+
+Each is overridable, for a machine that keeps its conda or weights somewhere
+unusual. The scripts probe the usual locations too, so a machine that already
+has conda does not have to be told where it is.
+
+Environments, weights, and tools all live **outside** the repository — one
+copy per machine, shared by every clone. There is deliberately no fallback
+inside the tree: a second copy in the repo would be a quieter answer to
+"where is the docking env" that could go stale, and a skill fixed against one
+while the other drifted would fail in a way that looks like a missing
+dependency rather than a wrong path. When a location is missing, the scripts
+say so and name the path they wanted.
+
+To see what resolves to what on this machine:
+
+```bash
+BB="${BB:-$HOME/biobench}"
+python3 "$BB/skills/_shared/biobench_paths.py"
 ```
 
 ## First contact
@@ -41,21 +87,27 @@ biobench/
 When a user asks for anything BioBench-related, run the bootstrap check:
 
 ```bash
-bash /home/asus_gx10/biobench/skills/viewer-launch/scripts/bootstrap.sh
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/skills/viewer-launch/scripts/bootstrap.sh
 ```
 
 It reports conda environments, model weights, viewer assets, and whether the
 viewer is running. If anything is missing, re-run with `--fix`:
 
 ```bash
-bash /home/asus_gx10/biobench/skills/viewer-launch/scripts/bootstrap.sh --fix
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/skills/viewer-launch/scripts/bootstrap.sh --fix
 ```
 
 Then make sure the viewer is up:
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 curl -s -o /dev/null -w '%{http_code}' http://localhost:8282/
-# 000 → bash /home/asus_gx10/biobench/webapp/run_viewer.sh --port 8282
+# 000 → bash $BB/webapp/run_viewer.sh --port 8282
 ```
 
 ## Routing
@@ -88,6 +140,8 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "what is the lowest-energy state around this bond?" | `conformational-analysis` | MMFF94 torsion scan; profile and minimum published |
 | "how much energy to rotate this side chain?" | `conformational-analysis` | Same scan, reported as a barrier |
 | "is this residue in a strained conformation?" | `conformational-analysis` | Compares the crystal rotamer against the preferred one |
+| "change this into a benzene ring" | `molecule-editing` | Selected atoms rebuilt as a ring; the rest kept |
+| "replace this fragment" / "make these atoms a phenyl" | `molecule-editing` | Same, in place, with the complex intact |
 | "simulate this structure" / "run MD on it" | `molecular-dynamics` | OpenMM in explicit water; trajectory and stability metrics |
 | "is this design stable?" / "relax this complex" | `molecular-dynamics` | Minimisation, equilibration, production, RMSD/Rg |
 | "how much does the binding site move?" | `molecular-dynamics` | Trajectory analysis over the selected residues |

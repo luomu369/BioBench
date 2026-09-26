@@ -43,13 +43,8 @@ conda activate proteinmpnn
 
 Match the CUDA build to your driver. Check with `nvidia-smi`.
 
-```bash
-# CUDA 12.4
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-# CUDA 13.0 (DGX Spark / GB10, driver 580+)
-pip install torch --index-url https://download.pytorch.org/whl/cu130
-```
+Install PyTorch with CUDA — see `_shared/pytorch-cuda.md` for which wheel
+matches the driver, and the check that confirms it is using the GPU.
 
 ### Step 3: Install ProteinMPNN
 
@@ -106,7 +101,9 @@ to design from a Cα-only backbone (uses `ca_model_weights`).
 ## Verifying an existing installation
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/proteinmpnn-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/proteinmpnn-deploy/scripts/preflight.py
 ```
 
 Checks the conda env, torch/CUDA, the `proteinmpnn` import, `pkg_resources`,

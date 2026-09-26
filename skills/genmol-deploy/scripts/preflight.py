@@ -11,10 +11,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-CONDA = Path("/home/asus_gx10/miniconda3")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import conda_root, env_python, models_root
+
+CONDA = conda_root()
 ENV = CONDA / "envs" / "genmol"
-PY = ENV / "bin" / "python"
-WEIGHTS = Path("/home/asus_gx10/models/genmol")
+PY = env_python("genmol")
+WEIGHTS = models_root() / "genmol"
 
 
 def check(label, ok, detail=""):

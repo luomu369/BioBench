@@ -11,16 +11,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path("/home/asus_gx10/tools/ResGen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python, tools_root
+
+REPO = tools_root() / "ResGen"
 CKPT = REPO / "ckpt" / "val_172.pt"
 CONFIG = REPO / "configs" / "sample.yml"
 
 # Any env with a working torch+CUDA will do; ResGen has no env of its own.
-CANDIDATE_PY = [
-    Path("/home/asus_gx10/miniconda3/envs/boltzgen/bin/python"),
-    Path("/home/asus_gx10/miniconda3/envs/genmol/bin/python"),
-    Path("/home/asus_gx10/miniconda3/envs/resgen/bin/python"),
-]
+# Probed one at a time — a missing env is not an error here, it just means
+# one fewer candidate to try.
+CANDIDATE_PY = []
+for _e in ("boltzgen", "genmol", "resgen"):
+    try:
+        CANDIDATE_PY.append(env_python(_e))
+    except FileNotFoundError:
+        pass
 
 IMPORTS = [
     "torch", "torch_geometric", "torch_scatter", "torch_cluster",

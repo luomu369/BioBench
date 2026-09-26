@@ -82,7 +82,9 @@ python -c "import meeko, rdkit, gemmi; print('toolchain OK')"
 ## Verifying an existing installation
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/vina-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/vina-deploy/scripts/preflight.py
 ```
 
 Checks the binary, the Python toolchain, and that a ligand can be converted to

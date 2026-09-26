@@ -77,7 +77,9 @@ seconds, no download. See `mmseqs-deploy`.
 ## Step 2 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "搜索序列数据库" --index 1 --total 2 \
   --skill sequence-search --message "正在比对序列"
@@ -88,7 +90,8 @@ python3 $PUB --status --state running --step "搜索序列数据库" --index 1 -
 MMseqs2 works on its own binary database format, not FASTA:
 
 ```bash
-MM=/home/asus_gx10/tools/mmseqs/bin/mmseqs
+TOOLS="${TOOLS:-$HOME/tools}"
+MM=$TOOLS/mmseqs/bin/mmseqs
 
 $MM createdb targets.fasta tDB
 $MM createdb query.fasta qDB
@@ -101,7 +104,8 @@ query database does not need it.
 ## Step 4 — Run
 
 ```bash
-MM=/home/asus_gx10/tools/mmseqs/bin/mmseqs
+TOOLS="${TOOLS:-$HOME/tools}"
+MM=$TOOLS/mmseqs/bin/mmseqs
 
 $MM search qDB tDB result tmp --threads 20 --gpu 1
 ```

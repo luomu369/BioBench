@@ -23,9 +23,11 @@ When the user points at residues in the viewer, they are in
 `webapp/static/selection.json`:
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 python3 -c "
 import json
-sel = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+sel = json.load(open('$BB/webapp/static/selection.json'))
 print(f\"{sel['count']} residues on structure {sel['structure']}\")
 for r in sel['residues']:
     print(f\"  {r['chain']}/{r['resi']} {r['resn']}\")
@@ -36,10 +38,12 @@ Turn them into a centre, and check the spread before committing to a box
 size — a selection that spans 15 Å or more is probably two sites, not one:
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 python3 -c "
 import gemmi, math, json, sys
 st = gemmi.read_structure(sys.argv[1]); st.setup_entities()
-sel = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+sel = json.load(open('$BB/webapp/static/selection.json'))
 want = {(r['chain'], r['resi']) for r in sel['residues']}
 pts = [a.pos for ch in st[0] for r in ch for a in r
        if (ch.name, r.seqid.num) in want]
@@ -176,7 +180,9 @@ From an existing PDBQT pose (e.g. a Vina result), extract it with
 ## Step 2 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "分子生成" --index 1 --total 3 \
   --skill pocket-molecule-design --message "正在生成口袋适配分子"
@@ -185,7 +191,8 @@ python3 $PUB --status --state running --step "分子生成" --index 1 --total 3 
 ## Step 3 — Run
 
 ```bash
-PY=/home/asus_gx10/miniconda3/envs/boltzgen/bin/python
+CONDA="${CONDA:-$HOME/miniconda3}"
+PY=$CONDA/envs/boltzgen/bin/python
 cd ~/tools/ResGen
 
 $PY gen.py --pdb_file /tmp/receptor.pdb --sdf_file /tmp/ref.sdf \

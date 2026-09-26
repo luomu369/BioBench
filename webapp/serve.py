@@ -16,7 +16,6 @@ beyond the standard library.
 
 import json
 import os
-import re
 import shutil
 import subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -125,7 +124,8 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(STATIC), **kwargs)
 
     def do_GET(self):
-        if self.path.split("?")[0].rstrip("/") == "/sysinfo.json":
+        route = self.path.split("?")[0].rstrip("/")
+        if route == "/sysinfo.json":
             body = json.dumps(sysinfo()).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -134,6 +134,16 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        # The viewer polls select.json every two seconds to see whether a
+        # skill has asked it to select something. Almost always there is
+        # nothing, and a 404 for that fills the console with errors that
+        # look like a fault when nothing is wrong. An empty 204 says the
+        # same thing without the noise.
+        if route == "/select.json" and not (STATIC / "select.json").exists():
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
             return
         super().do_GET()
 
@@ -159,7 +169,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404, "only DELETE /select.json and /task.json are supported")
 
     def delete_task(self):
-        """Drop one task's steps, and the structures nothing else points at.
+        """Drop one task's steps, and the archive entries nothing else points at.
 
         The viewer's task list is the record of every run this session, and a
         finished one stays there forever. There was no way to clear a task the
@@ -167,9 +177,15 @@ class Handler(SimpleHTTPRequestHandler):
         rather than a list of what is currently open.
 
         Deleting the steps alone would leave their structures behind as tabs
-        with no way to reach them, so the structures go too — but only the
-        ones no surviving step references. A structure another task also
+        with no way to reach them, so the archive entries go too — but only
+        the ones no surviving step references. A structure another task also
         published, or one the user opened by hand, stays.
+
+        The files under structures/ are not deleted. Clearing a task says
+        what the user wants out of the way, not what is worth destroying; a
+        structure that took twenty minutes to produce is not something to
+        unlink because its task left the list. The entry goes, the tab goes
+        with it, and the file stays for anyone who wants it back.
         """
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b"{}"
@@ -179,8 +195,13 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(400, "invalid JSON")
             return
         group = (req.get("group") or "").strip()
-        if not group:
-            self.send_error(400, "group is required")
+        # A single structure, rather than a whole task. The structure
+        # switcher's close button closes one tab, and closing it only in the
+        # browser left the archive entry in place — a reload brought the tab
+        # straight back, so the close button appeared not to work.
+        structure = (req.get("structure") or "").strip()
+        if not group and not structure:
+            self.send_error(400, "group or structure is required")
             return
 
         status_path = STATIC / "status.json"
@@ -191,64 +212,112 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         jobs = data.get("jobs") or []
-        doomed = [j for j in jobs if (j.get("group") or j.get("id")) == group]
-        if not doomed:
-            self.send_error(404, f"no such task: {group}")
-            return
-
-        # Structures only this task referenced. A structure another surviving
-        # step still points at is kept. The active pill's structure counts as
-        # used too — unless the pill is describing a step of the task being
-        # deleted, in which case it is going away with it.
-        survivors = [j for j in jobs if (j.get("group") or j.get("id")) != group]
-        still_used = {j.get("structure") for j in survivors if j.get("structure")}
-        active = data.get("active") or {}
-        active_id = active.get("id") or ""
-        active_group = active.get("group") or active_id.split("/")[0]
-        if active_group != group and active.get("structure"):
-            still_used.add(active["structure"])
-
-        orphaned = sorted({j.get("structure") for j in doomed
-                           if j.get("structure")} - still_used)
-
-        data["jobs"] = survivors
-        (data.get("groups") or {}).pop(group, None)
-        # The pill must not keep describing a task that no longer exists.
-        # Fall back to the newest surviving step rather than to nothing: a
-        # null active hides the pill entirely, and the user just deleted one
-        # task out of several — the rest are still worth showing.
-        if active_group == group:
-            finished = [j for j in survivors
-                        if j.get("state") in ("done", "error")]
-            running = [j for j in survivors if j.get("state") == "running"]
-            pick = (running or finished or survivors)
-            data["active"] = pick[-1] if pick else None
+        if structure:
+            # One structure. The steps that published it stay — they are the
+            # record of what the run did — but they no longer point at a
+            # structure that exists, so their `structure` field is cleared.
+            # A step left pointing at a deleted structure would render as a
+            # clickable row that opens nothing.
+            doomed = []
+            survivors = jobs
+            for j in jobs:
+                if j.get("structure") == structure:
+                    j["structure"] = None
+            orphaned = [structure]
+            active = data.get("active") or {}
+            if active.get("structure") == structure:
+                active["structure"] = None
+                data["active"] = active
+        else:
+            doomed = [j for j in jobs
+                      if (j.get("group") or j.get("id")) == group]
+            if not doomed:
+                self.send_error(404, f"no such task: {group}")
+                return
+            survivors = [j for j in jobs
+                         if (j.get("group") or j.get("id")) != group]
+            # Structures only this task referenced. A structure another
+            # surviving step still points at is kept. The active pill's
+            # structure counts as used too — unless the pill is describing a
+            # step of the task being deleted, in which case it is going away
+            # with it.
+            still_used = {j.get("structure") for j in survivors
+                          if j.get("structure")}
+            active = data.get("active") or {}
+            active_id = active.get("id") or ""
+            active_group = active.get("group") or active_id.split("/")[0]
+            if active_group != group and active.get("structure"):
+                still_used.add(active["structure"])
+            orphaned = sorted({j.get("structure") for j in doomed
+                               if j.get("structure")} - still_used)
+            data["jobs"] = survivors
+            (data.get("groups") or {}).pop(group, None)
+            # The pill must not keep describing a task that no longer exists.
+            # Fall back to the newest surviving step rather than to nothing: a
+            # null active hides the pill entirely, and the user just deleted
+            # one task out of several — the rest are still worth showing.
+            #
+            # The check covers an active that is already null too. A null
+            # active has no group, so comparing groups alone would skip the
+            # fallback and leave the pill hidden even though tasks survive —
+            # which is how the status bar disappeared outright.
+            if active_group == group or not active:
+                finished = [j for j in survivors
+                            if j.get("state") in ("done", "error")]
+                running = [j for j in survivors
+                           if j.get("state") == "running"]
+                pick = (running or finished or survivors)
+                data["active"] = pick[-1] if pick else None
 
         tmp = status_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2))
         os.replace(tmp, status_path)
 
-        # Drop the archived copies too, so a reload does not bring the task
-        # back as a set of tabs with nothing pointing at them.
+        # Drop the archive entries, so a reload does not bring the task back
+        # as a set of tabs with nothing pointing at them.
+        #
+        # The files themselves stay on disk. Deleting a task is a statement
+        # about what the user wants to see in the viewer, not about what is
+        # worth keeping — a structure that took twenty minutes to dock is not
+        # something to destroy because its task was cleared from the list.
+        # The entry goes, the tab goes with it, and the file remains under
+        # structures/ for anyone who wants it back.
+        #
+        # Anything no surviving step references goes too, not just what this
+        # task published. The archive only ever grew: a publish added an entry
+        # and nothing removed one, so a session that ran a dozen pipelines
+        # left a dozen structures in the switcher with one task in the status
+        # list. A structure a step still points at stays, and so does one with
+        # no job at all — that is a structure the user opened by hand, an RCSB
+        # fetch or a file they dropped in, and it was never any task's to
+        # delete.
         index_path = STATIC / "structures.json"
-        removed_files = []
         try:
             index = json.loads(index_path.read_text())
             entries = index if isinstance(index, list) else index.get("structures", [])
-            kept = [e for e in entries if e.get("name") not in orphaned]
+            # Read after the jobs were rewritten above, so this is the pill
+            # that will actually be showing once this request is done.
+            referenced = {j.get("structure") for j in survivors
+                          if j.get("structure")}
+            shown = (data.get("active") or {}).get("structure")
+            if shown:
+                referenced.add(shown)
+
+            def keep(e):
+                if e.get("name") in orphaned:
+                    return False
+                # No job: opened by hand, not produced by a task.
+                if not (e.get("meta") or {}).get("job"):
+                    return True
+                return e.get("name") in referenced
+
+            kept = [e for e in entries if keep(e)]
             if len(kept) != len(entries):
                 if isinstance(index, list):
                     index_path.write_text(json.dumps(kept, indent=2))
                 else:
                     index["structures"] = kept
                     index_path.write_text(json.dumps(index, indent=2))
-                for name in orphaned:
-                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name) or "structure"
-                    for ext in ("cif", "pdb"):
-                        f = STATIC / "structures" / f"{safe}.{ext}"
-                        if f.is_file():
-                            f.unlink()
-                            removed_files.append(f.name)
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
@@ -256,7 +325,6 @@ class Handler(SimpleHTTPRequestHandler):
             "ok": True,
             "removed_steps": len(doomed),
             "removed_structures": orphaned,
-            "removed_files": removed_files,
         }).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

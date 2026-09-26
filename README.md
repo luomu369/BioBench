@@ -46,7 +46,6 @@ biobench/
 │       ├── current.cif       ← published structure
 │       ├── current.json      ← published metadata
 │       └── status.json       ← published progress
-├── envs/                     Conda environment recipes
 └── structures/               Locally cached PDB entries
 ```
 
@@ -102,14 +101,42 @@ agent harness drive it.
 | `biobench` (root) | Entry point — bootstrap, route, orchestrate |
 | `viewer-launch` | Start/restart the viewer; environment bootstrap |
 | `structure-viewer` | Publishing contract for structures and progress |
-| `boltzgen-deploy` | BoltzGen installation and weights |
-| `binder-design` | Running a BoltzGen binder design |
-| `proteinmpnn-deploy` | ProteinMPNN installation |
-| `sequence-design` | ProteinMPNN sequence design |
-| `genmol-deploy` | GenMol installation |
-| `molecule-generation` | GenMol small-molecule generation |
-| `foldseek-deploy` | Foldseek installation |
-| `structure-comparison` | Foldseek structure search and clustering |
+
+**Deploy** — install a tool and verify it works:
+
+| Skill | Installs |
+|-------|----------|
+| `vina-deploy` | AutoDock Vina + meeko/RDKit |
+| `boltzgen-deploy` | BoltzGen and its weights |
+| `proteinmpnn-deploy` | ProteinMPNN |
+| `genmol-deploy` | GenMol and its weights |
+| `resgen-deploy` | ResGen and its checkpoint |
+| `foldseek-deploy` | Foldseek (static binary) |
+| `mmseqs-deploy` | MMseqs2 |
+| `molecular-dynamics-deploy` | OpenMM + AmberTools |
+
+**Run** — do the work and publish the result:
+
+| Skill | Does |
+|-------|------|
+| `molecular-docking` | Dock a ligand into a receptor with Vina |
+| `molecular-dynamics` | Simulate a complex with OpenMM |
+| `pocket-detection` | Find and rank binding pockets with fpocket |
+| `binder-design` | Design a protein binder with BoltzGen |
+| `ligand-binding-design` | Design a binder for a small-molecule ligand |
+| `pocket-molecule-design` | Design molecules that fit a pocket with ResGen |
+| `molecule-generation` | Generate small molecules with GenMol |
+| `molecule-editing` | Replace a selected group in place, from the viewer |
+| `sequence-design` | Design sequences for a fixed backbone |
+| `sequence-search` | Search sequences with MMseqs2 |
+| `structure-comparison` | Search and cluster structures with Foldseek |
+| `conformational-analysis` | Scan a torsion with RDKit |
+| `admet-prediction` | Predict drug-likeness and ADMET properties |
+
+`skills/_shared/` holds what every skill uses: `biobench_paths.py` (where
+things live), `pdb_format.py` (the PDB column layout), `silent-failures.md`
+(traps already hit here), and `pytorch-cuda.md` (which wheel matches the
+driver).
 
 ## Installing a skill elsewhere
 

@@ -44,13 +44,8 @@ conda activate boltzgen
 
 Match the CUDA build to your driver. Check with `nvidia-smi`.
 
-```bash
-# CUDA 12.4
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-# CUDA 13.0 (DGX Spark / GB10, driver 580+)
-pip install torch --index-url https://download.pytorch.org/whl/cu130
-```
+Install PyTorch with CUDA — see `_shared/pytorch-cuda.md` for which wheel
+matches the driver, and the check that confirms it is using the GPU.
 
 ### Step 3: Install BoltzGen
 
@@ -121,8 +116,11 @@ for the flags that skip those steps.
 ## Verifying an existing installation
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/boltzgen-deploy/scripts/preflight.py \
-  --weights /home/asus_gx10/models/boltzgen-1
+MODELS="${MODELS:-$HOME/models}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/boltzgen-deploy/scripts/preflight.py \
+  --weights $MODELS/boltzgen-1
 ```
 
 Checks GPU, CUDA, torch, the `boltzgen` import, checkpoint sizes, and disk
@@ -132,8 +130,11 @@ output.
 To re-download missing or truncated checkpoints:
 
 ```bash
-bash /home/asus_gx10/biobench/skills/boltzgen-deploy/scripts/fetch_weights.sh \
-  --dest /home/asus_gx10/models/boltzgen-1
+MODELS="${MODELS:-$HOME/models}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/skills/boltzgen-deploy/scripts/fetch_weights.sh \
+  --dest $MODELS/boltzgen-1
 ```
 
 ## Troubleshooting

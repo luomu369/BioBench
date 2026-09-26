@@ -95,7 +95,9 @@ Verify:
 ## Step 1 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "口袋发现" --index 1 --total 2 \
   --skill pocket-detection --message "正在搜索结合口袋"
@@ -109,8 +111,11 @@ as though the new one never happened.
 ## Step 2 — Run
 
 ```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
-DETECT=/home/asus_gx10/biobench/skills/pocket-detection/scripts/detect_pockets.py
+CONDA="${CONDA:-$HOME/miniconda3}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PY=$CONDA/envs/docking/bin/python
+DETECT=$BB/skills/pocket-detection/scripts/detect_pockets.py
 
 $PY $DETECT --structure 7XWQ.cif --out pockets_out --top 5
 ```
@@ -229,13 +234,15 @@ Publish the receptor with the top pockets' lining residues highlighted, so
 the user sees where they are:
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 Build the visualisation first — the receptor with the top pockets' alpha
 spheres as their own chains — then publish that:
 
 ```bash
-CLOUD=/home/asus_gx10/biobench/skills/pocket-detection/scripts/pocket_cloud.py
+CLOUD=$BB/skills/pocket-detection/scripts/pocket_cloud.py
 
 $PY $CLOUD --pockets pockets_out/pockets.json --receptor 7XWQ.cif \
   --out pockets_out/pockets_vis.pdb --top 3

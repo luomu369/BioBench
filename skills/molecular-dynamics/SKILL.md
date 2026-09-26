@@ -11,7 +11,9 @@ together.
 **Prerequisite:** the `openmm` conda environment. If it is missing:
 
 ```bash
-bash /home/asus_gx10/biobench/skills/molecular-dynamics-deploy/scripts/install.sh
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/skills/molecular-dynamics-deploy/scripts/install.sh
 ```
 
 No model weights to download — the force fields ship with OpenMM. The install
@@ -88,7 +90,9 @@ other missing heavy atoms — a PDB archive structure without OXT fails with
 preparation in one call:
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/molecular-dynamics/scripts/prepare_complex.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/molecular-dynamics/scripts/prepare_complex.py \
   --receptor 6HDX.cif --chain A \
   --ligand-pdbqt docking/mol_14/ligand.pdbqt \
   --ligand-pose docking/mol_14/ligand_pose1.pdb \
@@ -118,7 +122,9 @@ things it fixes that each break a simulation silently:
 ## Step 2 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "动力学模拟" --index 1 --total 2 \
   --skill molecular-dynamics --message "正在溶剂化并最小化 NK2R（约 86000 原子）"
@@ -130,7 +136,9 @@ minimisation, equilibration, production. Update the message as each begins.
 ## Step 3 — Run
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/molecular-dynamics/scripts/simulate.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/molecular-dynamics/scripts/simulate.py \
   --structure receptor.pdb --out md_out --ns 1
 ```
 
@@ -150,7 +158,9 @@ writes `trajectory.dcd`, `final.pdb`, `md.log` and `summary.json`.
 ### Simulating a complex
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/molecular-dynamics/scripts/simulate_complex.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/molecular-dynamics/scripts/simulate_complex.py \
   --structure complex.pdb \
   --ligand-smiles "Cc1nc2ccc(C(=O)NCc3ccc(NC(=O)OC(C)(C)C)cc3)cc2o1" \
   --ligand-resname UNL \

@@ -26,7 +26,7 @@ database), so confirm intent:
 
 ```
 Query:      nk1r_binder_0.cif (2 chains)
-Targets:    PDB database (/home/asus_gx10/foldseek-db)
+Targets:    PDB database ($FOLDSEEK_DB)
 Mode:       easy-search
 Sensitivity: default
 
@@ -65,7 +65,9 @@ Pick the target from what the user is actually asking:
 ## Step 1 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "搜索结构数据库" --index 1 --total 3 \
   --skill structure-comparison --message "正在比对结构"
@@ -77,8 +79,11 @@ takes a minute with a stale "running 1/3" looks hung.
 ## Step 2 — Run
 
 ```bash
-FS=/home/asus_gx10/tools/foldseek/bin/foldseek
-DBDIR=/home/asus_gx10/foldseek-db
+MODELS="${MODELS:-$HOME/models}"
+TOOLS="${TOOLS:-$HOME/tools}"
+FOLDSEEK_DB="${FOLDSEEK_DB:-$MODELS/foldseek-db}"
+FS=$TOOLS/foldseek/bin/foldseek
+DBDIR=$FOLDSEEK_DB
 ```
 
 ### Search one query against targets
@@ -109,7 +114,7 @@ Two things are easy to get wrong here:
   makes foldseek treat it as a folder of structures and fail with
   "No structures found in given input".
 - **Run from inside `$DBDIR`**, or pass an absolute prefix
-  (`/home/asus_gx10/foldseek-db/pdb`).
+  (`$FOLDSEEK_DB/pdb`).
 
 The database is 6.0 GB on disk, PDB data as of 2025-01-01. A single query
 takes a couple of seconds.
@@ -125,8 +130,10 @@ Target names come back as PDB entries, e.g. `7xwr-assembly1_A` — strip the
 If the database is missing, download it with:
 
 ```bash
-mkdir -p /home/asus_gx10/foldseek-db
-$FS databases PDB /home/asus_gx10/foldseek-db /home/asus_gx10/foldseek-db/dltmp
+MODELS="${MODELS:-$HOME/models}"
+FOLDSEEK_DB="${FOLDSEEK_DB:-$MODELS/foldseek-db}"
+mkdir -p $FOLDSEEK_DB
+$FS databases PDB $FOLDSEEK_DB $FOLDSEEK_DB/dltmp
 ```
 
 > **Check the download before deleting `dltmp`.** `foldseek databases` has
@@ -139,7 +146,9 @@ $FS databases PDB /home/asus_gx10/foldseek-db /home/asus_gx10/foldseek-db/dltmp
 > `Cannot open lookup file .../pdb_ca.lookup!`. Repair with:
 >
 > ```bash
-> cd /home/asus_gx10/foldseek-db
+> MODELS="${MODELS:-$HOME/models}"
+> FOLDSEEK_DB="${FOLDSEEK_DB:-$MODELS/foldseek-db}"
+> cd $FOLDSEEK_DB
 > tar xzf dltmp/latest/pdb.tar.gz pdb_ca pdb_seq_ca.1   # if missing
 > ln -sf pdb_ca pdb_seq_ca.0
 > for f in pdb_ca pdb_h pdb_ss pdb_clu; do ln -sf pdb.lookup $f.lookup; done
@@ -156,11 +165,16 @@ The viewer writes the user's residue clicks to `selection.json`. To ask
 structure of their own and search with it:
 
 ```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
-EXT=/home/asus_gx10/biobench/skills/structure-comparison/scripts/extract_selection.py
+MODELS="${MODELS:-$HOME/models}"
+CONDA="${CONDA:-$HOME/miniconda3}"
+FOLDSEEK_DB="${FOLDSEEK_DB:-$MODELS/foldseek-db}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PY=$CONDA/envs/docking/bin/python
+EXT=$BB/skills/structure-comparison/scripts/extract_selection.py
 
 $PY $EXT --out fragment.cif --context 2
-cd /home/asus_gx10/foldseek-db
+cd $FOLDSEEK_DB
 $FS easy-search /path/to/fragment.cif pdb result.m8 tmp \
   --format-output "query,target,pident,alnlen,evalue,bits"
 ```
@@ -188,7 +202,9 @@ which usually helps — see the length limit below.
 > So before promising a result, check how long the selection is:
 >
 > ```bash
-> python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/read_selection.py
+> BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+> python3 $BB/skills/structure-viewer/scripts/read_selection.py
 > ```
 >
 > - **Selection spans a long chain** → search that whole chain, then filter
@@ -356,8 +372,11 @@ compared one at a time. To see them together, move the hit into the
 query's coordinate system and publish the pair:
 
 ```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
-SUP=/home/asus_gx10/biobench/skills/structure-comparison/scripts/superimpose.py
+CONDA="${CONDA:-$HOME/miniconda3}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PY=$CONDA/envs/docking/bin/python
+SUP=$BB/skills/structure-comparison/scripts/superimpose.py
 
 $PY $SUP --query 7XWQ.cif --target hit_4j26.cif \
   --query-chain B --out superposed.cif
@@ -427,8 +446,8 @@ One line per hit, tab-separated, best hits first. Columns are controlled by
 | Hits look like noise | Default sensitivity too high | Raise `-e` (stricter e-value) |
 | Database search errors on `pdb_ca` | Incomplete download | Re-extract `pdb_ca` and `pdb_seq_ca.1` from `dltmp/latest/pdb.tar.gz` |
 | `Cannot open lookup file .../pdb_ca.lookup` | Missing `*.lookup` symlinks | `for f in pdb_ca pdb_h pdb_ss pdb_clu; do ln -sf pdb.lookup $f.lookup; done` |
-| `No structures found in given input` | Passed the directory instead of the `pdb` prefix | `cd /home/asus_gx10/foldseek-db` and pass `pdb` |
-| Database search finds nothing | Wrong path | Check `/home/asus_gx10/foldseek-db/pdb.lookup` exists |
+| `No structures found in given input` | Passed the directory instead of the `pdb` prefix | `cd $FOLDSEEK_DB` and pass `pdb` |
+| Database search finds nothing | Wrong path | Check `$FOLDSEEK_DB/pdb.lookup` exists |
 
 ## References
 

@@ -28,10 +28,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-VIEWER = Path(os.environ.get(
-    "BIOBENCH_VIEWER",
-    "/home/asus_gx10/biobench/webapp/static"
-))
+# The shared PDB column layout, so the chain list is read with the same field
+# boundaries every other skill writes with. The viewer's location comes from
+# the shared path module rather than a literal, so a clone anywhere works.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import viewer_static
+from pdb_format import iter_atoms
+
+VIEWER = Path(os.environ.get("BIOBENCH_VIEWER") or viewer_static())
 
 # How many past statuses to keep in status.json's history array. Enough to
 # scroll back through a session's runs without the file growing without
@@ -99,15 +103,16 @@ def parse_chains(path: Path) -> list[dict]:
             ligand_counts[chain] = ligand_counts.get(chain, 0) + 1
 
     if not is_cif:
-        for line in text.splitlines():
-            if not line.startswith(("ATOM", "HETATM")):
-                continue
-            resname = line[17:20].strip().upper()
+        # Fields come from the shared parser. A slice that is off by one reads
+        # a different residue name, and the chain list then labels a ligand as
+        # an amino acid or the reverse.
+        for atom in iter_atoms(text):
+            resname = atom.resn.upper()
             one = AA3TO1.get(resname)
             is_ligand = one is None
             if is_ligand and resname in ("HOH", "WAT", "DOD"):
                 continue  # skip water
-            note(line[21] or "_", line[22:27].strip(), one, is_ligand)
+            note(atom.chain or "_", str(atom.resi), one, is_ligand)
     else:
         cols: dict[str, int] = {}
         in_loop = False
@@ -521,16 +526,16 @@ def publish_status(args) -> int:
         target["state"] = args.state
         target["updated"] = now
         target["message"] = args.message or ""
-        # The pill is one line tall and the menu rows are narrow. A long
-        # message is not truncated — it wraps, and the pill grows from a slim
-        # bar into a block that covers the viewer. Warn rather than refuse:
-        # the caller may have a reason, and a blocked publish is worse than a
-        # tall pill.
+        # The pill is one line and ellipsizes what does not fit, so a long
+        # message is not lost — but it is not readable either, and the status
+        # bar is the one thing that must stay glanceable while a run is going.
+        # Warn rather than refuse: the caller may have a reason, and a blocked
+        # publish is worse than an abbreviated message.
         if len(target["message"]) > MSG_SOFT_LIMIT:
             print(f"warning: --message is {len(target['message'])} characters "
-                  f"(soft limit {MSG_SOFT_LIMIT}). The status pill wraps and "
-                  f"grows tall. Put the numbers in --metrics and keep the "
-                  f"message to what happened.", file=sys.stderr)
+                  f"(soft limit {MSG_SOFT_LIMIT}). The status pill shows one "
+                  f"line and will ellipsize it. Put the numbers in --metrics "
+                  f"and keep the message to what happened.", file=sys.stderr)
         if args.skill:
             target["skill"] = args.skill
         if args.step:
@@ -693,14 +698,21 @@ def main() -> int:
         ap.error("nothing to do: pass --structure, --select and/or --status")
 
     rc = 0
-    if args.structure:
-        rc = publish_structure(args) or rc
-    if args.select:
-        rc = publish_selection(parse_highlight(args.select)) or rc
+    # Status first, then the structure. `publish_structure` records which step
+    # produced the structure it just published, and it finds that step by
+    # looking it up in status.json — so the step has to be there already. Run
+    # the other way round and the lookup finds nothing, the step's `structure`
+    # field stays null, and every downstream thing that depends on it silently
+    # does nothing: the viewer cannot tell which step made which structure, and
+    # deleting a task cannot tell which structures were its to clear.
     if args.status:
         if not args.state:
             ap.error("--status requires --state")
         rc = publish_status(args) or rc
+    if args.structure:
+        rc = publish_structure(args) or rc
+    if args.select:
+        rc = publish_selection(parse_highlight(args.select)) or rc
     return rc
 
 

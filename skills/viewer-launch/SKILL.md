@@ -12,7 +12,9 @@ whatever structure a skill publishes to `static/current.cif`.
 ## Start
 
 ```bash
-bash /home/asus_gx10/biobench/webapp/run_viewer.sh --port 8282
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/webapp/run_viewer.sh --port 8282
 ```
 
 Then open http://localhost:8282
@@ -29,14 +31,18 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:8282/
 ## Restart
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 pkill -f "http.server" && sleep 2
-bash /home/asus_gx10/biobench/webapp/run_viewer.sh --port 8282
+bash $BB/webapp/run_viewer.sh --port 8282
 ```
 
 ## Change port
 
 ```bash
-bash /home/asus_gx10/biobench/webapp/run_viewer.sh --port 9000
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/webapp/run_viewer.sh --port 9000
 ```
 
 Common conflicts: `8188` (ComfyUI), `8443` (code-server), `11434` (Ollama).
@@ -44,7 +50,9 @@ Common conflicts: `8188` (ComfyUI), `8443` (code-server), `11434` (Ollama).
 ## Run in background
 
 ```bash
-nohup bash /home/asus_gx10/biobench/webapp/run_viewer.sh --port 8282 \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+nohup bash $BB/webapp/run_viewer.sh --port 8282 \
   > /tmp/biobench-viewer.log 2>&1 &
 ```
 

@@ -25,12 +25,16 @@ from pathlib import Path
 
 import gemmi
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import viewer_static
+
 SELECTION = Path(os.environ.get(
     "BIOBENCH_SELECTION",
-    "/home/asus_gx10/biobench/webapp/static/selection.json"))
+    str(viewer_static() / "selection.json")))
+CURRENT = viewer_static() / "current.cif"
 STRUCTURE = Path(os.environ.get(
     "BIOBENCH_STRUCTURE",
-    "/home/asus_gx10/biobench/webapp/static/current.cif"))
+    str(CURRENT)))
 
 
 def load_selection():

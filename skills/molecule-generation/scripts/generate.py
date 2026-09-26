@@ -22,7 +22,10 @@ import argparse
 import sys
 from pathlib import Path
 
-DEFAULT_CKPT = "/home/asus_gx10/models/genmol/NV-GenMol-89M-v1/model.ckpt"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import models_root
+
+DEFAULT_CKPT = str(models_root() / "genmol" / "NV-GenMol-89M-v1" / "model.ckpt")
 
 
 def patch_torch_load():

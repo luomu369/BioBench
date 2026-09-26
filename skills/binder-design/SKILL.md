@@ -101,9 +101,11 @@ If the user selected residues in the viewer and asked to design around them,
 read `webapp/static/selection.json` and turn it into a `binding` block:
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 python3 -c "
 import json
-d = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+d = json.load(open('$BB/webapp/static/selection.json'))
 if not d.get('count'):
     raise SystemExit('no residues selected')
 # Keep only residues on the target chain
@@ -191,7 +193,8 @@ a binding site.
 ## Step 3 — Validate
 
 ```bash
-HF_HOME=/home/asus_gx10/models/boltzgen-1 HF_HUB_OFFLINE=1 \
+MODELS="${MODELS:-$HOME/models}"
+HF_HOME=$MODELS/boltzgen-1 HF_HUB_OFFLINE=1 \
   boltzgen check design.yaml
 ```
 
@@ -208,7 +211,9 @@ Name the steps for the user, not after BoltzGen's stages. For a standard
 six-stage run:
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state queued --skill binder-design --job boltz1 \
   --plan "生成主链,折叠验证,结构预测,亲和力评估,汇总指标,筛选排序" \
@@ -246,7 +251,8 @@ sub-progress when the log shows it (e.g. `2/4 designs generated`).
 `--num_designs` must match what the user confirmed in Step 0.
 
 ```bash
-HF_HOME=/home/asus_gx10/models/boltzgen-1 HF_HUB_OFFLINE=1 \
+MODELS="${MODELS:-$HOME/models}"
+HF_HOME=$MODELS/boltzgen-1 HF_HUB_OFFLINE=1 \
 boltzgen run design.yaml \
   --output results/ \
   --protocol protein-anything \

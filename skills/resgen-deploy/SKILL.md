@@ -126,7 +126,9 @@ from torch_cluster import knn, knn_graph  # was: from torch_geometric.nn import 
 ### 5. Verify
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/resgen-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/resgen-deploy/scripts/preflight.py
 ```
 
 Checks the repo, the checkpoint, every import, and that the model

@@ -99,7 +99,9 @@ Proceed?
 From SMILES directly:
 
 ```bash
-SCRIPT=/home/asus_gx10/biobench/skills/admet-prediction/scripts/admet.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+SCRIPT=$BB/skills/admet-prediction/scripts/admet.py
 
 python $SCRIPT --smiles "CC(=O)Oc1ccccc1C(=O)O" --smiles "Cn1cnc2c1c(=O)n(C)c(=O)n2C"
 ```

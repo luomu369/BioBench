@@ -19,7 +19,10 @@ from pathlib import Path
 
 READ_SELECTION = Path(__file__).resolve().parent.parent.parent / \
     "structure-viewer" / "scripts" / "read_selection.py"
-MPNN_RUN = "/home/asus_gx10/miniconda3/envs/proteinmpnn/bin/protein_mpnn_run"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python
+
+MPNN_RUN = str(env_python("proteinmpnn").parent / "protein_mpnn_run")
 
 ONE3TO1 = {"ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
            "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",

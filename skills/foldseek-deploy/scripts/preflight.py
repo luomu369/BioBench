@@ -13,14 +13,20 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import biobench_root, foldseek_db, tools_root
+
+FOLDSEEK = tools_root() / "foldseek" / "bin" / "foldseek"
+DB_DIR = foldseek_db()
+STRUCTURES = biobench_root() / "structures"
+
 CANDIDATES = [
-    Path("/home/asus_gx10/tools/foldseek/bin/foldseek"),
+    FOLDSEEK,
     Path.home() / "tools/foldseek/bin/foldseek",
 ]
 
 # The database is a flat set of files sharing a `pdb` prefix — `pdb` itself
 # is the main data file, not a directory. Point searches at this directory.
-DB_DIR = Path("/home/asus_gx10/foldseek-db")
 
 # `foldseek databases` has been observed to unpack incompletely, silently
 # dropping the two largest data files and the *.lookup symlinks for the
@@ -80,8 +86,7 @@ def main():
     # Smoke test: search a real structure against itself.
     # A 3-residue stub is filtered out by foldseek's minimum-length cutoff,
     # so use a cached PDB entry when one exists, else skip with a warning.
-    smoke = next(iter(sorted(
-        Path("/home/asus_gx10/biobench/structures").glob("*.cif"))), None)
+    smoke = next(iter(sorted(STRUCTURES.glob("*.cif"))), None)
     if smoke is None:
         results.append(check("trivial search runs", True,
                              "skipped — no local structure to test with"))

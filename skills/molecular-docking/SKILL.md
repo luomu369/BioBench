@@ -80,7 +80,9 @@ pocket move", "use the residues I selected"), use it and do not re-ask.
 ## Step 1 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "分子对接" --index 1 --total 2 \
   --skill molecular-docking --message "正在对接小分子"
@@ -89,8 +91,11 @@ python3 $PUB --status --state running --step "分子对接" --index 1 --total 2 
 ## Step 2 — Run
 
 ```bash
-DOCK=/home/asus_gx10/biobench/skills/molecular-docking/scripts/dock.py
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
+CONDA="${CONDA:-$HOME/miniconda3}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+DOCK=$BB/skills/molecular-docking/scripts/dock.py
+PY=$CONDA/envs/docking/bin/python
 ```
 
 ### With a known binding site
@@ -227,6 +232,37 @@ The script prints JSON and writes `summary.json`:
 | -5 to -7 | Weak |
 | > -5 | Likely no meaningful binding |
 
+### Before reporting a number, check the receptor
+
+`summary.json` carries `receptor_residues_dropped`. If it is non-empty, meeko
+could not template those residues and dropped them, and **the score was
+computed against a receptor with holes in it**. A ligand that fits a hole
+scores better than one that does not.
+
+This is not hypothetical. One run reported -10.7 kcal/mol against a receptor
+missing a pocket phenylalanine; with that residue restored the same ligand
+scored -6.0. The number was arithmetically correct and chemically meaningless.
+
+Say so when reporting:
+
+```
+Docked into 1HNN site 2:
+
+  Best pose:  -6.0 kcal/mol  (weak)
+  Note: meeko dropped 9 receptor residues it could not template
+        (all >14 A from the pocket, from disordered side chains in the
+        crystal structure). The pocket itself is intact.
+```
+
+A score from a reduced receptor is not comparable with one from a whole
+receptor, and neither is comparable across a rigid and a flexible run.
+
+Vina's scoring function also softens the van der Waals term, so a pose with
+real atomic overlap can still score well. Check the clash directly —
+same-element heavy atoms closer than ~2.2 Å — before calling a pose sound.
+
+See `_shared/silent-failures.md` for the full list of what meeko drops and why.
+
 Report in biological terms:
 
 ```
@@ -302,7 +338,8 @@ The default is a rigid receptor. When the pocket has to rearrange to take
 a new ligand, let the side chains move:
 
 ```bash
-PY=/home/asus_gx10/miniconda3/envs/docking/bin/python
+CONDA="${CONDA:-$HOME/miniconda3}"
+PY=$CONDA/envs/docking/bin/python
 
 $PY skills/molecular-docking/scripts/dock_flex.py \
   --receptor 7XWQ.cif --ligand "CCO" \

@@ -30,9 +30,14 @@ from pathlib import Path
 
 import gemmi
 
-VINA = "/home/asus_gx10/tools/vina/vina"
-DOCK_PY = "/home/asus_gx10/miniconda3/envs/docking/bin/python"
-MK_RECEPTOR = "/home/asus_gx10/miniconda3/envs/docking/bin/mk_prepare_receptor.py"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python, tool
+from pdb_format import (atom_line, check_serials_unique, next_serial,
+                        parse_atom_line)
+
+VINA = str(tool("vina"))
+DOCK_PY = str(env_python("docking"))
+MK_RECEPTOR = str(env_python("docking").parent / "mk_prepare_receptor.py")
 
 
 def sh(cmd, **kw):
@@ -115,17 +120,22 @@ def read_pdbqt_model(path: Path, model: int = 1) -> list[dict]:
         if not in_model:
             continue
         if line.startswith(("ATOM", "HETATM")):
-            raw = line[76:78].strip()
-            if raw.upper() == "A":
-                raw = "C"  # aromatic carbon — not a real element symbol
+            atom = parse_atom_line(line)
+            if atom is None:
+                continue
+            # AutoDock uses "A" for aromatic carbon, which is not a real
+            # element symbol — parsers read it as unknown and the atom loses
+            # its identity. Map it back to carbon.
+            elem = atom.elem
+            if elem.upper() == "A":
+                elem = "C"
             atoms.append({
-                "name": line[12:16].strip(),
-                "resn": line[17:20].strip(),
-                "chain": line[21],
-                "resi": line[22:27].strip(),
-                "x": float(line[30:38]), "y": float(line[38:46]),
-                "z": float(line[46:54]),
-                "elem": raw or line[12:16].strip()[0],
+                "name": atom.name,
+                "resn": atom.resn,
+                "chain": atom.chain,
+                "resi": atom.resi,
+                "x": atom.x, "y": atom.y, "z": atom.z,
+                "elem": elem or atom.name[0],
             })
     return atoms
 
@@ -157,13 +167,10 @@ def build_complex(docked: Path, receptor_pdb: Path, out: Path,
         lines = []
         for a in moved[resi]:
             serial += 1
-            lines.append(
-                f"ATOM  {serial:5d} {a['name']:<4s} {a['resn']:>3s} "
-                f"{flex_chain}{int(resi):4d}    "
-                f"{a['x']:8.3f}{a['y']:8.3f}{a['z']:8.3f}"
-                f"{'  1.00':>6s}{'  0.00':>6s}          "
-                f"{a['elem']:>2s}"
-            )
+            lines.append(atom_line(
+                serial=serial, name=a["name"], resn=a["resn"],
+                chain=flex_chain, resi=int(resi), x=a["x"], y=a["y"],
+                z=a["z"], elem=a["elem"], record="ATOM"))
         return lines, serial
 
     rec_lines: list[str] = []
@@ -196,15 +203,23 @@ def build_complex(docked: Path, receptor_pdb: Path, out: Path,
             rec_lines.extend(block)
             emitted.add(resi)
 
+    # The ligand's serials continue from the receptor's last one. Both end up
+    # in the same file, and CONECT names atoms by serial — a ligand restarting
+    # at 1 duplicates the receptor's first atoms and its bonds point at them.
+    lig_start = next_serial("\n".join(rec_lines))
     lig_lines = [
-        f"HETATM{i:5d} {a['name']:<4s} {'UNL':>3s} {ligand_chain}{1:4d}    "
-        f"{a['x']:8.3f}{a['y']:8.3f}{a['z']:8.3f}"
-        f"{'  1.00':>6s}{'  0.00':>6s}          "
-        f"{a['elem']:>2s}"
-        for i, a in enumerate(ligand, 1)
+        atom_line(serial=lig_start + i, name=a["name"], resn="UNL",
+                  chain=ligand_chain, resi=1, x=a["x"], y=a["y"], z=a["z"],
+                  elem=a["elem"])
+        for i, a in enumerate(ligand)
     ]
 
-    out.write_text("\n".join(rec_lines + lig_lines) + "\nTER\nEND\n")
+    text = "\n".join(rec_lines + lig_lines) + "\nTER\nEND\n"
+    # Two parts joined into one file: the join is where a numbering collision
+    # would show up, and it is invisible until a viewer resolves a bond to the
+    # wrong atom.
+    check_serials_unique(text)
+    out.write_text(text)
     print(f"== complex: {len(moved)} moved residues + "
           f"{len(ligand)} ligand atoms -> {out}", file=sys.stderr)
 

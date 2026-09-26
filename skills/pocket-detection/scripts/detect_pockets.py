@@ -22,8 +22,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# The shared PDB column layout, so a pocket's atoms are read with the same
+# field boundaries every other skill writes with. The binary's location comes
+# from the shared path module rather than a literal.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import tool
+from pdb_format import iter_atoms
+
 FPOCKET = Path(
-    __import__("os").environ.get("FPOCKET_BIN", "/home/asus_gx10/tools/fpocket/bin/fpocket")
+    __import__("os").environ.get("FPOCKET_BIN",
+                                 str(tool("fpocket") / "bin" / "fpocket"))
 )
 
 # fpocket's descriptor table, in column order. Only the columns a user
@@ -97,15 +105,10 @@ def pocket_centroid(atm_pdb: Path):
     if not atm_pdb.is_file():
         return None
     xs, ys, zs = [], [], []
-    for line in atm_pdb.read_text(errors="replace").splitlines():
-        if not line.startswith(("ATOM", "HETATM")):
-            continue
-        try:
-            xs.append(float(line[30:38]))
-            ys.append(float(line[38:46]))
-            zs.append(float(line[46:54]))
-        except ValueError:
-            continue
+    for atom in iter_atoms(atm_pdb.read_text(errors="replace")):
+        xs.append(atom.x)
+        ys.append(atom.y)
+        zs.append(atom.z)
     if not xs:
         return None
     n = len(xs)
@@ -122,15 +125,11 @@ def pocket_lining(env_pdb: Path) -> list[dict]:
     if not env_pdb.is_file():
         return []
     seen = {}
-    for line in env_pdb.read_text(errors="replace").splitlines():
-        if not line.startswith(("ATOM", "HETATM")):
-            continue
-        chain = line[21]
-        resi = line[22:27].strip()
-        resn = line[17:20].strip()
-        key = (chain, resi)
+    for atom in iter_atoms(env_pdb.read_text(errors="replace")):
+        key = (atom.chain, atom.resi)
         if key not in seen:
-            seen[key] = {"chain": chain, "resi": resi, "resn": resn}
+            seen[key] = {"chain": atom.chain, "resi": atom.resi,
+                         "resn": atom.resn}
     return [seen[k] for k in sorted(seen, key=lambda k: (k[0], k[1]))]
 
 

@@ -156,7 +156,8 @@ alongside the coordinates, in `pdb_seq`, and MMseqs2 reads that format
 directly:
 
 ```bash
-MM=/home/asus_gx10/tools/mmseqs/bin/mmseqs
+TOOLS="${TOOLS:-$HOME/tools}"
+MM=$TOOLS/mmseqs/bin/mmseqs
 
 # 1.5 M sequences out of the structure database, ~6 s
 $MM convert2fasta ~/foldseek-db/pdb_seq pdb_seqs.fasta

@@ -62,7 +62,9 @@ backbone": the positions are given, and the question is what to put there.
 converts the numbering, runs the scan, writes the mutant:
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/sequence-design/scripts/mutate_selection.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/sequence-design/scripts/mutate_selection.py \
   --pdb backbone.pdb --out mutant_dir --chain A
 ```
 
@@ -246,7 +248,9 @@ If the user selected residues and asked to design around / keep them, read
 `webapp/static/selection.json` and turn it into a fixed-positions JSONL:
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/read_selection.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/structure-viewer/scripts/read_selection.py \
   --chain A --format mpnn --pdb-name backbone.pdb
 ```
 
@@ -280,7 +284,9 @@ positions matter.
 ## Step 3 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "设计氨基酸序列" --index 1 --total 2 \
   --skill sequence-design --message "正在为骨架设计氨基酸序列"

@@ -27,7 +27,10 @@ from pathlib import Path
 
 import gemmi
 
-FOLDSEEK = Path("/home/asus_gx10/tools/foldseek/bin/foldseek")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import tool
+
+FOLDSEEK = tool("foldseek")
 
 
 def read_structure(path: Path) -> gemmi.Structure:

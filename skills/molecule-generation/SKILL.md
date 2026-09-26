@@ -50,7 +50,9 @@ If the user gave a count, use it. Otherwise ask.
 ## Step 1 — Report progress
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state running --step "分子生成" --index 1 --total 2 \
   --skill molecule-generation --message "正在生成小分子"
@@ -59,8 +61,11 @@ python3 $PUB --status --state running --step "分子生成" --index 1 --total 2 
 ## Step 2 — Run
 
 ```bash
-GEN=/home/asus_gx10/biobench/skills/molecule-generation/scripts/generate.py
-PY=/home/asus_gx10/miniconda3/envs/genmol/bin/python
+CONDA="${CONDA:-$HOME/miniconda3}"
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+GEN=$BB/skills/molecule-generation/scripts/generate.py
+PY=$CONDA/envs/genmol/bin/python
 ```
 
 ### De novo generation

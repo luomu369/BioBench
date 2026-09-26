@@ -13,12 +13,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-CONDA = Path("/home/asus_gx10/miniconda3")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import conda_root, env_python, tool
+
+CONDA = conda_root()
 ENV = CONDA / "envs" / "docking"
-PY = ENV / "bin" / "python"
+PY = env_python("docking")
 
 CANDIDATES = [
-    Path("/home/asus_gx10/tools/vina/vina"),
+    tool("vina"),
     Path.home() / "tools/vina/vina",
 ]
 

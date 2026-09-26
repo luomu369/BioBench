@@ -19,9 +19,12 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python
+
 # OpenMM lives in its own env; the path is resolved so this script runs from
 # any shell without the env activated.
-OPENMM_PY = "/home/asus_gx10/miniconda3/envs/openmm/bin/python"
+OPENMM_PY = str(env_python("openmm"))
 
 
 def build_parser():

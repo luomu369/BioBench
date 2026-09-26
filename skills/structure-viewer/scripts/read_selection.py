@@ -25,15 +25,17 @@ Exit codes: 0 ok, 1 nothing selected, 2 no residues on the requested chain.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import viewer_static
 
 SELECTION = Path(
     os.environ.get(
         "BIOBENCH_SELECTION",
-        "/home/asus_gx10/biobench/webapp/static/selection.json",
-    )
-) if (os := __import__("os")) else None
+        str(viewer_static() / "selection.json")))
 
 
 def load():

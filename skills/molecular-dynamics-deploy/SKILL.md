@@ -28,7 +28,9 @@ download is the wheel itself.
 ## Installation
 
 ```bash
-bash /home/asus_gx10/biobench/skills/molecular-dynamics-deploy/scripts/install.sh
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+bash $BB/skills/molecular-dynamics-deploy/scripts/install.sh
 ```
 
 Idempotent — safe to re-run. It installs the conda env, the PyPI packages,
@@ -70,7 +72,9 @@ from anywhere.
 ## Verifying an existing installation
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/molecular-dynamics-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/molecular-dynamics-deploy/scripts/preflight.py
 ```
 
 It checks the env, the OpenMM import, the available platforms, mdtraj,

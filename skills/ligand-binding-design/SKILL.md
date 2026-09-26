@@ -110,7 +110,8 @@ anything — ask them to click residues in the viewer rather than guessing.
 ## Step 2 — Validate
 
 ```bash
-HF_HOME=/home/asus_gx10/models/boltzgen-1 HF_HUB_OFFLINE=1 \
+MODELS="${MODELS:-$HOME/models}"
+HF_HOME=$MODELS/boltzgen-1 HF_HUB_OFFLINE=1 \
   boltzgen check design.yaml
 ```
 
@@ -122,10 +123,11 @@ visualization `.cif`.
 > dataset, download it:
 >
 > ```bash
+> MODELS="${MODELS:-$HOME/models}"
 > HF_ENDPOINT=https://hf-mirror.com python -c "
 > from huggingface_hub import hf_hub_download
 > hf_hub_download('boltzgen/inference-data', 'mols.zip',
->                 local_dir='/home/asus_gx10/models/boltzgen-1',
+>                 local_dir='$MODELS/boltzgen-1',
 >                 repo_type='dataset')
 > "
 > ```
@@ -140,7 +142,9 @@ Name the steps for the user, not after BoltzGen's stages. For a standard
 six-stage run:
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --status --state queued --skill ligand-binding-design --job lbd1 \
   --plan "生成主链,折叠验证,结构预测,亲和力评估,汇总指标,筛选排序" \
@@ -162,7 +166,8 @@ six stages, but the wording is yours: "折叠验证" says what is happening,
 `--num_designs` must match what the user confirmed in Step 0.
 
 ```bash
-HF_HOME=/home/asus_gx10/models/boltzgen-1 \
+MODELS="${MODELS:-$HOME/models}"
+HF_HOME=$MODELS/boltzgen-1 \
 boltzgen run design.yaml \
   --output results/ \
   --protocol protein-small_molecule \

@@ -28,6 +28,14 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import skill_dir
+
+# The publisher, resolved from the repository's own layout rather than a
+# literal path, so a clone anywhere finds it.
+PUB = str(skill_dir("structure-viewer") / "scripts" / "publish.py")
 
 # Lipinski's rule of five. The cutoffs are multiples of five because that
 # is how they were published, not because the chemistry cares.
@@ -256,9 +264,7 @@ def publish_summary(results, name):
                      f"MW {a['properties']['mw']}  {a['smiles']}{tail}")
     notes = "\n".join(lines)
 
-    pub = os.environ.get(
-        "BIOBENCH_PUBLISH",
-        "/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py")
+    pub = os.environ.get("BIOBENCH_PUBLISH") or PUB
     if not os.path.exists(pub):
         print(f"warning: publisher not found at {pub}; "
               "metrics not written", file=sys.stderr)

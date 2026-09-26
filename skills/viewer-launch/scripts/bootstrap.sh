@@ -15,9 +15,13 @@
 
 set -uo pipefail
 
-BIOBENCH="${BIOBENCH:-/home/asus_gx10/biobench}"
-CONDA="${CONDA:-/home/asus_gx10/miniconda3}"
-MODELS="${MODELS:-/home/asus_gx10/models}"
+# Every location is derived from this script's own position, so a clone
+# anywhere works. The environment variables still override, for a machine
+# that keeps its conda or models somewhere unusual.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIOBENCH="${BIOBENCH:-$(cd "$HERE/../../.." && pwd)}"
+CONDA="${CONDA:-$(dirname "$(dirname "$(command -v conda)")")}"
+MODELS="${MODELS:-$HOME/models}"
 STATIC="$BIOBENCH/webapp/static"
 
 FIX=0
@@ -99,7 +103,7 @@ from huggingface_hub import hf_hub_download
 for name in sys.argv[1:]:
     print(f"         downloading {name}.ckpt ...")
     hf_hub_download("boltzgen/boltzgen-1", f"{name}.ckpt",
-                    local_dir="/home/asus_gx10/models/boltzgen-1")
+                    local_dir="$MODELS/boltzgen-1")
 PYEOF
     fi
 else
@@ -110,7 +114,7 @@ else
         HF_ENDPOINT=https://hf-mirror.com "$CONDA/envs/boltzgen/bin/python" - <<'PYEOF'
 from huggingface_hub import snapshot_download
 snapshot_download("boltzgen/boltzgen-1",
-                  local_dir="/home/asus_gx10/models/boltzgen-1",
+                  local_dir="$MODELS/boltzgen-1",
                   max_workers=8)
 PYEOF
     }

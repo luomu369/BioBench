@@ -12,7 +12,10 @@
 # Idempotent — safe to re-run.
 set -e
 
-ENV=/home/asus_gx10/miniconda3/envs/openmm
+# Derived from this script's own position, so a clone anywhere works.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONDA_ROOT="${CONDA_ROOT:-$(dirname "$(dirname "$(command -v conda)")")}"
+ENV="${ENV:-$CONDA_ROOT/envs/openmm}"
 PY=$ENV/bin/python
 SITE=$ENV/lib/python3.12/site-packages
 
@@ -22,7 +25,7 @@ if [ ! -d "$ENV" ]; then
 fi
 
 echo "==> activating"
-source /home/asus_gx10/miniconda3/etc/profile.d/conda.sh
+source "$CONDA_ROOT/etc/profile.d/conda.sh"
 conda activate openmm
 
 echo "==> openmm, mdtraj, pdbfixer (PyPI mirror, no proxy needed)"
@@ -103,4 +106,4 @@ fi
 
 echo
 echo "All set. Run the preflight for a fuller check:"
-echo "  python3 /home/asus_gx10/biobench/skills/molecular-dynamics-deploy/scripts/preflight.py"
+echo "  python3 $HERE/preflight.py"

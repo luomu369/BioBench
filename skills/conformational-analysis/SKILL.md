@@ -8,16 +8,9 @@ description: '**WORKFLOW SKILL** — Analyse the conformational energy of a prot
 Scan the torsional energy profile around a bond with an MMFF94 force field
 and report the lowest-energy state.
 
-**Prerequisite:** RDKit. If it is not importable, install it:
-
-```bash
-conda create -n admet python=3.12 -y
-conda activate admet
-conda install -c conda-forge rdkit -y
-```
-
-Any Python with RDKit works — there is no GPU requirement and no model
-weights to download.
+**Prerequisite:** RDKit. Any Python with it works — no GPU, no model
+weights. If it is not importable, the `admet-prediction` skill documents the
+one-command environment setup.
 
 ## When to Use
 
@@ -65,9 +58,11 @@ carries it as two atom indices plus a label:
 ```
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 python3 -c "
 import json
-d = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+d = json.load(open('$BB/webapp/static/selection.json'))
 b = d.get('bonds', [])
 if not b:
     raise SystemExit('no bond selected — switch the panel to Bond mode')
@@ -163,7 +158,9 @@ Publish the written minimum as a second tab so it can be compared against
 the original:
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 python3 $PUB --structure runs/torsion_464/minimum.pdb \
   --name "torsion_B464_min" --source rdkit-mmff \

@@ -145,9 +145,11 @@ When the user says something like "design around my selected residues" or
 "use the residues I picked", read this file:
 
 ```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 python3 -c "
 import json
-d = json.load(open('/home/asus_gx10/biobench/webapp/static/selection.json'))
+d = json.load(open('$BB/webapp/static/selection.json'))
 v = d.get('view', {})
 print('on screen:', v.get('tab_name'), f\"(tab {v.get('tab')} of {len(v.get('tabs', []))})\")
 print('structure:', d['structure'], '| count:', d['count'])
@@ -238,7 +240,9 @@ directly rather than making a script guess from log output.**
 Use the bundled publisher:
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/structure-viewer/scripts/publish.py \
   --status --state running --step "生成 binder 主链骨架" --index 1 --total 6 \
   --skill boltzgen-deploy --message "Diffusion sampling, batch 1/4"
 ```
@@ -262,7 +266,9 @@ a design, a docking sweep, a pocket search — the sequence is the same:
 4. **Mark it done** with the result in `--message`.
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 
 # 1. the input, before anything runs — the user watches THIS while waiting
 python3 $PUB --structure receptor.pdb --name nk2r_input \
@@ -387,14 +393,14 @@ published any structure at all.
 
 ### Keep `--message` short
 
-The pill at the bottom of the screen is one line tall. A long message does
-not get truncated — it wraps, and the pill grows from a slim bar into a
-block six lines tall that covers the middle of the viewer. The task menu
-rows have the same problem, and there the long text pushes the other steps
-out of view.
+The pill at the bottom of the screen shows **one line, always**. It never
+wraps — a message that does not fit is ellipsized, with the full text in the
+tooltip and in the history menu. So a long message is not lost, but it is not
+readable either, and the status bar is the one thing that must stay
+glanceable while a run is going.
 
 **Aim for under 30 characters. Hard ceiling 60.** Count Chinese characters
-and digits as one each.
+and digits as one each. `publish.py` warns above 60.
 
 | | |
 |---|---|
@@ -508,7 +514,9 @@ nothing to act on.
 The atoms are not missing — only the metadata. Split them out first:
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/structure-viewer/scripts/split_ligands.py \
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/structure-viewer/scripts/split_ligands.py \
   --structure 1HNN.cif --out 1HNN_split.pdb
 ```
 
@@ -723,6 +731,10 @@ def publish(cif_text: str, meta: dict, viewer: Path):
     viewer — as its own chain, with its own style. See "Ligands sharing a
     chain with the protein" above; the check is whether it appears in the
     chain panel, not whether the 3D view looks full.
+11. **Write PDB through `_shared/pdb_format.py`, not with an f-string.** The
+    fixed-column layout has no error checking, and every skill that hand-rolls
+    it gets a different one wrong. See `_shared/silent-failures.md` for the
+    four ways it has already gone wrong here.
 
 ## When the user says the structure looks wrong
 
@@ -756,7 +768,9 @@ The whole flow, end to end. Everything goes through the publisher — writing
 task list out of step.
 
 ```bash
-PUB=/home/asus_gx10/biobench/skills/structure-viewer/scripts/publish.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+PUB=$BB/skills/structure-viewer/scripts/publish.py
 RUN=runs/my-design
 
 # 1. Declare the route before the run starts

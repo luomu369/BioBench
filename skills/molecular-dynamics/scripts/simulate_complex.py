@@ -18,7 +18,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-OPENMM_PY = "/home/asus_gx10/miniconda3/envs/openmm/bin/python"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python
+
+OPENMM_PY = str(env_python("openmm"))
 
 
 def main():

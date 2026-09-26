@@ -14,6 +14,7 @@
     --muted: #7d8fa3;
     --accent: #4da3ff;
     --ok: #4ade80;
+    --warn: #fbbf24;
     --err: #f87171;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -139,14 +140,23 @@
        source tag. Without a cap the box grows until it runs under the
        control bar at the top centre, and the name breaks mid-word where the
        two overlap. Cap it, ellipsize, and let the title attribute carry the
-       full text. */
+       full text.
+
+       Flex, with the switcher pinned and only the text allowed to shrink.
+       The switcher is a child of this box, and with plain inline layout a
+       long name pushes it out past max-width where overflow:hidden clips it
+       — the button keeps its tooltip, so it still looks clickable, but the
+       click lands on nothing. flex-shrink:0 on the switcher and the
+       ellipsis on the text keep the button on screen at any name length. */
     max-width: min(46vw, 420px);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: none;
+    align-items: center;
+    gap: 6px;
   }
-  #structure-label.show { display: block; }
-  #structure-label .src { color: var(--accent); }
+  #structure-label.show { display: flex; }
+  /* The text and the source tag share one shrinking box, so the ellipsis
+     falls on whichever of them is longest. */
+  #structure-label .src { color: var(--accent); flex-shrink: 0; }
 
   /* ---------- metrics panel ---------- */
   /* ---------- left column: metrics + sequence ---------- */
@@ -424,12 +434,22 @@
   #selection .s-del:hover { color: var(--err); }
 
   /* ---------- status bar ---------- */
-  #status {
+  /* The status bar and the publish notice share one centred anchor. The
+     wrapper is what is positioned and centred; the two pills inside it are
+     laid out in a row, so the notice sits flush against the bar's left edge
+     at any bar width. */
+  #status-wrap {
     position: absolute;
     bottom: 22px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
+    display: flex;
+    align-items: center;
+    max-width: calc(100% - 32px);
+  }
+  #status {
+    position: static;
     display: none;
     align-items: center;
     gap: 12px;
@@ -484,7 +504,23 @@
       100% 20%, 80% 0%, 50% 30%);
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #status .msg { color: var(--text); }
+  /* The message is one line, always. A long one used to wrap and grow the
+     pill from a slim bar into a block covering the viewer — the status bar is
+     the one thing that must stay out of the way while a run is going. It is
+     capped and ellipsized instead, with the full text in the title attribute
+     and in the history menu, where there is room to read it.
+
+     `min-width: 0` is what lets the cap take effect: a flex item defaults to
+     its content's width and will not shrink below it without it. */
+  #status .msg {
+    color: var(--text);
+    min-width: 0;
+    max-width: 46vw;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+  }
   #status[data-state="error"] .msg { color: var(--err); }
   #status .bar {
     width: 120px; height: 6px;
@@ -573,7 +609,63 @@
     border-color: rgba(77,163,255,.35);
     color: var(--accent);
   }
-  #status .st-hist svg { width: 13px; height: 13px; fill: currentColor; }
+  #status .st-hist svg { width: 15px; height: 15px; fill: currentColor; }
+  /* A structure was published while the user was elsewhere. It carries the
+     accent colour and the structure's name, because unlike the history
+     button it is not a control the user goes looking for — it is something
+     that happened and is waiting.
+
+     A sibling of #status, positioned against the same centre point and
+     pulled left by its own width plus the gap, so it sits flush against the
+     status bar's left edge. The negative right margin closes the seam: the
+     notice's right border-radius is squared off and the status pill's left
+     one is too, so the two read as one control rather than two pills that
+     happen to touch.
+
+     `[hidden]` is restated because the display rule below would otherwise
+     win on specificity and the button would never disappear. */
+  /* A structure was published while the user was elsewhere. A small circle
+     with a bell, matching the status bar's own dot in size and weight — it
+     says "something is waiting" without claiming any of the bar's width, and
+     the structure's name is in the tooltip.
+
+     A sibling of #status inside #status-wrap, so it sits beside the bar
+     rather than stretching it.
+
+     `[hidden]` is restated because the display rule below would otherwise
+     win on specificity and the button would never disappear. */
+  .st-notice[hidden] { display: none; }
+  .st-notice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* The status pill is 9px of padding either side of a 13px line, so it
+       stands about 39px tall. Matching that here keeps the circle on the
+       same optical line as the bar instead of sitting small beside it. */
+    width: 39px; height: 39px;
+    margin-right: 8px;
+    padding: 0;
+    /* Amber, not the accent blue. The status bar already uses blue for a run
+       in progress, so a blue notice reads as more of the same and gets skimmed
+       past; red is taken for errors, and a new structure is not an error. It
+       is something waiting, which is what amber means everywhere else. */
+    background: rgba(251,191,36,.14);
+    border: 1px solid rgba(251,191,36,.55);
+    border-radius: 50%;
+    color: var(--warn);
+    cursor: pointer;
+    flex-shrink: 0;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .st-notice:hover {
+    background: rgba(251,191,36,.26);
+    border-color: rgba(251,191,36,.95);
+  }
+  .st-notice svg { width: 17px; height: 17px; fill: currentColor; }
+  /* The name is kept in the DOM for the tooltip and for tests, but it is not
+     drawn — the circle carries the bell and nothing else. */
+  .st-notice-name { display: none; }
   #status .st-menu {
     position: absolute;
     /* Absolute, so it does not take a slot in the pill's flex row and
@@ -673,9 +765,15 @@
   #status .st-row[data-state="done"] .st-dot { background: var(--ok); }
   #status .st-row[data-state="error"] .st-dot { background: var(--err); }
   #status .st-row .st-body { flex: 1; min-width: 0; }
+  /* One line here too, for the same reason as the pill: a row that wraps to
+     four lines pushes the other steps of the task out of view, and the menu
+     is a list to scan rather than a place to read. The full text is in the
+     row's title. */
   #status .st-row .st-msg {
     color: var(--text);
-    word-break: break-word;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   #status .st-row[data-state="error"] .st-msg { color: var(--err); }
   #status .st-row .st-meta {
@@ -768,6 +866,10 @@
      the button, which sits to the right of the structure name. */
   #struct-switcher {
     display: none;
+    /* Never shrink. The label is a flex row capped at max-width, and this is
+       the one child that must stay its full size — a clipped button still
+       shows its tooltip and still looks clickable. */
+    flex-shrink: 0;
     /* The label is 13px text with 6px of vertical padding; the icon button
        is 32px tall, so it needs a small negative margin to sit on the same
        optical line as the name instead of stretching the label. */
@@ -775,6 +877,15 @@
     vertical-align: middle;
   }
   #struct-switcher.show { display: inline-block; }
+  /* The structure name, in its own box so the ellipsis has something to
+     apply to. A bare text node in a flex container cannot be ellipsized —
+     it just overflows and takes the switcher with it. */
+  #structure-label .st-name {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   #struct-switcher > button {
     flex-shrink: 0;
     /* .ctl.icon is sized for the top control bar; scale it down to sit
@@ -917,13 +1028,34 @@
   </div>
 </div>
 
+<!-- A structure was published while the user was looking at something else.
+     The tab is already open; this says so, and clicking it goes there.
+
+     A sibling of #status rather than a child, so it keeps its own pill shape
+     and sits beside the status bar instead of stretching it. The two are
+     positioned against the same point and the notice carries a negative
+     right margin, so they read as one control with the notice as its left
+     end — which is where the one thing waiting for the user belongs. -->
+<!-- The status bar and the publish notice share one centred anchor, so they
+     are wrapped: the wrapper is what gets centred and the two pills sit in it
+     side by side. Centred separately, each would land wherever its own width
+     put it and the notice would not line up with the bar. -->
+<div id="status-wrap">
+<button class="st-notice" id="st-notice" type="button" hidden
+        title="有新结构发布，点击查看">
+  <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5.25-2 6.5-2 6.5h18S19 14.25 19 9a7 7 0 0 0-7-7zM9.5 19a2.5 2.5 0 0 0 5 0z"/></svg>
+  <span class="st-notice-name"></span>
+</button>
+
 <div id="status">
   <!-- Past runs. The pill shows only the newest status, so without this a
        finished run leaves no trace of what it did. The chevron points up
-       because the menu opens upward from the pill. It sits at the left end
-       so the progress text and machine load stay together on the right. -->
+       because the menu opens upward from the pill — the same triangle the
+       structure switcher uses at the top left, turned over, so the two read
+       as the same kind of control. It sits at the left end so the progress
+       text and machine load stay together on the right. -->
   <button class="st-hist" id="st-hist" type="button" title="历史任务">
-    <svg viewBox="0 0 24 24"><path d="M12 8l8 8h-5v4H9v-4H4z"/></svg>
+    <svg viewBox="0 0 24 24"><path d="M7 14l5-5 5 5z"/></svg>
   </button>
   <span class="dot"></span>
   <span class="msg"></span>
@@ -936,6 +1068,7 @@
     <span class="sys-item" id="sys-mem" title="内存占用"></span>
   </span>
   <div class="st-menu" id="st-menu" hidden></div>
+</div>
 </div>
 
 <script>
@@ -976,6 +1109,8 @@ const state = {
   lastUpdated: null,
   /** Timestamp last seen in current.json, independent of which tab is shown */
   contractUpdated: null,
+  /** Name of the structure the publish notice is offering, or null if none */
+  noticeName: null,
   /** Name of the active structure, for selection.json */
   structureName: null,
   /** key → {sel, label, color, chain?, atom?, bond?, pocket?} */
@@ -1488,12 +1623,23 @@ function renderStructure(data, meta, snap) {
   // render.
   [...label.childNodes].forEach(n => {
     if (n.nodeType === Node.TEXT_NODE) n.remove();
-    if (n.nodeType === Node.ELEMENT_NODE && n.classList.contains("src")) n.remove();
+    if (n.nodeType === Node.ELEMENT_NODE
+        && (n.classList.contains("src") || n.classList.contains("st-name"))) {
+      n.remove();
+    }
   });
   // The switcher goes first so the button sits at the label's left edge,
   // with the structure name and source following it.
-  label.insertBefore(document.createTextNode(meta.name || "structure"),
-                     switcher.nextSibling);
+  //
+  // The name goes in a span of its own. The label is a flex row capped at
+  // max-width, and a bare text node cannot be ellipsized in one — it
+  // overflows instead, and the overflow pushes the switcher out of the box
+  // where overflow:hidden clips it. The button keeps its tooltip and still
+  // looks clickable, but the click lands on nothing.
+  const name = document.createElement("span");
+  name.className = "st-name";
+  name.textContent = meta.name || "structure";
+  label.insertBefore(name, switcher.nextSibling);
   if (meta.source) {
     const src = document.createElement("span");
     src.className = "src";
@@ -2273,6 +2419,15 @@ function serializeSelection(sel) {
     if (item.atom) {
       atoms.push({
         index: item.sel.index,
+        // The PDB atom number alongside 3Dmol's index. The two differ: 3Dmol
+        // reorders atoms when it builds a model, so its index is not a
+        // position in the file and cannot be walked back to a serial. A skill
+        // that needs to edit the structure has to know which atom was meant,
+        // and only the serial says that.
+        serial: item.serial,
+        resn: item.sel.resn,
+        resi: item.sel.resi,
+        chain: item.sel.chain,
         label: item.label,
         color: item.color,
       });
@@ -2686,14 +2841,41 @@ function addChainSelection(chainId) {
 
 // A single atom. The style spec matches on 3Dmol's index, which is the
 // only per-atom selector setStyle accepts.
+//
+// The PDB serial comes from the atom's own `pdbline`, not from 3Dmol's
+// `serial` field. That field is 3Dmol's own per-model counter, starting at 1
+// for every model it builds — so on a structure whose ligand is numbered
+// 4075-4103 it reports 8, and a skill told "serial 8" edits the receptor's
+// eighth atom instead of the oxygen that was clicked. It happens to agree
+// with the PDB serial whenever a structure's atoms are numbered from 1,
+// which is why the mistake survived as long as it did.
+function pdbSerial(atom) {
+  if (atom.pdbline && atom.pdbline.length >= 11) {
+    const s = parseInt(atom.pdbline.slice(6, 11), 10);
+    if (Number.isFinite(s)) return s;
+  }
+  return atom.serial;
+}
+
 function addAtomSelection(atom) {
   const key = atomKey(atom);
   if (state.selection[key]) return;
   state.selection[key] = {
-    sel: { index: atom.index },
+    sel: {
+      index: atom.index,
+      // The PDB atom number, kept beside 3Dmol's index. 3Dmol reorders atoms
+      // when it builds a model, so its index is not a position in the file
+      // and cannot be walked back to a serial — a skill that needs to edit
+      // the structure has to be told which atom was meant.
+      serial: pdbSerial(atom),
+      resn: atom.resn,
+      resi: atom.resi,
+      chain: atom.chain,
+    },
     label: atomLabel(atom),
     color: nextColor(atom.chain),
     atom: true,
+    serial: pdbSerial(atom),
   };
 }
 
@@ -2891,7 +3073,12 @@ function renderStatus(s, jobId) {
     return;
   }
   statusBar.dataset.state = active.state;
-  statusBar.querySelector(".msg").textContent = active.message || active.state;
+  const msgEl = statusBar.querySelector(".msg");
+  msgEl.textContent = active.message || active.state;
+  // The pill shows one line and ellipsizes the rest, so the full text goes in
+  // the tooltip — otherwise a long message is unreadable rather than merely
+  // abbreviated.
+  msgEl.title = active.message || active.state || "";
 
   // A step of a larger task reports its position within it, so the pill
   // reads "3/6 环肽设计" rather than a bare step name.
@@ -2962,6 +3149,8 @@ function stJobRow(j, isActive) {
   // "queued" on screen four times, which says nothing the dot and the
   // group heading do not already say.
   msg.textContent = j.message || j.step || j.state || "";
+  // The row is one line and ellipsizes, so the full text goes in the tooltip.
+  msg.title = msg.textContent;
   body.appendChild(msg);
 
   // A running step gets its own progress bar, so the menu answers "how far
@@ -3036,11 +3225,17 @@ function stJobRow(j, isActive) {
   // are all part of producing it, and clicking any of them shows what the
   // task made. The publisher does the assigning, so a row without a
   // structure means the task never published one at all.
+  //
+  // A structure that is not among the open tabs is not a dead row. The tabs
+  // are capped at MAX_TABS and the status history is not, so a session that
+  // has run several pipelines has finished steps whose structures were
+  // pushed out — and those rows used to render without a click handler at
+  // all, which is the one thing the status menu must not do. The structure
+  // is reopened from the archive instead, which is a fetch of one file
+  // rather than a resident tab.
   if (j.state === "done" || j.state === "error") {
-    const idx = j.structure
-      ? state.tabs.findIndex(t => t.meta.name === j.structure)
-      : -1;
-    if (idx >= 0) {
+    const target = j.structure || null;
+    if (target) {
       row.classList.add("st-clickable");
       row.title = "Show this task's result";
       row.addEventListener("click", () => {
@@ -3048,18 +3243,18 @@ function stJobRow(j, isActive) {
         // already on screen, and putting the close after it left the menu
         // hanging open over the very structure the user just asked for.
         stMenu.hidden = true;
+        openStructureByName(target);
         // Pin this step, so the pill and the menu highlight keep describing
         // it. The structure it opens may belong to another task — the input
         // this run prepared — and without the pin the pill would follow the
         // tab to that task and drop the row the user clicked. switchTab
         // clears the pin, so this goes after it.
-        switchTab(idx);
         state.pinnedJob = j.id;
         syncPillToTab();
       });
     }
   }
-  return row;
+  return row
 }
 
 // The task a step belongs to, as the user should read it. The id is what a
@@ -3121,7 +3316,7 @@ async function stDeleteTask(group, btn) {
   const gone = new Set(result.removed_structures || []);
   if (gone.size) {
     for (let i = state.tabs.length - 1; i >= 0; i--) {
-      if (gone.has(state.tabs[i].meta.name)) closeTab(i);
+      if (gone.has(state.tabs[i].meta.name)) closeTab(i, true);
     }
   }
 
@@ -3135,6 +3330,42 @@ async function stDeleteTask(group, btn) {
   // should see the task leave now, not up to two seconds later.
   stMenuSig = null;
   if (lastStatus) renderStatus(lastStatus, pillJob());
+  // The notice may have been offering one of the structures that just went.
+  // Left up it points at something that cannot be opened, and clicking it
+  // does nothing at all.
+  dropStaleNotice();
+}
+
+// Drop the notice if the structure it offers is no longer among the tabs.
+//
+// The notice is cleared on click, and on nothing else — so a task deleted or a
+// tab closed underneath it leaves a button that names a structure the viewer
+// can no longer show. Clicking it then calls openStructureByName for a name
+// that is in neither the tabs nor the archive, and nothing happens.
+function dropStaleNotice() {
+  if (!state.noticeName) return;
+  if (state.tabs.some(t => t.meta.name === state.noticeName)) return;
+  clearPublishNotice();
+}
+
+// Put the viewer back to the state it opens in: no model, no label, the hint
+// back on screen. Called when the last tab is closed — the viewer has to be
+// emptiable, and the empty state is the one the page already knows how to
+// show.
+function showEmptyState() {
+  viewer.removeAllModels();
+  state.chains = [];
+  state.meta = {};
+  state.selection = {};
+  state.hiddenChains = new Set();
+  label.classList.remove("show");
+  hint.classList.remove("hidden");
+  // The panels describe a structure that is no longer there.
+  document.getElementById("metrics-rows").replaceChildren();
+  document.getElementById("metrics-notes").textContent = "";
+  const seqBody = document.getElementById("seq-body");
+  if (seqBody) seqBody.replaceChildren();
+  persistSelection(Object.keys(state.selection));
 }
 
 // A fingerprint of everything the menu renders. The poll runs every 2s and
@@ -3294,6 +3525,41 @@ stHistBtn.addEventListener("click", ev => {
   stMenu.hidden = !stMenu.hidden;
 });
 
+/* ---------------- publish notice ---------------- */
+
+const stNotice = document.getElementById("st-notice");
+const stNoticeName = stNotice.querySelector(".st-notice-name");
+
+// A structure was published while the user was looking at something else.
+//
+// The tab is already open — the poll adds it — so this is not the only way
+// to reach the structure, it is the way that does not require the user to
+// notice a new entry in the switcher. Clicking it goes there and clears it.
+//
+// One notice at a time, and it always names the newest publish. A run that
+// publishes several structures in a row would otherwise stack up a queue of
+// bells, each one a thing to dismiss; the newest subsumes the rest, because
+// the switcher lists every tab and the older ones are still one click away
+// from there.
+function raisePublishNotice(meta) {
+  state.noticeName = meta.name || "structure";
+  stNoticeName.textContent = state.noticeName;
+  stNotice.title = `新结构已发布：${state.noticeName}，点击查看`;
+  stNotice.hidden = false;
+}
+
+function clearPublishNotice() {
+  state.noticeName = null;
+  stNotice.hidden = true;
+}
+
+stNotice.addEventListener("click", ev => {
+  ev.stopPropagation();
+  const name = state.noticeName;
+  clearPublishNotice();
+  if (name) openStructureByName(name);
+});
+
 // A click anywhere else closes it, the way any dropdown behaves.
 //
 // Two details matter here. The check covers the button's subtree, not just
@@ -3319,6 +3585,14 @@ const MAX_TABS = 12;
 // `activate` decides whether the new tab also takes over the screen. A
 // publish while the user is on an older tab records the structure but
 // leaves the view where it is; the caller then keeps activeTab as it was.
+// A tab holds where its structure lives, not the structure itself.
+//
+// Keeping the text for every open tab meant a dozen archived structures sat in
+// memory at once — eight megabytes of PDB strings for a session that had run
+// several pipelines — and the browser eventually refused every request with
+// ERR_INSUFFICIENT_RESOURCES, which silently broke the selection write. The
+// text is now fetched when a tab is opened and dropped when it is left, so at
+// most one structure is resident.
 function addTab(text, meta, activate = true) {
   const name = meta.name || "structure";
   const existing = state.tabs.findIndex(t => t.meta.name === name);
@@ -3326,10 +3600,10 @@ function addTab(text, meta, activate = true) {
     // Keep whatever the user had selected on this tab; only the
     // structure and its metadata are new.
     const kept = state.tabs[existing].state;
-    state.tabs[existing] = { text, meta, state: kept };
+    state.tabs[existing] = { file: meta.file || null, text, meta, state: kept };
     if (activate) state.activeTab = existing;
   } else {
-    state.tabs.push({ text, meta, state: null });
+    state.tabs.push({ file: meta.file || null, text, meta, state: null });
     if (activate) {
       state.activeTab = state.tabs.length - 1;
       if (state.tabs.length > MAX_TABS) {
@@ -3342,6 +3616,24 @@ function addTab(text, meta, activate = true) {
     }
   }
   renderTabs();
+}
+
+// Drop the text of every tab but the one on screen. Called after a switch so
+// the memory is released once the new structure is already rendered.
+function trimTabText() {
+  state.tabs.forEach((t, i) => {
+    if (i !== state.activeTab && t.text) t.text = null;
+  });
+}
+
+// Fetch a tab's structure text, or return the cached copy.
+async function tabText(t) {
+  if (t.text) return t.text;
+  if (!t.file) return null;
+  const r = await fetch(t.file + "?t=" + Date.now());
+  if (!r.ok) return null;
+  t.text = await r.text();
+  return t.text;
 }
 
 // The switcher is a button plus a menu that opens on click. The button
@@ -3455,23 +3747,64 @@ document.addEventListener("click", ev => {
   if (!switcher.contains(ev.target)) closeSwitcherMenu();
 });
 
-function closeTab(i) {
-  if (state.tabs.length <= 1) return;
+async function closeTab(i, alreadyDeleted = false) {
+  if (i < 0 || i >= state.tabs.length) return;
+  const closing = state.tabs[i];
+  const name = closing && closing.meta ? closing.meta.name : null;
+
+  // Tell the server first. Closing the tab only in the browser left the
+  // archive entry in place, so a reload brought it straight back — the close
+  // button appeared not to work. The server drops the archived copy and
+  // clears the steps that pointed at it.
+  //
+  // A failure is not fatal: the tab still closes, and the next reload will
+  // simply restore it, which is the behaviour before this was added.
+  //
+  // `alreadyDeleted` is for the caller that just deleted the whole task: the
+  // server has already dropped these structures, and asking again would be a
+  // second round trip for nothing.
+  if (name && !alreadyDeleted) {
+    try {
+      await fetch("task.json", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ structure: name }),
+      });
+    } catch (e) { /* offline; the tab still closes */ }
+  }
+
   state.tabs.splice(i, 1);
+  // The pinned step described a structure that may be the one just closed.
+  state.pinnedJob = null;
+
+  // The last one is allowed to go. Refusing it left a structure on screen with
+  // no way to dismiss it: the switcher hides itself below two tabs, so with one
+  // left there is no close button anywhere and the viewer can never be emptied.
+  // The empty state is the one the page opens with, so it is already handled.
+  if (!state.tabs.length) {
+    state.activeTab = -1;
+    state.structureName = null;
+    showEmptyState();
+    renderTabs();
+    dropStaleNotice();
+    syncPillToTab();
+    return;
+  }
+
   if (state.activeTab >= state.tabs.length) state.activeTab = state.tabs.length - 1;
   else if (i < state.activeTab) state.activeTab -= 1;
   // switchTab would bail on i === state.activeTab, and the surviving tab has
   // to be drawn regardless — render it directly.
   const t = state.tabs[state.activeTab];
   state.structureName = t.meta.name || null;
-  // The pinned step described a structure that may be the one just closed.
-  state.pinnedJob = null;
-  renderStructure(t.text, t.meta, t.state);
+  const text = await tabText(t);
+  if (text !== null) renderStructure(text, t.meta, t.state);
   renderTabs();
+  dropStaleNotice();
   syncPillToTab();
 }
 
-function switchTab(i) {
+async function switchTab(i) {
   if (i < 0 || i >= state.tabs.length || i === state.activeTab) return;
   // Save the outgoing tab's state before the incoming one overwrites the
   // singletons.
@@ -3481,8 +3814,19 @@ function switchTab(i) {
   state.activeTab = i;
   const t = state.tabs[i];
   state.structureName = t.meta.name || null;
-  renderStructure(t.text, t.meta, t.state);
+  // The text may have been dropped to keep memory down; fetch it back.
+  const text = await tabText(t);
+  if (text === null) {
+    // The archive entry is gone. Leave the view where it was rather than
+    // rendering nothing.
+    state.activeTab = state.tabs.findIndex((x, j) => j !== i && x.text);
+    if (state.activeTab < 0) state.activeTab = i;
+    renderTabs();
+    return;
+  }
+  renderStructure(text, t.meta, t.state);
   renderTabs();
+  trimTabText();
   // The pill describes the task that produced what is on screen. Switching
   // to a structure from another task has to move it, or the progress bar
   // and message keep describing a run whose result is no longer displayed.
@@ -3494,6 +3838,56 @@ function switchTab(i) {
   syncPillToTab();
 }
 
+// Show a structure by name, opening it from the archive if it is not open.
+//
+// The status menu's rows outlive the tabs: the tabs are capped at MAX_TABS
+// and the status history is not, so a finished step from several pipelines
+// ago names a structure that is no longer among them. Those rows used to
+// render with no click handler, which made most of the menu dead — and a
+// status row that cannot be clicked is the one thing this menu must not
+// contain. The archive still has the structure, so it is reopened from
+// there: one fetch, and the tab is added at the end like any other.
+async function openStructureByName(name) {
+  const idx = state.tabs.findIndex(t => t.meta.name === name);
+  if (idx >= 0) {
+    await switchTab(idx);
+    return;
+  }
+  // Not open. Look for it in the archive index the publisher maintains.
+  let entry = null;
+  try {
+    const r = await fetch("structures.json?t=" + Date.now());
+    if (r.ok) {
+      const list = await r.json();
+      entry = (Array.isArray(list) ? list : [])
+        .find(e => e && e.meta && e.meta.name === name) || null;
+    }
+  } catch (e) { /* no archive */ }
+  if (!entry || !entry.file) return;
+
+  // Save the outgoing tab's state, the way switchTab does.
+  if (state.activeTab >= 0 && state.tabs[state.activeTab]) {
+    state.tabs[state.activeTab].state = captureState();
+  }
+  state.tabs.push({ file: entry.file, text: null, meta: entry.meta, state: null });
+  if (state.tabs.length > MAX_TABS) state.tabs.shift();
+  state.activeTab = state.tabs.length - 1;
+  state.structureName = entry.meta.name || null;
+  const text = await tabText(state.tabs[state.activeTab]);
+  if (text === null) {
+    // The archive entry is gone after all. Drop the tab rather than
+    // rendering nothing.
+    state.tabs.pop();
+    state.activeTab = state.tabs.length - 1;
+    renderTabs();
+    return;
+  }
+  renderStructure(text, entry.meta, null);
+  renderTabs();
+  trimTabText();
+  state.pinnedJob = null;
+  syncPillToTab();
+}
 // Point the status pill at the job that produced the active tab's structure.
 //
 // The pill is normally driven by whatever published last, which is right
@@ -3553,30 +3947,67 @@ async function poll() {
       // active tab's. A tab switched to an older structure has an older
       // timestamp, and using it here would make every poll think the
       // contract had changed.
-      if (meta.updated && meta.updated !== state.contractUpdated) {
+      //
+      // The first poll of a page load only records the timestamp. It starts
+      // null and the contract file carries whatever was published last —
+      // possibly hours ago — so the two never match on that first read, and
+      // every reload raised a notice for a structure the user had already
+      // seen. A notice means "this happened while you were here", so the
+      // baseline is taken on arrival and only a later change counts.
+      if (state.contractUpdated === null) {
+        state.contractUpdated = meta.updated || null;
+      } else if (meta.updated && meta.updated !== state.contractUpdated) {
         const cif = await fetch("current.cif?t=" + Date.now());
         if (!cif.ok) return;
         const text = await cif.text();
 
-        // A new publish is always recorded as a tab. Whether it also takes
-        // over the screen depends on what the user is looking at:
+        // A new publish is recorded as a tab but never takes over the screen.
         //
-        //  - on the newest tab: switch to it, as before.
-        //  - on an older tab: leave the view alone. The contract file holds
-        //    only the latest structure, so following it here would yank the
-        //    user off the tab they opened deliberately. The new tab is
-        //    added and marked, and they can click it when ready.
-        const onNewest = state.activeTab === state.tabs.length - 1;
+        // Following the contract file used to switch the view whenever the
+        // user was already on the newest tab, which yanked them off whatever
+        // they were reading the moment a background run published — a
+        // docking that finished while they were inspecting the previous
+        // result would replace it mid-inspection. The tab is added and a
+        // notice is raised instead; the user goes to it when they choose.
+        //
+        // The contract file holds only the latest structure, so the notice
+        // has to name it rather than assume it is on screen.
         if (state.activeTab >= 0 && state.tabs[state.activeTab]) {
           state.tabs[state.activeTab].state = captureState();
         }
-        addTab(text, meta, onNewest);
-        if (onNewest) {
-          state.lastUpdated = meta.updated;
-          state.structureName = meta.name || null;
-          renderStructure(text, meta, null);
+        // The tab records where the structure lives rather than carrying the
+        // contract file's text. `current.cif` holds only the latest publish
+        // and is overwritten by the next one, so a tab built from it caches
+        // whatever happened to be current at that moment — which is not
+        // always what the archive has under that name. An MD run publishes
+        // `final.pdb` (the whole solvated trajectory frame, tens of thousands
+        // of atoms) while the archive keeps the complex it was asked to
+        // publish; the tab then showed the trajectory, and 3Dmol read one
+        // chain out of it. The archive is the record of what was published,
+        // so that is what the tab points at.
+        //
+        // current.json carries no file path — it describes the contract file,
+        // not the archive — so the path is looked up. Without it the tab has
+        // neither text nor file: nothing to open, and clicking it falls back
+        // to whatever tab happened to have text. A publish whose archive
+        // entry is gone — deleted from under us, or never written — is not
+        // recorded as a tab at all. The notice still names it and the
+        // switcher lists only structures that can actually be opened.
+        const withFile = Object.assign({}, meta);
+        if (!withFile.file) {
+          try {
+            const ar = await fetch("structures.json?t=" + Date.now());
+            if (ar.ok) {
+              const list = await ar.json();
+              const e = (Array.isArray(list) ? list : [])
+                .find(x => x && x.meta && x.meta.name === meta.name);
+              if (e && e.file) withFile.file = e.file;
+            }
+          } catch (e) { /* no archive yet */ }
         }
+        if (withFile.file) addTab(null, withFile, false);
         state.contractUpdated = meta.updated;
+        raisePublishNotice(meta);
         // A new publish is newer than whatever step the user had pinned, so
         // the pin goes and the pill follows the run again. Leaving it would
         // freeze the pill on a step that finished before this one started.
@@ -3641,6 +4072,11 @@ async function pollSelect() {
 // The newest entry is left out: the poll below picks it up through the
 // normal path, which also sets the contract timestamp. Adding it here as
 // well would give it two tabs.
+// The tabs are rebuilt from the archive, but their structures are not fetched
+// here. Loading a dozen at once put eight megabytes of PDB text in memory and
+// eventually had the browser refusing every request — including the selection
+// write, which fails silently. Each tab records where its structure lives and
+// fetches it when opened; only the one on screen is resident.
 async function restoreTabs() {
   try {
     const res = await fetch("structures.json?t=" + Date.now());
@@ -3652,11 +4088,8 @@ async function restoreTabs() {
       if (!e || !e.file || !e.meta) continue;
       // Already open — a reload of a page that had been running a while.
       if (state.tabs.some(t => t.meta.name === e.meta.name)) continue;
-      try {
-        const r = await fetch(e.file + "?t=" + Date.now());
-        if (!r.ok) continue;
-        addTab(await r.text(), e.meta, false);
-      } catch (err) { /* one unreadable entry must not lose the rest */ }
+      state.tabs.push({ file: e.file, text: null, meta: e.meta, state: null });
+      if (state.tabs.length > MAX_TABS) state.tabs.shift();
     }
     // Land on the newest restored tab rather than the oldest, so the view
     // opens on the most recent thing that happened. The poll then adds the
@@ -3667,8 +4100,10 @@ async function restoreTabs() {
       state.activeTab = state.tabs.length - 1;
       const t = state.tabs[state.activeTab];
       state.structureName = t.meta.name || null;
-      renderStructure(t.text, t.meta, null);
+      const text = await tabText(t);
+      if (text !== null) renderStructure(text, t.meta, null);
       renderTabs();
+      trimTabText();
     }
   } catch (e) { /* no archive yet */ }
 }

@@ -12,7 +12,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-ENV = Path("/home/asus_gx10/miniconda3/envs/openmm")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import conda_root
+
+ENV = conda_root() / "envs" / "openmm"
 PY = ENV / "bin" / "python"
 
 

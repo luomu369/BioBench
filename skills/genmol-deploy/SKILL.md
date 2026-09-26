@@ -42,13 +42,8 @@ conda activate genmol
 
 Match the CUDA build to your driver. Check with `nvidia-smi`.
 
-```bash
-# CUDA 12.4
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-# CUDA 13.0 (DGX Spark / GB10, driver 580+)
-pip install torch --index-url https://download.pytorch.org/whl/cu130
-```
+Install PyTorch with CUDA — see `_shared/pytorch-cuda.md` for which wheel
+matches the driver, and the check that confirms it is using the GPU.
 
 ### Step 3: Clone and install GenMol
 
@@ -72,6 +67,7 @@ pip install safe-mol openbabel-wheel easydict einops jaxtyping \
 expose only the converter:
 
 ```bash
+CONDA="${CONDA:-$HOME/miniconda3}"
 SP=$CONDA_PREFIX/lib/python3.12/site-packages/safe/__init__.py
 cp "$SP" "$SP.orig"
 sed -i 's/^/# /' "$SP"
@@ -91,10 +87,11 @@ python -c "import genmol; print('genmol OK')"
 Download from Hugging Face (~1.3 GB):
 
 ```bash
+MODELS="${MODELS:-$HOME/models}"
 HF_ENDPOINT=https://hf-mirror.com python -c "
 from huggingface_hub import snapshot_download
 snapshot_download('nvidia/NV-GenMol-89M-v1',
-                  local_dir='/home/asus_gx10/models/genmol/NV-GenMol-89M-v1',
+                  local_dir='$MODELS/genmol/NV-GenMol-89M-v1',
                   max_workers=8)
 "
 ```
@@ -132,7 +129,9 @@ The checkpoint is NVIDIA's official release, so full unpickling is safe. The
 ## Verifying an existing installation
 
 ```bash
-python3 /home/asus_gx10/biobench/skills/genmol-deploy/scripts/preflight.py
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 $BB/skills/genmol-deploy/scripts/preflight.py
 ```
 
 Checks the conda env, torch/CUDA, the `genmol` import, the `safe` converter,

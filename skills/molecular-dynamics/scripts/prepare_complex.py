@@ -25,14 +25,18 @@ Exit codes: 0 ok, 1 preparation failed, 2 bad input.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python
+
 # gemmi and rdkit live in the docking env; this wrapper stays wherever the
 # calling skill is and shells out for the structure work.
-DOCKING_PY = "/home/asus_gx10/miniconda3/envs/docking/bin/python"
-OPENMM_PY = "/home/asus_gx10/miniconda3/envs/openmm/bin/python"
+DOCKING_PY = str(env_python("docking"))
+OPENMM_PY = str(env_python("openmm"))
 
 
 def main():
@@ -41,7 +45,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--receptor", required=True,
                     help="receptor structure (.cif or .pdb)")
-    ap.add_argument("--chain", required=True, help="receptor chain to keep")
+    ap.add_argument("--chain", required=True,
+                    help="receptor chain(s) to keep; comma-separated for a "
+                         "multimer, e.g. A,B")
     ap.add_argument("--ligand-pdbqt", required=True,
                     help="the ligand's PDBQT — carries the SMILES IDX map")
     ap.add_argument("--ligand-pose", required=True,
@@ -61,12 +67,20 @@ def main():
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 
+    # The steps below run under `python -c`, where __file__ does not exist and
+    # a path cannot be derived from it. The shared directory is handed over in
+    # the environment instead, so no step carries a literal path and a clone
+    # anywhere still finds the modules.
+    child_env = dict(os.environ)
+    child_env["BIOBENCH_SHARED"] = str(Path(__file__).resolve().parents[2]
+                                       / "_shared")
+
     # Step 1a: renumber the receptor with gemmi (docking env).
     raw = out.with_suffix(".raw.pdb")
     r = subprocess.run([DOCKING_PY, "-c", RENUMBER_STEP,
                         "--receptor", args.receptor,
                         "--chain", args.chain,
-                        "--out", str(raw)])
+                        "--out", str(raw)], env=child_env)
     if r.returncode != 0 or not raw.is_file():
         print("error: receptor extraction failed", file=sys.stderr)
         return 1
@@ -75,7 +89,7 @@ def main():
     protein_h = out.with_suffix(".protein_h.pdb")
     r = subprocess.run([OPENMM_PY, "-c", HYDROGEN_STEP,
                         "--pdb", str(raw),
-                        "--out", str(protein_h)])
+                        "--out", str(protein_h)], env=child_env)
     if r.returncode != 0 or not protein_h.is_file():
         print("error: hydrogen/OXT preparation failed", file=sys.stderr)
         return 1
@@ -87,7 +101,7 @@ def main():
                         "--pdbqt", args.ligand_pdbqt,
                         "--pose", args.ligand_pose,
                         "--smiles", args.ligand_smiles,
-                        "--out", str(ligand_sdf)])
+                        "--out", str(ligand_sdf)], env=child_env)
     if r.returncode != 0 or not ligand_sdf.is_file():
         print("error: ligand alignment failed", file=sys.stderr)
         return 1
@@ -98,7 +112,7 @@ def main():
                         "--protein", str(protein_h),
                         "--ligand", str(ligand_sdf),
                         "--resname", args.ligand_resname,
-                        "--out", str(out)])
+                        "--out", str(out)], env=child_env)
     if r.returncode != 0:
         print("error: merge failed", file=sys.stderr)
         return 1
@@ -125,22 +139,34 @@ AA = set("ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR "
          "TRP TYR VAL MSE".split())
 st = gemmi.read_structure(a.receptor)
 st.setup_entities()
-res = [r for r in st[0][a.chain] if r.name in AA]
-if not res:
-    raise SystemExit(f"no amino acids on chain {a.chain}")
 
-# Renumber 1..N. Archives start below 1 or skip numbers, and OpenMM walks
-# the chain expecting contiguity.
+# One chain or several, comma-separated. A homodimer's active site sits at the
+# interface of both chains, so simulating one of them puts the ligand in a
+# pocket that no longer exists — HIV-1 protease is the case that forced this.
+chains = [c.strip() for c in a.chain.split(",") if c.strip()]
+if not chains:
+    raise SystemExit("--chain names at least one chain")
+
+# Renumber 1..N per chain. Archives start below 1 or skip numbers, and OpenMM
+# walks the chain expecting contiguity.
 new = gemmi.Structure(); new.spacegroup_hm = "P 1"; new.cell = st.cell
-m = gemmi.Model("1"); m.add_chain(gemmi.Chain(a.chain))
-for i, r in enumerate(res, 1):
-    r2 = gemmi.Residue(); r2.name = r.name
-    r2.seqid = gemmi.SeqId(i, " "); r2.het_flag = "A"
-    for at in r: r2.add_atom(at)
-    m[a.chain].add_residue(r2)
+m = gemmi.Model("1")
+total = 0
+for ch in chains:
+    res = [r for r in st[0][ch] if r.name in AA]
+    if not res:
+        raise SystemExit(f"no amino acids on chain {ch}")
+    m.add_chain(gemmi.Chain(ch))
+    for i, r in enumerate(res, 1):
+        r2 = gemmi.Residue(); r2.name = r.name
+        r2.seqid = gemmi.SeqId(i, " "); r2.het_flag = "A"
+        for at in r: r2.add_atom(at)
+        m[ch].add_residue(r2)
+    total += len(res)
+    print(f"  chain {ch}: {len(res)} residues renumbered 1..{len(res)}")
 new.add_model(m); new.setup_entities()
 new.write_pdb(a.out)
-print(f"  {len(res)} residues renumbered 1..{len(res)}")
+print(f"  {total} residues total across {len(chains)} chain(s)")
 '''
 
 # ---- step 1b: hydrogens + OXT (openmm env) ------------------------------
@@ -169,6 +195,7 @@ print(f"  {mod.topology.getNumAtoms()} atoms with hydrogens")
 # ---- step 2: ligand -----------------------------------------------------
 LIGAND_STEP = r'''
 import argparse
+import sys
 from pathlib import Path
 
 ap = argparse.ArgumentParser()
@@ -179,6 +206,14 @@ a = ap.parse_args()
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
+
+# The shared PDB column layout, so the docked pose's serials and coordinates
+# are read with the same field boundaries every other skill writes with.
+# The directory arrives in BIOBENCH_SHARED because this block runs under
+# `python -c`, where __file__ does not exist and the path cannot be derived
+# from it.
+sys.path.insert(0, __import__("os").environ["BIOBENCH_SHARED"])
+from pdb_format import iter_atoms
 
 # The PDBQT's REMARK SMILES IDX lines hold (smiles_idx, pdbqt_idx) pairs —
 # the only record of which docked atom is which atom of the molecule. Read
@@ -191,12 +226,12 @@ pairs = [(nums[i], nums[i + 1]) for i in range(0, len(nums), 2)]
 if not pairs:
     raise SystemExit("no SMILES IDX map in the PDBQT")
 
-# Docked coordinates, keyed by the PDBQT serial.
+# Docked coordinates, keyed by the PDBQT serial. The serial and coordinate
+# columns are in the same places as in a PDB, so the shared parser reads them;
+# the trailing charge and AutoDock type columns it ignores.
 coords = {}
-for line in open(a.pose):
-    if line.startswith(("ATOM", "HETATM")):
-        coords[int(line[7:11])] = [float(line[30:38]), float(line[38:46]),
-                                   float(line[46:54])]
+for atom in iter_atoms(Path(a.pose).read_text()):
+    coords[atom.serial] = [atom.x, atom.y, atom.z]
 
 # Build the molecule from SMILES so the topology and hydrogens are right —
 # the Vina PDB is only partly hydrogenated and its atom names are not
