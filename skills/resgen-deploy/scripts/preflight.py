@@ -7,12 +7,12 @@ model class instantiates, and reports the sampling config. Read-only.
 Exit codes: 0 all checks passed, 1 one or more failed.
 """
 
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import env_python, tools_root
+from preflight import check, run_py, summary
 
 REPO = tools_root() / "ResGen"
 CKPT = REPO / "ckpt" / "val_172.pt"
@@ -32,11 +32,6 @@ IMPORTS = [
     "torch", "torch_geometric", "torch_scatter", "torch_cluster",
     "rdkit", "Bio", "easydict", "lmdb", "yaml", "tqdm", "numpy",
 ]
-
-
-def check(label, ok, detail=""):
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
 
 
 def find_python():
@@ -73,15 +68,13 @@ def main():
     if py is None:
         results.append(check("python with torch", False,
                              "none of the candidate envs exist"))
-        print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
-        return 1
+        return summary(results)
     results.append(check("python with torch", True, str(py)))
 
     # Imports
     missing = []
     for m in IMPORTS:
-        r = subprocess.run([str(py), "-c", f"import {m}"],
-                           capture_output=True, text=True, timeout=300)
+        r = run_py(py, f"import {m}")
         if r.returncode != 0:
             missing.append(m)
     results.append(check("all imports resolve", not missing,
@@ -89,12 +82,12 @@ def main():
                           else f"{len(IMPORTS)} modules"))
 
     # The three patches, checked by behaviour rather than by grepping source
-    r = subprocess.run(
-        [str(py), "-c",
-         "import sys; sys.path.insert(0, '%s');"
-         "from utils.transforms import subgraph, knn_graph;"
-         "from models.ResGen import ResGen; print('ok')" % REPO],
-        capture_output=True, text=True, timeout=600, cwd=str(REPO))
+    r = run_py(
+        py,
+        "import sys; sys.path.insert(0, '%s');"
+        "from utils.transforms import subgraph, knn_graph;"
+        "from models.ResGen import ResGen; print('ok')" % REPO,
+        timeout=600, cwd=REPO)
     ok = r.returncode == 0
     detail = "model + transforms import" if ok else (r.stderr or r.stdout).strip()[-200:]
     results.append(check("ResGen modules import", ok, detail))
@@ -113,8 +106,7 @@ def main():
     else:
         results.append(check("sampling config", False, "configs/sample.yml missing"))
 
-    print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
-    return 0 if all(results) else 1
+    return summary(results)
 
 
 if __name__ == "__main__":

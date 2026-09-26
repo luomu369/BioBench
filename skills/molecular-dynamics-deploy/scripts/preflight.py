@@ -8,25 +8,15 @@ structure fixing. Read-only.
 Exit codes: 0 all checks passed, 1 one or more failed.
 """
 
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import conda_root
+from preflight import check, run_py
 
 ENV = conda_root() / "envs" / "openmm"
 PY = ENV / "bin" / "python"
-
-
-def check(label, ok, detail=""):
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
-
-
-def run(code, timeout=300):
-    return subprocess.run([str(PY), "-c", code], capture_output=True,
-                          text=True, timeout=timeout)
 
 
 def main():
@@ -39,13 +29,13 @@ def main():
         print("  conda activate openmm && pip install openmm mdtraj pdbfixer")
         return 1
 
-    r = run("import openmm; print(openmm.__version__)")
+    r = run_py(PY, "import openmm; print(openmm.__version__)")
     ok &= check("openmm import", r.returncode == 0,
                 r.stdout.strip() or r.stderr.strip()[:120])
 
     # Which platforms exist. CUDA is absent on ARM64 — there is no aarch64
     # openmm-cuda wheel — so its absence here is expected, not a fault.
-    r = run("""
+    r = run_py(PY, """
 from openmm import Platform
 print(','.join(Platform.getPlatform(i).getName()
                for i in range(Platform.getNumPlatforms())))
@@ -61,7 +51,7 @@ print(','.join(Platform.getPlatform(i).getName()
     # GPU, so an empty string says nothing either way — report it as
     # informational rather than as a failure to fix.
     if "OpenCL" in names:
-        r = run("""
+        r = run_py(PY, """
 from openmm import Platform
 p = Platform.getPlatformByName('OpenCL')
 p.setPropertyDefaultValue('OpenCLPlatformIndex', '0')
@@ -74,18 +64,18 @@ print(p.getPropertyDefaultValue('OpenCLPlatformName') or '(empty)')
         print("       measured: ~145,000 ns/day vs ~6,000 on CPU "
               "(80k atoms).")
 
-    r = run("import mdtraj; print(mdtraj.__version__)")
+    r = run_py(PY, "import mdtraj; print(mdtraj.__version__)")
     ok &= check("mdtraj (analysis)", r.returncode == 0,
                 r.stdout.strip() or r.stderr.strip()[:120])
 
-    r = run("import pdbfixer; print('ok')")
+    r = run_py(PY, "import pdbfixer; print('ok')")
     ok &= check("pdbfixer (missing atoms)", r.returncode == 0,
                 r.stdout.strip() or r.stderr.strip()[:120])
 
     # The force fields the workflow defaults to. amber14-all.xml is the
     # tempting choice but carries no ion templates, so a solvated system
     # fails on Na — check for the pair that works.
-    r = run("""
+    r = run_py(PY, """
 from openmm.app import ForceField
 ff = ForceField('amber14/protein.ff14SB.xml', 'amber14/tip3pfb.xml')
 print('NA' in ff._templates and 'CL' in ff._templates)

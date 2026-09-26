@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import conda_root, env_python, tool
+from preflight import check, run_py, summary
 
 CONDA = conda_root()
 ENV = CONDA / "envs" / "docking"
@@ -24,16 +25,6 @@ CANDIDATES = [
     tool("vina"),
     Path.home() / "tools/vina/vina",
 ]
-
-
-def check(label, ok, detail=""):
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
-
-
-def run(code, timeout=300):
-    return subprocess.run([str(PY), "-c", code], capture_output=True,
-                          text=True, timeout=timeout)
 
 
 def main():
@@ -66,14 +57,15 @@ def main():
                        ("gemmi", "gemmi (mmCIF reader)"),
                        ("numpy", "numpy"),
                        ("scipy", "scipy")]:
-        r = run(f"import {mod}")
+        r = run_py(PY, f"import {mod}")
         results.append(check(label, r.returncode == 0,
                              "" if r.returncode == 0
                              else f"pip install {mod}"))
 
     # ---- ligand conversion smoke test ----
     with tempfile.TemporaryDirectory() as td:
-        r = run(
+        r = run_py(
+            PY,
             "from meeko import MoleculePreparation\n"
             "from rdkit import Chem\n"
             "from rdkit.Chem import AllChem\n"
@@ -91,8 +83,7 @@ def main():
                              f"{r.stdout.strip()} lines" if r.returncode == 0
                              else r.stderr.strip()[-160:]))
 
-    print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
-    return 0 if all(results) else 1
+    return summary(results)
 
 
 if __name__ == "__main__":

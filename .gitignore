@@ -23,3 +23,6 @@ __pycache__/
 # Editors / OS
 .vscode/
 .DS_Store
+
+# Viewer server log (stdout of serve.py; never a repo artifact)
+webapp/viewer.log

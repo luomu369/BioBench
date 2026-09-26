@@ -57,7 +57,7 @@ bash skills/viewer-launch/scripts/bootstrap.sh
 
 # 2. Start the viewer
 bash webapp/run_viewer.sh --port 8282
-#    → http://localhost:8288
+#    → http://localhost:8282
 
 # 3. Ask your agent:
 #    "design a binder for NK1R"

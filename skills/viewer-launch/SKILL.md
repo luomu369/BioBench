@@ -33,9 +33,15 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:8282/
 ```bash
 BB="${BB:-$HOME/biobench}"
 [ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
-pkill -f "http.server" && sleep 2
+pkill -f "webapp/serve.py" && sleep 2
 bash $BB/webapp/run_viewer.sh --port 8282
 ```
+
+The pattern is `webapp/serve.py`, not `http.server`. The viewer is
+`python3 webapp/serve.py` — a `ThreadingHTTPServer` subclass, not the
+`http.server` module's own CLI — so `pkill -f http.server` matches nothing,
+the old process keeps port 8282, and the new one fails to bind while the
+command reports success.
 
 ## Change port
 

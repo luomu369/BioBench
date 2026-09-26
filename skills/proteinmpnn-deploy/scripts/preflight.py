@@ -8,12 +8,12 @@ Exit codes: 0 all checks passed, 1 one or more failed.
 """
 
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import conda_root
+from preflight import check, run_py, summary
 
 CONDA = conda_root()
 ENV = CONDA / "envs" / "proteinmpnn"
@@ -26,16 +26,6 @@ EXPECTED_WEIGHTS = {
 }
 
 
-def check(label, ok, detail=""):
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
-
-
-def run(code):
-    return subprocess.run([str(PY), "-c", code], capture_output=True,
-                          text=True, timeout=120)
-
-
 def main():
     results = []
 
@@ -45,17 +35,17 @@ def main():
         return 1
     results.append(check("conda env 'proteinmpnn'", True, str(ENV)))
 
-    r = run("import torch; print(torch.__version__, torch.cuda.is_available())")
+    r = run_py(PY, "import torch; print(torch.__version__, torch.cuda.is_available())")
     if r.returncode == 0:
         ver, cuda = r.stdout.strip().rsplit(" ", 1)
         results.append(check("torch + CUDA", cuda == "True", f"torch {ver}"))
         if cuda == "True":
-            name = run("import torch; print(torch.cuda.get_device_name(0))")
+            name = run_py(PY, "import torch; print(torch.cuda.get_device_name(0))")
             results.append(check("GPU", True, name.stdout.strip()))
     else:
         results.append(check("torch importable", False, r.stderr.strip()[-120:]))
 
-    r = run("import proteinmpnn; print(proteinmpnn.__file__)")
+    r = run_py(PY, "import proteinmpnn; print(proteinmpnn.__file__)")
     if r.returncode == 0:
         results.append(check("proteinmpnn importable", True))
         pkg = Path(r.stdout.strip()).parent
@@ -72,12 +62,12 @@ def main():
         results.append(check("proteinmpnn importable", False,
                              r.stderr.strip()[-120:]))
 
-    r = run("import pkg_resources")
+    r = run_py(PY, "import pkg_resources")
     results.append(check("pkg_resources", r.returncode == 0,
                          "" if r.returncode == 0
                          else "pip install 'setuptools<81'"))
 
-    r = run("import biotite.structure.io")
+    r = run_py(PY, "import biotite.structure.io")
     results.append(check("biotite (mmCIF→PDB)", r.returncode == 0,
                          "" if r.returncode == 0
                          else "pip install biotite"))
@@ -85,8 +75,7 @@ def main():
     cli = ENV / "bin" / "protein_mpnn_run"
     results.append(check("CLI present", cli.is_file(), str(cli)))
 
-    print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
-    return 0 if all(results) else 1
+    return summary(results)
 
 
 if __name__ == "__main__":

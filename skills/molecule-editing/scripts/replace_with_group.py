@@ -16,7 +16,6 @@ Usage:
       --group benzene
 """
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -26,11 +25,8 @@ from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
-from biobench_paths import viewer_static
-from pdb_format import (atom_line, check_serials_unique, conect_line,
-                        iter_atoms)
-
-VIEWER = viewer_static()
+from pdb_format import (atom_line, check_serials_unique, conect_line)
+from selection import build_mol, pos, read_selection, resolve
 
 # Groups the skill can build, by the name a user would say. Each is the SMILES
 # of the unsubstituted group; atom 0 is the substituent position, where the
@@ -94,91 +90,6 @@ COVALENT = {
     "P": 1.07, "F": 0.57, "Cl": 1.02, "Br": 1.20, "I": 1.39,
     "Se": 1.20, "Si": 1.11, "B": 0.84,
 }
-
-
-def read_selection():
-    p = VIEWER / "selection.json"
-    if not p.is_file():
-        sys.exit("no selection.json — select atoms in the viewer first")
-    d = json.loads(p.read_text())
-    atoms = d.get("atoms") or []
-    if not atoms:
-        sys.exit("selection has no atoms — switch the viewer to Atom mode "
-                 "and select the group to replace")
-    return d, atoms
-
-
-def resolve(structure: Path, sel: dict):
-    """The PDB serials the viewer's selection refers to.
-
-    The viewer records the PDB serial for every atom it selects, so this is a
-    lookup. The 3Dmol index is deliberately not used: 3Dmol reorders atoms when
-    it builds a model, so its index is not a position in the file and cannot be
-    walked back to a serial.
-
-    A selection written before serials were recorded falls back to the label,
-    "N9 — SAH 2001 · 1", which gives the atom name, residue and chain.
-    """
-    # The fields come from the shared parser rather than from slices here. A
-    # slice that is off by one reads a different residue name and the
-    # selection resolves to the wrong atoms, with nothing to show it happened.
-    serials, names = [], []
-    for atom in iter_atoms(structure.read_text()):
-        serials.append(atom.serial)
-        names.append((atom.name, atom.resn, atom.chain))
-
-    out, used = [], set()
-    for a in sel["atoms"]:
-        s = a.get("serial")
-        if s is not None and s in serials and s not in used:
-            out.append(s)
-            used.add(s)
-            continue
-        label = a.get("label", "")
-        try:
-            name, rest = label.split("—", 1)
-            resn_chain = rest.rsplit("·", 1)
-            resn = resn_chain[0].strip().rsplit(" ", 1)[0].strip()
-            chain = resn_chain[1].strip()
-            name = name.strip()
-        except (ValueError, IndexError):
-            continue
-        for i, (n, r, c) in enumerate(names):
-            if serials[i] in used:
-                continue
-            if n == name and r == resn and c == chain:
-                out.append(serials[i])
-                used.add(serials[i])
-                break
-
-    if not out:
-        sys.exit("could not resolve the selection against the structure")
-    if len(out) != len(sel["atoms"]):
-        print(f"warning: resolved {len(out)} of {len(sel['atoms'])} atoms",
-              file=sys.stderr)
-    return out
-
-
-def build_mol(structure: Path):
-    """The PDB as an RDKit mol with 3D coordinates and no sanitisation.
-
-    Sanitisation is skipped because a PDB read straight off disk routinely has
-    valence errors — a missing hydrogen, an unusual protonation — and RDKit
-    refuses the whole molecule over one of them. The edit only needs the graph
-    and the coordinates, both of which survive without it.
-    """
-    mol = Chem.MolFromPDBFile(str(structure), sanitize=False,
-                              removeHs=False, proximityBonding=True)
-    if mol is None:
-        sys.exit(f"RDKit could not read {structure}")
-    if not mol.GetConformer().Is3D():
-        sys.exit("the structure has no 3D coordinates")
-    return mol
-
-
-def pos(conf, i):
-    p = conf.GetAtomPosition(i)
-    return np.array([p.x, p.y, p.z])
 
 
 def main():

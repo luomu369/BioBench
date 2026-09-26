@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import biobench_root, foldseek_db, tools_root
+from preflight import check, summary
 
 FOLDSEEK = tools_root() / "foldseek" / "bin" / "foldseek"
 DB_DIR = foldseek_db()
@@ -45,11 +46,6 @@ DB_REQUIRED = [
     "pdb_ss.lookup",
     "pdb_clu.lookup",
 ]
-
-
-def check(label, ok, detail=""):
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
 
 
 def find_binary():
@@ -122,8 +118,7 @@ def main():
             results.append(check("PDB database", True,
                                  f"{DB_DIR} ({size:.1f} GB)"))
 
-    print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
-    return 0 if all(results) else 1
+    return summary(results)
 
 
 if __name__ == "__main__":

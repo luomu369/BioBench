@@ -16,6 +16,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from biobench_paths import env_python
+from preflight import check, run_py
+
+# The interpreter the checks run under. Importing torch in *this* process
+# asks the wrong question: the script is invoked with whatever python3 is on
+# PATH, which on a machine with conda is the system interpreter and has no
+# torch — so a fully installed environment reports "pip install torch" and
+# the reader concludes the install is broken when only the probe was.
+# Every other deploy preflight resolves its env's interpreter the same way.
+PY = env_python("boltzgen")
+
 MIN_VRAM_GB = 24.0
 MIN_DISK_GB = 50.0
 EXPECTED_CKPTS = {
@@ -25,12 +37,6 @@ EXPECTED_CKPTS = {
     "boltz2_conf_final.ckpt": 1.9,
     "boltz2_aff.ckpt": 1.9,
 }
-
-
-def check(label, ok, detail=""):
-    status = "PASS" if ok else "FAIL"
-    print(f"[{status}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
 
 
 def check_gpu():
@@ -47,16 +53,26 @@ def check_gpu():
 
 
 def check_torch():
-    try:
-        import torch
-    except ImportError:
-        return check("torch importable", False, "pip install torch")
-    ok = torch.cuda.is_available()
-    detail = f"torch {torch.__version__}"
+    if not PY.is_file():
+        return check("conda env 'boltzgen'", False,
+                     f"{PY} not found — see SKILL.md Step 1")
+    r = run_py(PY, "import torch; print(torch.__version__, "
+                   "torch.cuda.is_available())")
+    if r.returncode != 0:
+        return check("torch importable", False,
+                     (r.stderr or r.stdout).strip()[-160:])
+    ver, cuda = r.stdout.strip().rsplit(" ", 1)
+    ok = cuda == "True"
+    detail = f"torch {ver}"
     if ok:
-        name = torch.cuda.get_device_name(0)
-        free, total = torch.cuda.mem_get_info()
-        detail += f", {name}, {free/1024**3:.1f}/{total/1024**3:.1f} GB free"
+        name = run_py(PY, "import torch; print(torch.cuda.get_device_name(0))")
+        mem = run_py(PY, "import torch; f, t = torch.cuda.mem_get_info(); "
+                         "print(f, t)")
+        try:
+            free, total = (int(x) for x in mem.stdout.split())
+        except ValueError:
+            free, total = 0, 0
+        detail += f", {name.stdout.strip()}, {free/1024**3:.1f}/{total/1024**3:.1f} GB free"
         ok = free / 1024**3 >= MIN_VRAM_GB
         if not ok:
             detail += f" (below {MIN_VRAM_GB} GB minimum)"
@@ -66,11 +82,13 @@ def check_torch():
 
 
 def check_boltzgen():
-    try:
-        import boltzgen  # noqa: F401
-        return check("boltzgen importable", True)
-    except ImportError:
-        return check("boltzgen importable", False, "pip install boltzgen")
+    if not PY.is_file():
+        return check("boltzgen importable", False,
+                     f"{PY} not found — see SKILL.md Step 1")
+    r = run_py(PY, "import boltzgen")
+    return check("boltzgen importable", r.returncode == 0,
+                 "" if r.returncode == 0
+                 else (r.stderr or r.stdout).strip()[-160:])
 
 
 def check_weights(weights_dir):

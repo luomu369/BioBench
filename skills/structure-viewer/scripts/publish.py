@@ -37,11 +37,6 @@ from pdb_format import iter_atoms
 
 VIEWER = Path(os.environ.get("BIOBENCH_VIEWER") or viewer_static())
 
-# How many past statuses to keep in status.json's history array. Enough to
-# scroll back through a session's runs without the file growing without
-# bound.
-STATUS_HISTORY = 20
-
 AA3TO1 = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
     "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
@@ -397,11 +392,6 @@ def publish_selection(residues) -> int:
     return 0
 
 
-# How many past statuses to keep in status.json's history array. Enough to
-# scroll back through a session's runs without the file growing without
-# bound.
-STATUS_HISTORY = 20
-
 # How many jobs to keep in the job list. A declared plan becomes one job
 # per step, so a six-step pipeline occupies six entries — the cap counts
 # steps, not runs, and has to be generous enough to hold several pipelines'
@@ -436,14 +426,14 @@ def load_status():
     """
     path = VIEWER / "status.json"
     if not path.exists():
-        return {"active": None, "jobs": [], "history": []}
+        return {"active": None, "jobs": []}
     try:
         data = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
-        return {"active": None, "jobs": [], "history": []}
+        return {"active": None, "jobs": []}
     if "jobs" not in data:
         # Old format: the whole object was the active status.
-        data = {"active": data, "jobs": [], "history": data.get("history") or []}
+        data = {"active": data, "jobs": []}
     return data
 
 
@@ -619,15 +609,6 @@ def publish_status(args) -> int:
     else:
         data["active"] = prev_live or (finished[-1] if finished else None) \
             or target
-
-    # History is the flat log of every status ever written. The viewer no
-    # longer shows it — the job list covers what is on screen — but it costs
-    # a few hundred bytes and is the only record of messages a job
-    # superseded, so it stays for anything that wants to read the file.
-    history = data.get("history") or []
-    if target is not None:
-        history.append(dict(target))
-    data["history"] = history[-STATUS_HISTORY:]
 
     atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
     print(f"status: {args.state}"

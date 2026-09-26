@@ -96,6 +96,26 @@ say so when reporting a score. A score computed against a receptor with holes
 in it is not comparable to one computed against a whole receptor, and neither
 is comparable across a rigid and a flexible run.
 
+## The status bar is a file, not a live view
+
+`status.json` is written to disk and polled every 2 seconds. It outlives the
+viewer, the shell and the reboot, so the pill at the bottom of the screen
+shows the last thing *anyone* published — a smoke test, a manual
+`publish.py` call, a run that finished hours ago — and it looks exactly like
+a current one.
+
+`publish.py` generates no status text of its own. `--message` is free text
+stored verbatim, so a pill reading "全部通过" is a claim made by whoever
+passed that flag, not a verdict any tool reached. One session left a
+pipeline smoke test's message on the pill, and it was later read as the
+state of the machine.
+
+Check `active.updated` before reading the pill as progress, and say so when
+it belongs to an earlier session. To clear it, publish something — there is
+no reset flag, and the next `--status` call overwrites `active`. When you
+publish to verify the pipeline works, word the message as what it was
+("发布链路验证"), not as a conclusion.
+
 ## The viewer's atom serial is not the PDB serial
 
 3Dmol's `atom.serial` is its own per-model counter, starting at 1 for every

@@ -237,17 +237,8 @@ Long-running tasks should report progress so the viewer can show it. **The
 agent reports progress — it knows what it is doing, so it should say so
 directly rather than making a script guess from log output.**
 
-Use the bundled publisher:
-
-```bash
-BB="${BB:-$HOME/biobench}"
-[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
-python3 $BB/skills/structure-viewer/scripts/publish.py \
-  --status --state running --step "生成 binder 主链骨架" --index 1 --total 6 \
-  --skill boltzgen-deploy --message "Diffusion sampling, batch 1/4"
-```
-
-Call it whenever the task moves to a new phase. Typical points:
+Everything goes through the bundled publisher, `publish.py`. Call it
+whenever the task moves to a new phase:
 
 - before starting a long computation
 - after each pipeline step completes
@@ -457,7 +448,7 @@ both and each goes to its own place.
 | `state` | `queued`/`idle` (waiting), `running`, `done`, `error` |
 | `step` | 当前阶段的说明文字，直接显示在进度条上 |
 | `index` / `total` | Drives the progress bar |
-| `message` | Human-readable detail |
+| `message` | Free text from the caller, stored verbatim — see below |
 | `skill` | Which skill is running, for attribution |
 | `group` | The task this step belongs to; set from `--job` |
 | `plan` | The whole route, declared up front |
@@ -480,6 +471,54 @@ actually does. Phrase the steps for the user rather than after a tool's
 internal stage names, and split or merge them to match the run — a quick
 check might be three steps, a thorough one seven. A plan that reads as a
 route the user recognises is worth more than one that mirrors the pipeline.
+
+### What the status bar is showing
+
+The pill at the bottom of the screen is **not a live view of a running
+process**. It is the contents of `status.json` — a file on disk that the
+viewer polls every 2 seconds, and that outlives everything: the viewer
+restarting, the shell closing, the machine rebooting. Whatever was last
+written to it stays on screen until something writes again.
+
+So the words on the pill are always the last thing *someone* published, and
+nothing more. Two consequences worth stating plainly:
+
+**`--message` is free text, stored verbatim.** `publish.py` generates no
+status text of its own — it writes the string it was handed and prints it
+back. A pill reading "全部通过" is a claim made by whoever passed that flag,
+not a verdict any tool reached. When the user asks what a status means, the
+answer is in the command that produced it, not in the viewer.
+
+**A status left over from an earlier run keeps showing.** A smoke test, a
+manual `publish.py` call at a shell, a run that finished hours ago — each
+leaves its last message on the pill, and it looks exactly like a current
+one. Before reading the pill as the state of anything, check when it was
+written:
+
+```bash
+BB="${BB:-$HOME/biobench}"
+[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
+python3 -c "
+import json
+d = json.load(open('$BB/webapp/static/status.json'))
+a = d.get('active') or {}
+print(f\"pill: {a.get('state')} — {a.get('message')}\")
+print(f\"step: {a.get('index')}/{a.get('total')} {a.get('step')}  skill: {a.get('skill')}\")
+print(f\"updated: {a.get('updated')}\")
+print(f\"jobs on record: {len(d.get('jobs', []))}\")
+"
+```
+
+`updated` is the field that matters. A pill whose `updated` belongs to a
+previous session is history, not progress — say so rather than reporting it
+as the current state of the machine.
+
+**To clear it, publish something.** There is no reset flag, and deleting a
+task cannot tell which structures were its to clear, so the pill is
+*replaced* rather than emptied: the next `--status` call overwrites
+`active`, and a `--state done` report rests the pill on that result. A new
+task's step 1 — publishing its input structure — is what normally displaces
+a stale one.
 
 ### Publishing a structure
 
@@ -713,19 +752,9 @@ def publish(cif_text: str, meta: dict, viewer: Path):
    Loading a structure is a task: declare it, report it, publish it. A
    structure that appears with no status history leaves the user guessing
    what produced it, and a task that runs for minutes with no reports
-   leaves them watching something unrelated. The minimum for any task:
-
-   ```bash
-   # the input, first — the viewer has something to show immediately
-   python3 $PUB --structure input.pdb --name my_input --source rcsb --job <id>
-   # the route
-   python3 $PUB --status --state queued --skill <skill> --job <id> \
-     --label "<readable name>" --plan "步骤一,步骤二"
-   # each step, with the structure it produced
-   python3 $PUB --status --state done --step "步骤一" --index 1 --total 2 \
-     --skill <skill> --job <id> --structure out.pdb --name out \
-     --message "<what happened>"
-   ```
+   leaves them watching something unrelated. The minimum is the four calls
+   in "Every skill reports the same way" above — input, route, each step,
+   done.
 
 10. **A ligand is never optional.** If the input has one, it reaches the
     viewer — as its own chain, with its own style. See "Ligands sharing a
@@ -735,6 +764,13 @@ def publish(cif_text: str, meta: dict, viewer: Path):
     fixed-column layout has no error checking, and every skill that hand-rolls
     it gets a different one wrong. See `_shared/silent-failures.md` for the
     four ways it has already gone wrong here.
+12. **Never leave a status that reads as a conclusion when it is not one.**
+    A smoke test or a manual `publish.py` call writes the same `status.json`
+    a real run does, and its message sits on the pill indefinitely. If you
+    publish to verify the pipeline works, say so in `--message` — "发布链路
+    验证" rather than "全部通过" — so nobody later reads it as a result. The
+    same applies to a run you abandon: report `--state error` with what
+    stopped it rather than leaving the last step mid-flight.
 
 ## When the user says the structure looks wrong
 

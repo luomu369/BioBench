@@ -7,27 +7,17 @@ weights on disk, and that a checkpoint actually loads. Read-only.
 Exit codes: 0 all checks passed, 1 one or more failed.
 """
 
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import conda_root, env_python, models_root
+from preflight import check, run_py, summary
 
 CONDA = conda_root()
 ENV = CONDA / "envs" / "genmol"
 PY = env_python("genmol")
 WEIGHTS = models_root() / "genmol"
-
-
-def check(label, ok, detail=""):
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
-
-
-def run(code, timeout=300):
-    return subprocess.run([str(PY), "-c", code], capture_output=True,
-                          text=True, timeout=timeout)
 
 
 def main():
@@ -39,22 +29,22 @@ def main():
         return 1
     results.append(check("conda env 'genmol'", True, str(ENV)))
 
-    r = run("import torch; print(torch.__version__, torch.cuda.is_available())")
+    r = run_py(PY, "import torch; print(torch.__version__, torch.cuda.is_available())")
     if r.returncode == 0:
         ver, cuda = r.stdout.strip().rsplit(" ", 1)
         results.append(check("torch + CUDA", cuda == "True", f"torch {ver}"))
         if cuda == "True":
-            name = run("import torch; print(torch.cuda.get_device_name(0))")
+            name = run_py(PY, "import torch; print(torch.cuda.get_device_name(0))")
             results.append(check("GPU", True, name.stdout.strip()))
     else:
         results.append(check("torch importable", False, r.stderr.strip()[-120:]))
 
-    r = run("import genmol; print('ok')")
+    r = run_py(PY, "import genmol; print('ok')")
     results.append(check("genmol importable", r.returncode == 0,
                          "" if r.returncode == 0 else r.stderr.strip()[-120:]))
 
     # The `safe` package must expose the converter (see SKILL.md Step 5)
-    r = run("from safe.converter import SAFEConverter; print('ok')")
+    r = run_py(PY, "from safe.converter import SAFEConverter; print('ok')")
     results.append(check("safe.converter importable", r.returncode == 0,
                          "" if r.returncode == 0
                          else "run the safe/__init__.py fix in SKILL.md"))
@@ -71,7 +61,8 @@ def main():
     # Actually load the newest checkpoint — catches the weights_only issue
     if ckpts:
         newest = max(ckpts, key=lambda p: p.stat().st_mtime)
-        r = run(
+        r = run_py(
+            PY,
             "import torch\n"
             "_o = torch.load\n"
             "torch.load = lambda *a, **k: _o(*a, **{**k, 'weights_only': False})\n"
@@ -84,8 +75,7 @@ def main():
                              newest.name if r.returncode == 0
                              else r.stderr.strip()[-160:]))
 
-    print(f"\nsummary: {sum(results)} passed, {len(results) - sum(results)} failed")
-    return 0 if all(results) else 1
+    return summary(results)
 
 
 if __name__ == "__main__":

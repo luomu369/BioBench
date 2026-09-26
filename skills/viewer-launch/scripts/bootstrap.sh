@@ -20,9 +20,32 @@ set -uo pipefail
 # that keeps its conda or models somewhere unusual.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIOBENCH="${BIOBENCH:-$(cd "$HERE/../../.." && pwd)}"
-CONDA="${CONDA:-$(dirname "$(dirname "$(command -v conda)")")}"
 MODELS="${MODELS:-$HOME/models}"
 STATIC="$BIOBENCH/webapp/static"
+
+# The interpreter the shared path module runs under. python3 is on PATH
+# everywhere conda is installed; if it is not, the fallback below still
+# finds conda, so this only decides which of the two paths is taken.
+PYTHON="$(command -v python3 || command -v python || echo python3)"
+
+# Conda is resolved through the shared path module, the same one every
+# preflight uses — not from `command -v conda`. Conda is routinely absent
+# from PATH (a non-login shell, a cron job, an agent's subprocess), and
+# `dirname "$(dirname "$(command -v conda)")"` then collapses to "." and
+# reports every environment missing on a machine where all of them exist.
+# The module probes the usual install locations instead, so a machine that
+# already has conda does not have to be told where it is.
+CONDA="${CONDA:-$("$PYTHON" "$BIOBENCH/skills/_shared/biobench_paths.py" 2>/dev/null \
+    | sed -n 's/^CONDA_ROOT[[:space:]]*//p' | head -1)}"
+# The module could not answer — no python3, or a tree without _shared. Fall
+# back to the usual locations rather than to ".": a wrong path is reported
+# as "conda not found at <path>", which names what was wanted, while "."
+# names nothing.
+if [[ ! -x "$CONDA/bin/conda" ]]; then
+    for c in "$HOME/miniconda3" "$HOME/miniforge3" "$HOME/anaconda3" /opt/conda; do
+        [[ -x "$c/bin/conda" ]] && { CONDA="$c"; break; }
+    done
+fi
 
 FIX=0
 [[ "${1:-}" == "--fix" ]] && FIX=1
@@ -97,13 +120,19 @@ if [[ -d "$WDIR" ]]; then
         ok "all 5 checkpoints present ($(du -sh "$WDIR" | cut -f1))"
     elif [[ $FIX -eq 1 ]]; then
         echo "         fixing: downloading ${#MISSING[@]} checkpoint(s) via hf-mirror"
-        HF_ENDPOINT=https://hf-mirror.com "$CONDA/envs/boltzgen/bin/python" - "${MISSING[@]}" <<'PYEOF'
+        # The heredoc is unquoted so $WDIR expands, and the destination is
+        # passed as an argument rather than interpolated into the source —
+        # a quoted heredoc would hand Python the literal string
+        # "$MODELS/boltzgen-1" and create a directory by that name in the
+        # cwd, which is a 9.5 GB download landing somewhere nothing reads.
+        HF_ENDPOINT=https://hf-mirror.com \
+            "$CONDA/envs/boltzgen/bin/python" - "$WDIR" "${MISSING[@]}" <<PYEOF
 import sys
 from huggingface_hub import hf_hub_download
-for name in sys.argv[1:]:
+dest = sys.argv[1]
+for name in sys.argv[2:]:
     print(f"         downloading {name}.ckpt ...")
-    hf_hub_download("boltzgen/boltzgen-1", f"{name}.ckpt",
-                    local_dir="$MODELS/boltzgen-1")
+    hf_hub_download("boltzgen/boltzgen-1", f"{name}.ckpt", local_dir=dest)
 PYEOF
     fi
 else
@@ -111,11 +140,12 @@ else
     [[ $FIX -eq 1 ]] && {
         echo "         fixing: downloading all weights (~9.5 GB)"
         mkdir -p "$WDIR"
-        HF_ENDPOINT=https://hf-mirror.com "$CONDA/envs/boltzgen/bin/python" - <<'PYEOF'
+        # Unquoted heredoc, destination as argv — see the note above.
+        HF_ENDPOINT=https://hf-mirror.com \
+            "$CONDA/envs/boltzgen/bin/python" - "$WDIR" <<PYEOF
+import sys
 from huggingface_hub import snapshot_download
-snapshot_download("boltzgen/boltzgen-1",
-                  local_dir="$MODELS/boltzgen-1",
-                  max_workers=8)
+snapshot_download("boltzgen/boltzgen-1", local_dir=sys.argv[1], max_workers=8)
 PYEOF
     }
 fi
