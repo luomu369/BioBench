@@ -62,7 +62,8 @@ webapp/viewer.log
 # why the server did not come up.
 webapp/opencode-server.log
 
-# The viewer's pid, written by run_viewer.sh so the script can stop what it
-# started. Machine-specific by definition — the number means nothing anywhere
-# else.
+# The viewer's and the agent's pids, written by start.sh so stop.sh can stop
+# what it started. Machine-specific by definition — the numbers mean nothing
+# anywhere else, and a stale one would have stop.sh kill an unrelated process.
 run.pid
+agent.pid

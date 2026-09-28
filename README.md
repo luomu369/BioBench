@@ -54,19 +54,36 @@ biobench/
 ## 快速开始
 
 ```bash
-# 1. 检查环境（加 --fix 修复）
-bash skills/viewer-launch/scripts/bootstrap.sh
-
-# 2. 启动查看器
-bash webapp/run_viewer.sh --port 8282
+# 一条命令启动全部：查看器 + Agent
+bash start.sh
 #    → http://localhost:8282
 
-# 3. 向 Agent 提问：
-#    "为 NK1R 设计一个结合剂"
+# 停止
+bash stop.sh
 ```
 
-查看器启动后，右侧是 Agent 面板。直接用自然语言描述要做什么；在结构上选中残基
-或原子，选中的内容会连同问题一起发给模型。
+`start.sh` 会按需安装 opencode（首次运行自动下载），先起 Agent 再起查看器，
+两者都以 `setsid` 脱离终端——**VS Code 重启也杀不掉它们**。
+
+也可以只起查看器（Agent 面板不可用，但结构照常显示）：
+
+```bash
+bash start.sh --no-agent
+# 或原来的方式
+bash webapp/run_viewer.sh --port 8282
+```
+
+启动后右侧是 Agent 面板。直接用自然语言描述要做什么；在结构上选中残基或原子，
+选中的内容会连同问题一起发给模型。
+
+首次使用需要 API key：
+
+```bash
+echo 'STEPFUN_API_KEY=sk-xxx' > webapp/agent.key
+```
+
+环境变量 `STEPFUN_API_KEY` 同样有效，但活不过终端关闭——查看器比启动它的终端
+活得长，所以推荐用文件。
 
 ## 工作原理
 
