@@ -160,9 +160,9 @@ $FS databases PDB $FOLDSEEK_DB $FOLDSEEK_DB/dltmp
 
 ### Search the residues the user selected
 
-The viewer writes the user's residue clicks to `selection.json`. To ask
-"what known protein looks like this bit?", extract those residues into a
-structure of their own and search with it:
+The user's residue clicks arrive with the request as a `[当前结构：...]`
+block. To ask "what known protein looks like this bit?", extract those residues
+into a structure of their own and search with it:
 
 ```bash
 MODELS="${MODELS:-$HOME/models}"

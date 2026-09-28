@@ -77,6 +77,49 @@ pocket move", "use the residues I selected"), use it and do not re-ask.
 3. Interpret and report the poses
 ```
 
+## Re-docking a ligand that was already docked
+
+"再做一次重对接" / "重对接 re" means: dock another ligand from the same
+generated set, with the same box and the same search settings, so the
+affinity is comparable to the runs already on screen.
+
+**Read the parameters, do not reconstruct them.** `webapp/static/current.json`
+holds the previous run's numbers in a `params` block:
+
+```bash
+python3 -c "import json; d=json.load(open('webapp/static/current.json')); print(json.dumps(d.get('params'), indent=2, ensure_ascii=False))"
+```
+
+That gives the box centre, the box size, the exhaustiveness, the mode count,
+the flexibility, and the ligand SMILES and chain of the run before. Use them
+as they are. A box that moved between runs makes the affinities
+incomparable, which is the one thing a re-dock exists to avoid.
+
+Do **not** go looking for the previous run's directory, its log, or its
+`summary.json` to recover these. They are in `current.json` already, and a
+tour of `/tmp` and `runs/` to find them costs a dozen tool calls and reaches
+the same numbers.
+
+**Which ligand the selection names.** The selection arrives with the request
+as a `[当前结构：...]` block, and it names a chain (`LIG 1 · re`). The chain
+is the ligand's identity in the published structure — `re` is the fifth
+generated molecule, and its SMILES is in the `params` block of the run that
+published it. If the chain is not in `current.json`'s `params`, read it from
+the structure the selection names rather than counting entries in a
+generation log.
+
+**Publish with `--params`.** Pass the same numbers back so the next re-dock
+reads them the same way:
+
+```bash
+python3 $PUB --structure complex.pdb --name 1ruz_re_redock \
+  --source vina --roles "H=receptor,I=receptor,J=receptor,K=receptor,L=receptor,M=receptor,Z=ligand" \
+  --metrics '{"best_affinity_kcal_mol": {"label": "结合亲和力", "value": -5.71, "hint": "kcal/mol，越负越强"}}' \
+  --params '{"box_center": [25.787, 89.954, 45.994], "box_size": 20, "exhaustiveness": 8, "num_modes": 9, "flexibility": "rigid", "ligand_smiles": "c1ccc2c(c1)OCO2", "ligand_chain": "re"}' \
+  --notes "..." --status --state done --step "刚性重对接" --index 2 --total 2 \
+  --skill molecular-docking --job 1ruz_re_redock --message "re 重对接完成"
+```
+
 ## Step 1 — Report progress
 
 ```bash

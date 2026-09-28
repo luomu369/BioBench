@@ -1,0 +1,105 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Project config for the opencode instance the BioBench viewer's agent panel drives. Committed on purpose: it is what makes the agent understand this repo rather than treating it as an unknown codebase. No credentials here — the key comes from the environment.
+
+  "autoupdate": false,
+  // The binary is pinned in vendor/opencode.json and installed by install_opencode.sh. Letting opencode silently replace itself would make that pin meaningless, and a surprise upgrade mid-session is a change nobody asked for.
+
+  "share": "disabled",
+  // Sessions are about the user's own structures. Nothing here should be uploadable by default.
+
+  "default_agent": "biobench",
+
+  "instructions": [
+    "SKILL.md",
+    "skills/_shared/silent-failures.md"
+  ],
+  // SKILL.md is the entry point that routes to the right skill; silent-failures.md is the list of traps this codebase has already hit. Both are read by the model before it answers, which is the difference between an agent that knows the PDB column layout is fixed-width and one that writes a shifted line.
+
+  "provider": {
+    "stepfun": {
+      // @ai-sdk/openai-compatible is the package for any provider serving
+      // /v1/chat/completions, which is what StepFun does. A wrong package
+      // name here fails as "Failed to initialize provider" with no hint
+      // that the name is what is wrong.
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "StepFun",
+      // OpenAI-compatible: StepFun serves /chat/completions with the standard
+      // request and error shapes, which is what the SDK speaks.
+      "options": {
+        "baseURL": "https://api.stepfun.com/step_plan/v1",
+        // Read from the environment rather than written here. This file is
+        // committed; a key in it would be in the history the moment it was
+        // added, and removing it later does not remove it from a clone.
+        "apiKey": "{env:STEPFUN_API_KEY}"
+      },
+      "models": {
+        "step-5-preview": {
+          "name": "Step 5 Preview",
+          // Declared rather than fetched from models.dev: this is a custom
+          // provider, so there is no catalogue entry to read them from, and
+          // without them opencode cannot tell how much context is left.
+          "limit": { "context": 1000000, "output": 65536 }
+        }
+      }
+    }
+  },
+
+  "model": "stepfun/step-5-preview",
+
+  "agent": {
+    "biobench": {
+      "description": "Answers questions about the structure on screen and runs BioBench skills: docking, binder design, molecular editing, simulation.",
+      "mode": "primary",
+      "prompt": "{file:vendor/prompts/biobench.md}",
+      "temperature": 0.2,
+      // Low. The questions are about a specific structure with specific numbers, and a creative answer to 'what is the affinity' is a wrong answer.
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "webfetch": true
+      },
+      "permission": {
+        "edit": "ask",
+        // Everything asks. The allow list that used to sit here — read-only
+        // commands, the skill scripts, conda queries — was removed once the
+        // panel grew an auto-approve switch: with the switch off the user is
+        // asked about everything, which is the honest default, and with it on
+        // nothing is asked at all, which is what the list was approximating.
+        //
+        // Keeping both meant the list decided what ran unattended while the
+        // switch only covered the rest, so neither control described what the
+        // agent was actually allowed to do. One switch that covers everything
+        // is a thing the user can reason about; a list plus a switch is not.
+        "bash": "ask"
+      },
+      // Everything asks first — an agent that can rewrite the repo without a prompt is not something to point at a user's structures. The panel's auto-approve switch is what lifts that, and it lifts all of it or none of it.
+    },
+
+    "biobench-readonly": {
+      "description": "Answers questions about the structure on screen without changing anything.",
+      "mode": "primary",
+      "prompt": "{file:vendor/prompts/biobench.md}",
+      "temperature": 0.2,
+      "tools": {
+        "write": false,
+        "edit": false,
+        // bash is off entirely rather than allowed for a few commands. A
+        // denied command is not a clean failure: the model retries in another
+        // shape, the retry is denied too, and the turn ends without an
+        // answer — which reads as the panel hanging. `read` covers every
+        // file this agent needs, so there is nothing bash would add.
+        "bash": false
+      },
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      },
+      // For 'what am I looking at' questions. Same knowledge, no ability to touch anything.
+    }
+  },
+
+  "mcp": {},
+  // No MCP servers by default. The viewer's state is already on disk as JSON under webapp/static/, which the agent reads directly — an MCP server in front of the same files would add a moving part without adding information.
+}

@@ -245,7 +245,8 @@ is still its wild-type amino acid means the omit did not land — see the
 ### Using residues the user selected in the viewer
 
 If the user selected residues and asked to design around / keep them, read
-`webapp/static/selection.json` and turn it into a fixed-positions JSONL:
+the selection from the request's `[当前结构：...]` block and turn it into a
+fixed-positions JSONL:
 
 ```bash
 BB="${BB:-$HOME/biobench}"
@@ -256,7 +257,7 @@ python3 $BB/skills/structure-viewer/scripts/read_selection.py \
 
 Then pass `--fixed-positions-jsonl fixed.jsonl`.
 
-**If `selection.json` is missing or `count` is 0**, the user has not selected
+**If the request has no `[当前结构：...]` block**, the user has not selected
 anything — ask them to click residues in the viewer rather than guessing which
 positions matter.
 

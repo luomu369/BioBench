@@ -16,6 +16,8 @@
     --warn: #fbbf24;
     --err: #f87171;
   }
+
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
@@ -30,6 +32,9 @@
   #viewer-wrap {
     position: absolute;
     inset: 0;
+    /* The default backdrop. Overwritten inline by stageApply() when the user
+       picks another, which is why it lives here as well as in the JS table:
+       this is what shows before the script runs. */
     background: radial-gradient(ellipse at 50% 40%, #16202b 0%, #0b0f14 70%);
   }
   #viewer { width: 100%; height: 100%; }
@@ -38,7 +43,7 @@
     position: absolute;
     z-index: 20;
     pointer-events: none;
-    background: rgba(13,18,25,.92);
+    background: rgba(19,26,34,.78);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 5px 9px;
@@ -52,6 +57,12 @@
   #hover-tip .ht-res { font-weight: 600; }
   #hover-tip .ht-chain { color: var(--muted); margin-left: 6px; }
   #hover-tip .ht-sel { color: var(--accent); margin-left: 6px; }
+  /* The empty stage: the name, large, and a line under it saying what this
+     is. The name is the first thing anyone sees on a fresh page, and at 18px
+     it was smaller than the panel headings beside it — a title that reads as
+     a label. The line under it is the one place the page says what it is for,
+     so it is kept short enough to read at a glance and quiet enough not to
+     compete with the name. */
   #viewer-hint {
     position: absolute;
     inset: 0;
@@ -59,21 +70,54 @@
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     color: var(--muted);
     pointer-events: none;
     text-align: center;
     padding: 20px;
   }
   #viewer-hint.hidden { display: none; }
-  #viewer-hint .big { font-size: 18px; color: var(--text); }
-  #viewer-hint .small { font-size: 13px; max-width: 460px; line-height: 1.7; }
-  #viewer-hint code {
-    background: rgba(10,14,19,.8);
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 12px;
-    color: var(--accent);
+  /* The mark and the name, side by side and aligned on their centres. */
+  #viewer-hint .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  #viewer-hint .mark { color: var(--accent); flex-shrink: 0; }
+  #viewer-hint .big {
+    font-size: 40px;
+    font-weight: 300;
+    letter-spacing: .14em;
+    color: var(--text);
+  }
+  /* Brighter than --muted: this sits on whatever picture the user chose as
+     a backdrop, and a grey tuned for the dark UI can disappear into a dark
+     photograph. The text colour is the one that always reads. */
+  #viewer-hint .tag {
+    font-size: 13px;
+    line-height: 1.8;
+    max-width: 420px;
+    color: var(--text);
+    opacity: .82;
+  }
+  /* The capabilities, as a row of short phrases rather than a sentence. A
+     sentence has to be read; a row can be scanned, and this is the line that
+     tells someone what they can ask for. */
+  #viewer-hint .caps {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 10px;
+    margin-top: 2px;
+    font-size: 11.5px;
+  }
+  #viewer-hint .caps span {
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 11px;
+    color: var(--text);
+    opacity: .62;
+    white-space: nowrap;
   }
 
   /* ---------- top bar ---------- */
@@ -90,7 +134,7 @@
   .ctl {
     appearance: none;
     -webkit-appearance: none;
-    background: rgba(19,26,34,.72);
+    background: rgba(19,26,34,.78);
     border: 1px solid rgba(34,48,64,.9);
     border-radius: 999px;
     color: var(--text);
@@ -127,7 +171,7 @@
     /* Above #left-col (z-index 10) so the switcher menu can open over the
        metrics and sequence panels. */
     z-index: 40;
-    background: rgba(11,15,20,.72);
+    background: rgba(11,15,20,.55);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 6px 12px;
@@ -161,15 +205,22 @@
   /* ---------- left column: metrics + sequence ---------- */
   #left-col {
     position: absolute;
-    top: 58px; left: 16px;
+    /* Anchored top and bottom rather than given a max-height, so the column
+       always fills the gap between the top bar and the status bar. A
+       max-height leaves it as tall as its content and no taller, which on a
+       short panel stack wastes most of the available height. */
+    top: 58px; bottom: 58px; left: 16px;
     z-index: 10;
     width: min(400px, calc(100% - 300px));
-    max-height: calc(100% - 120px);
-    overflow-y: auto;
+    /* The column itself never scrolls. It is a fixed stack of three panels
+       that each scroll inside their own box, so all three stay on screen at
+       once — the metrics, the sequence and the selection are all things the
+       user compares against each other, and a column that scrolls hides two
+       of them to show the third. */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    scrollbar-width: thin;
   }
   #left-col:empty { display: none; }
 
@@ -181,7 +232,26 @@
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     display: none;
-    flex-shrink: 0;
+    /* The whole panel is one scrollable box, title included. It used to be a
+       flex column with the rows and the notes scrolling separately, which
+       left the title pinned and two scrollbars doing one job — and a
+       max-height that reserved space the content did not fill, so the panel
+       ended in eighty pixels of nothing. Now it is as tall as its content and
+       scrolls as one piece when the column gives it less than that. */
+    /* Bounded, but loosely: the panel takes what its content needs up to
+       about a third of the column, and scrolls past that. Without the bound a
+       run reporting twenty metrics pushes the panel to two thirds of the
+       column and squeezes the sequence and selection to slivers.
+
+       `height: fit-content` is what keeps the short case honest — a
+       max-height alone reserves the space whether the content fills it or
+       not, which is how the panel came to end in eighty pixels of nothing.
+       With it the panel is exactly as tall as its metrics, up to the cap. */
+    flex: 0 1 auto;
+    height: fit-content;
+    max-height: 34%;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
   #metrics.show { display: block; }
   #metrics .m-title {
@@ -226,11 +296,13 @@
     -webkit-backdrop-filter: blur(14px);
     box-shadow: 0 8px 32px rgba(0,0,0,.45);
     display: none;
-    /* Taller than the old 220px so a dozen chains fit, but capped so the
-       panel scrolls instead of swallowing the whole left column. */
-    max-height: 420px;
-    overflow: auto;
-    flex-shrink: 0;
+    /* Scrolls inside its own box. The sequence is the longest thing in the
+       column — thirty-odd chains of residues — and it gets the larger share
+       of the height because it is the one most often read end to end. */
+    flex: 1.4 1 0;
+    min-height: 120px;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
   #seq-panel.show { display: block; }
   #seq-panel .seq-head {
@@ -336,22 +408,28 @@
     color: #0b0f14;
   }
 
-  /* ---------- state.selection panel ---------- */
+  /* ---------- selection panel ---------- */
+  /* A card in the left column, under the sequence panel, rather than a
+     floating overlay on the right. It used to sit over the viewer at the
+     top right, where it covered whatever the user had just selected and
+     fought with the structure label for the same corner. In the column it
+     scrolls with the rest and never covers the model. */
   #selection {
-    position: absolute;
-    right: 16px; top: 58px;
-    z-index: 10;
-    width: 230px;
-    max-height: calc(100% - 140px);
-    overflow: auto;
     background: rgba(19,26,34,.78);
     border: 1px solid rgba(34,48,64,.9);
     border-radius: 14px;
-    padding: 14px 16px;
+    padding: 12px 16px;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     box-shadow: 0 8px 32px rgba(0,0,0,.45);
     display: none;
+    /* Scrolls inside its own box, like the sequence. A selection can run to
+       dozens of residues, and it has to stay reachable without pushing the
+       other two panels off the screen. */
+    flex: 1 1 0;
+    min-height: 120px;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
   #selection.show { display: block; }
   /* Two rows: the title, then the mode switch and clear. One row crammed
@@ -406,6 +484,14 @@
     color: var(--accent);
   }
   #selection .s-empty { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  /* The list scrolls on its own once it is tall, so a selection of forty
+     residues does not push the metrics and sequence panels off the top of
+     the column. */
+  /* No cap here either, for the same reason: the column scrolls, so a second
+     scrollbar inside it only splits the selection across two controls. */
+  #sel-list {
+    scrollbar-width: thin;
+  }
   #selection .s-row {
     display: flex;
     align-items: center;
@@ -432,6 +518,483 @@
   }
   #selection .s-del:hover { color: var(--err); }
 
+  /* ---------- agent panel ---------- */
+  /* Sits against the right edge, full height between the top bar and the
+     status bar. Collapsed it is a tab only, so the viewer keeps its width
+     until the user asks for the chat. */
+  #agent-panel {
+    position: absolute;
+    top: 58px; right: 16px; bottom: 58px;
+    z-index: 12;
+    width: min(400px, calc(100% - 480px));
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(19,26,34,.78);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 14px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.45);
+    overflow: hidden;
+  }
+  /* Collapsed: the panel becomes its own header, docked to the right edge.
+     The body is display:none rather than height:0 so nothing inside it can
+     be tabbed to or scrolled while it is shut. */
+  #agent-panel.collapsed {
+    top: 58px;
+    bottom: auto;
+    width: auto;
+    min-width: 0;
+  }
+  #agent-panel.collapsed .ag-body { display: none; }
+  #agent-panel.collapsed #ag-collapse { transform: rotate(180deg); }
+
+  #agent-panel .ag-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(34,48,64,.7);
+    flex-shrink: 0;
+  }
+  /* The conversation list, dropped down over the transcript. Absolute so it
+     does not squeeze the log when it opens, and capped in height so a long
+     history scrolls instead of covering the whole panel. */
+  #agent-panel .ag-sessions {
+    position: absolute;
+    top: 40px; left: 0; right: 0;
+    z-index: 5;
+    max-height: 60%;
+    overflow-y: auto;
+    background: rgba(19,26,34,.78);
+    border-bottom: 1px solid rgba(34,48,64,.9);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    scrollbar-width: thin;
+  }
+  #agent-panel .ag-sessions[hidden] { display: none; }
+  #agent-panel .ag-ses-head {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    padding: 9px 12px 5px;
+  }
+  #agent-panel .ag-ses-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  #agent-panel .ag-ses-row:hover { background: rgba(77,163,255,.1); }
+  #agent-panel .ag-ses-row.on { background: rgba(77,163,255,.14); }
+  #agent-panel .ag-ses-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #agent-panel .ag-ses-row.on .ag-ses-title { color: var(--accent); }
+  #agent-panel .ag-ses-turns {
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  #agent-panel .ag-ses-del {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 3px;
+    flex-shrink: 0;
+    visibility: hidden;
+  }
+  #agent-panel .ag-ses-row:hover .ag-ses-del { visibility: visible; }
+  #agent-panel .ag-ses-del:hover { color: var(--err); }
+  #agent-panel .ag-ses-empty {
+    padding: 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #agent-panel .ag-title {
+    flex: 1;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+  }
+  /* The conversation buttons, hidden along with the body when the panel is
+     collapsed. A collapsed panel is a tab, and a tab with three buttons on it
+     is a toolbar the user did not ask for — the one thing worth keeping is the
+     control that opens it again. */
+  #agent-panel.collapsed .ag-head-btn { display: none; }
+  #agent-panel .ag-icon-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+    transition: transform .15s, color .12s;
+  }
+  #agent-panel .ag-icon-btn:hover { color: var(--text); }
+
+  /* The auto-approve switch, lit while it is on. The colour is the warning
+     one because that is what it is: with it on, the agent runs commands
+     nobody approved. A switch that looks the same in both states is a switch
+     the user cannot read at a glance, and this one changes what the agent is
+     allowed to do. */
+  #ag-auto.on { color: var(--warn); }
+  #ag-auto.on:hover { color: var(--warn); }
+
+  #agent-panel .ag-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* The transcript. It is the only thing that scrolls, so the compose box
+     and the context line stay put while the conversation grows. */
+  #agent-panel .ag-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-width: thin;
+  }
+  .ag-msg { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+  .ag-msg .ag-who {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+  }
+  .ag-msg .ag-text {
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 8px 11px;
+    border-radius: 10px;
+  }
+  /* The model writes `code` for identifiers — chain ids, SMILES, file names.
+     Monospacing them is what makes a reply scannable, and it costs one rule. */
+  .ag-msg .ag-text code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    background: rgba(11,15,20,.55);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  /* A fenced block, which is how the model lays out anything columnar — a
+     parameter summary, a chain list, a score table. Monospace and
+     whitespace-preserving, because the alignment in the source is done with
+     spaces and a proportional font collapses them into nothing. Without this
+     the block arrives as ragged prose and the columns are gone. */
+  .ag-msg .ag-text pre.ag-pre,
+  .ag-msg .ag-think-text pre.ag-pre {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+    background: rgba(11,15,20,.55);
+    border: 1px solid rgba(34,48,64,.7);
+    border-radius: 8px;
+    padding: 9px 11px;
+    margin: 6px 0;
+    scrollbar-width: thin;
+  }
+  .ag-msg .ag-text b { color: var(--text); font-weight: 600; }
+  .ag-msg.user { align-items: flex-end; }
+  .ag-msg.user .ag-text {
+    background: rgba(77,163,255,.16);
+    border: 1px solid rgba(77,163,255,.28);
+  }
+  .ag-msg.assistant .ag-text {
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(34,48,64,.9);
+  }
+  .ag-msg.error .ag-text {
+    background: rgba(248,113,113,.12);
+    border: 1px solid rgba(248,113,113,.35);
+    color: var(--err);
+  }
+  /* A tool call the model made, shown as a line under its message. The user
+     asked about the structure; knowing the model looked at the selection
+     before answering is the difference between an answer and a guess. */
+  /* The tools the model called, folded the same way as the working above it.
+     Both are the record of what happened before the answer, and both are
+     long — a turn that reads four files produces four lines of paths. Shown
+     open they push the answer off the bottom of a narrow panel; folded, the
+     answer is what the user sees first and the evidence is one click away. */
+  .ag-msg .ag-tools {
+    margin-top: 2px;
+  }
+  .ag-msg .ag-tools > summary {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+  }
+  .ag-msg .ag-tools > summary::-webkit-details-marker { display: none; }
+  .ag-msg .ag-tools > summary::before {
+    content: "▸";
+    font-size: 9px;
+    transition: transform .15s;
+  }
+  .ag-msg .ag-tools[open] > summary::before { transform: rotate(90deg); }
+  .ag-msg .ag-tools > summary:hover { color: var(--text); }
+  .ag-msg .ag-tools > summary .ag-tool-count {
+    color: var(--accent);
+    letter-spacing: 0;
+  }
+  .ag-tool-line {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, Menlo, monospace;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0 2px 14px;
+    word-break: break-all;
+  }
+  .ag-tool-line::before {
+    content: "⚙";
+    font-size: 10px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  /* The model's working, shown above its answer and collapsed by default.
+     A reasoning model's answer is easier to trust when the reading that
+     produced it is visible — on a question about a specific structure the
+     working is often where the actual looking happened. It is collapsed
+     because it is long, and the answer is what the user asked for. */
+  .ag-msg .ag-think {
+    margin-bottom: 2px;
+  }
+  .ag-msg .ag-think > summary {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+  }
+  .ag-msg .ag-think > summary::-webkit-details-marker { display: none; }
+  .ag-msg .ag-think > summary::before {
+    content: "▸";
+    font-size: 9px;
+    transition: transform .15s;
+  }
+  .ag-msg .ag-think[open] > summary::before { transform: rotate(90deg); }
+  .ag-msg .ag-think > summary:hover { color: var(--text); }
+  .ag-msg .ag-think-text {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: rgba(11,15,20,.55);
+    border-left: 2px solid rgba(77,163,255,.3);
+    border-radius: 0 8px 8px 0;
+    padding: 8px 11px;
+    margin-top: 5px;
+    max-height: 260px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .ag-msg.pending .ag-text { opacity: .6; }
+  .ag-msg.pending .ag-text::after {
+    content: "▍";
+    animation: ag-blink 1s steps(2) infinite;
+    color: var(--accent);
+  }
+  @keyframes ag-blink { 50% { opacity: 0; } }
+
+  /* While a turn runs, the header says so. A blinking cursor alone reads as
+     "stuck" when the model is reading files or a skill script is running —
+     both take real time and produce no text. Naming the state is the
+     difference between a slow agent and a broken one. */
+  /* On the message itself rather than on the (now absent) name row, so it
+     still shows now that the agent's messages carry no label. */
+  .ag-msg.pending::before {
+    content: "运行中";
+    align-self: flex-start;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(77,163,255,.16);
+    color: var(--accent);
+    font-size: 9px;
+    letter-spacing: .04em;
+    animation: ag-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes ag-pulse { 50% { opacity: .45; } }
+
+  /* A permission request. The agent is blocked until this is answered, so it
+     is styled as something waiting rather than as another log line — amber,
+     because it is the one thing in the transcript that needs a decision. */
+  /* A permission request, docked to the bottom of the panel above the
+     compose box. It used to sit inside the transcript, where a long
+     conversation pushed it out of sight — and the agent is blocked until it
+     is answered, so an unseen prompt is a hung turn. Here it is always where
+     the user is looking, and it goes away once answered. */
+  #ag-perm {
+    background: rgba(251,191,36,.1);
+    border-top: 1px solid rgba(251,191,36,.35);
+    padding: 9px 12px;
+    flex-shrink: 0;
+  }
+  #ag-perm[hidden] { display: none; }
+  #ag-perm .ag-perm-head {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--warn);
+    margin-bottom: 5px;
+  }
+  #ag-perm .ag-perm-cmd {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    color: var(--text);
+    word-break: break-all;
+    margin-bottom: 8px;
+    max-height: 72px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  #ag-perm .ag-perm-btns { display: flex; gap: 6px; }
+  #ag-perm .ag-perm-btns button {
+    flex: 1;
+    border-radius: 7px;
+    font-size: 11px;
+    padding: 5px 8px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  #ag-perm .ag-perm-allow {
+    background: rgba(74,222,128,.16);
+    border: 1px solid rgba(74,222,128,.35);
+    color: var(--ok);
+  }
+  #ag-perm .ag-perm-allow:hover { background: rgba(74,222,128,.26); }
+  #ag-perm .ag-perm-deny {
+    background: rgba(248,113,113,.14);
+    border: 1px solid rgba(248,113,113,.35);
+    color: var(--err);
+  }
+  #ag-perm .ag-perm-deny:hover { background: rgba(248,113,113,.24); }
+
+  /* What the model can see, stated rather than implied. Without it the user
+     cannot tell whether "the selection" means what they selected or nothing
+     at all. */
+  #agent-panel .ag-context {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 12px;
+    border-top: 1px solid rgba(34,48,64,.7);
+    font-size: 11px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  #agent-panel .ag-ctx-label {
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    flex-shrink: 0;
+  }
+  #agent-panel .ag-ctx-text {
+    font-family: ui-monospace, Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #agent-panel .ag-compose {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid rgba(34,48,64,.7);
+    flex-shrink: 0;
+  }  #agent-panel .ag-compose textarea {
+    flex: 1;
+    resize: none;
+    background: rgba(11,15,20,.55);
+    border: 1px solid rgba(34,48,64,.9);
+    border-radius: 10px;
+    color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 8px 10px;
+    max-height: 140px;
+    outline: none;
+  }
+  #agent-panel .ag-compose textarea:focus { border-color: rgba(77,163,255,.5); }
+  #agent-panel .ag-compose textarea::placeholder { color: var(--muted); }
+  #agent-panel #ag-send {
+    background: rgba(77,163,255,.18);
+    border: 1px solid rgba(77,163,255,.35);
+    border-radius: 10px;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background .12s;
+  }
+  #agent-panel #ag-send:hover { background: rgba(77,163,255,.28); }
+  #agent-panel #ag-send:disabled { opacity: .4; cursor: default; }
+
+  /* While a turn runs the button is a stop control, and it is styled as one:
+     amber rather than the send blue, and spinning. The rotation is what says
+     "something is in progress" without the user having to read anything, and
+     the colour change says the same click now does the opposite thing. */
+  #agent-panel #ag-send.stopping {
+    background: rgba(251,191,36,.18);
+    border-color: rgba(251,191,36,.4);
+    color: var(--warn);
+  }
+  #agent-panel #ag-send.stopping:hover { background: rgba(251,191,36,.3); }
+  #agent-panel #ag-send.stopping #ag-stop-icon {
+    animation: ag-spin 1.1s linear infinite;
+  }
+  /* The two icons are swapped with the `hidden` attribute, which the browser
+     applies as `display: none` — but the button is a flex container, and a
+     flex item's display is overridden by the layout, so the attribute alone
+     leaves both icons drawn. The rule has to be spelled out. */
+  #agent-panel #ag-send svg[hidden] { display: none; }
+  @keyframes ag-spin { to { transform: rotate(360deg); } }
+
+  #agent-panel .ag-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 12px 8px;
+    flex-shrink: 0;
+  }
+  #agent-panel .ag-hint { font-size: 10px; color: var(--muted); }
+
   /* ---------- status bar ---------- */
   /* The status bar and the publish notice share one centred anchor. The
      wrapper is what is positioned and centred; the two pills inside it are
@@ -452,7 +1015,7 @@
     display: none;
     align-items: center;
     gap: 12px;
-    background: rgba(19,26,34,.82);
+    background: rgba(19,26,34,.78);
     border: 1px solid rgba(34,48,64,.9);
     border-radius: 999px;
     padding: 9px 20px;
@@ -637,23 +1200,26 @@
   .st-notice {
     display: flex;
     align-items: center;
-    justify-content: center;
-    /* The status pill is 9px of padding either side of a 13px line, so it
-       stands about 39px tall. Matching that here keeps the circle on the
-       same optical line as the bar instead of sitting small beside it. */
-    width: 39px; height: 39px;
+    gap: 7px;
+    /* A pill rather than the circle it used to be, because it now carries a
+       label. The height still matches the status pill — 9px of padding
+       either side of a 13px line — so the two sit on the same optical line
+       instead of one looming over the other. */
+    height: 39px;
+    padding: 0 15px 0 13px;
     margin-right: 8px;
-    padding: 0;
     /* Amber, not the accent blue. The status bar already uses blue for a run
        in progress, so a blue notice reads as more of the same and gets skimmed
        past; red is taken for errors, and a new structure is not an error. It
        is something waiting, which is what amber means everywhere else. */
     background: rgba(251,191,36,.14);
     border: 1px solid rgba(251,191,36,.55);
-    border-radius: 50%;
+    border-radius: 999px;
     color: var(--warn);
     cursor: pointer;
     flex-shrink: 0;
+    font-size: 13px;
+    white-space: nowrap;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
   }
@@ -661,9 +1227,9 @@
     background: rgba(251,191,36,.26);
     border-color: rgba(251,191,36,.95);
   }
-  .st-notice svg { width: 17px; height: 17px; fill: currentColor; }
+  .st-notice svg { width: 17px; height: 17px; fill: currentColor; flex-shrink: 0; }
   /* The name is kept in the DOM for the tooltip and for tests, but it is not
-     drawn — the circle carries the bell and nothing else. */
+     drawn — the label and the bell are what the user reads. */
   .st-notice-name { display: none; }
   #status .st-menu {
     position: absolute;
@@ -675,7 +1241,7 @@
     width: min(420px, calc(100vw - 32px));
     max-height: 60vh;
     overflow-y: auto;
-    background: rgba(19,26,34,.97);
+    background: rgba(19,26,34,.78);
     border: 1px solid rgba(34,48,64,.9);
     border-radius: 10px;
     padding: 5px;
@@ -763,6 +1329,16 @@
   #status .st-row[data-state="running"] .st-dot { background: var(--accent); }
   #status .st-row[data-state="done"] .st-dot { background: var(--ok); }
   #status .st-row[data-state="error"] .st-dot { background: var(--err); }
+  /* A step that published a structure. The bar on the left is the same
+     accent the running dot uses, which reads as "this one produced
+     something" rather than as another state — the state is already on the
+     dot, and this is about what the step left behind. */
+  #status .st-row[data-has-structure] {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  /* The marker in the meta line, so the distinction survives a scan of the
+     text rather than only the row's edge. */
+  #status .st-row[data-has-structure] .st-meta { color: var(--accent); }
   #status .st-row .st-body { flex: 1; min-width: 0; }
   /* One line here too, for the same reason as the pill: a row that wraps to
      four lines pushes the other steps of the task out of view, and the menu
@@ -901,7 +1477,7 @@
     top: calc(100% + 5px);
     left: 0;
     min-width: 230px;
-    background: rgba(19,26,34,.96);
+    background: rgba(19,26,34,.78);
     border: 1px solid rgba(34,48,64,.9);
     border-radius: 10px;
     padding: 5px;
@@ -959,12 +1535,47 @@
 <div id="viewer-wrap">
   <div id="viewer"></div>
   <div id="hover-tip" hidden></div>
+  <!-- The empty stage. One word, because the panel beside it already says
+       what to type and the agent's own replies say what it can do — a
+       paragraph here was the page explaining itself twice. -->
   <div id="viewer-hint">
-    <div class="big">No structure loaded</div>
-    <div class="small">
-      Ask your agent to run a BioBench skill, e.g.
-      <em>"design a binder for NK2R"</em> or <em>"show me 7xwo"</em>.
-      Results appear here automatically.
+    <!-- The mark and the name on one line. Inline SVG rather than a file: it
+         is a handful of shapes, it scales with the text, and it inherits the
+         accent colour instead of carrying its own that may not match. -->
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 48 48" width="46" height="46"
+           fill="none" stroke="currentColor" stroke-width="1.6"
+           stroke-linecap="round" aria-hidden="true">
+        <!-- A small molecule: three atoms in a ring with a substituent, which
+             is the shape most of this platform's work starts from. -->
+        <path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" opacity=".38"/>
+        <path d="M24 8 L24 20 M37 16 L27 25 M37 32 L27 25 M11 16 L21 25 M11 32 L21 25"
+              opacity=".38"/>
+        <circle cx="24" cy="8" r="3.4" fill="currentColor" stroke="none"/>
+        <circle cx="37" cy="16" r="3.4" fill="currentColor" stroke="none"/>
+        <circle cx="37" cy="32" r="3.4" fill="currentColor" stroke="none"/>
+        <circle cx="11" cy="32" r="3.4" fill="currentColor" stroke="none"/>
+        <circle cx="11" cy="16" r="3.4" fill="currentColor" stroke="none"/>
+        <!-- The centre atom is the one the design is built around, so it is
+             drawn larger and hollow rather than solid like the rest. -->
+        <circle cx="24" cy="24" r="5.2" fill="var(--bg)" stroke-width="2"/>
+      </svg>
+      <div class="big">BioBench</div>
+    </div>
+    <div class="tag">
+      生物分子设计工作台 — 用自然语言驱动对接、设计与分析，
+      结果直接显示在这个舒视器里。
+    </div>
+    <!-- The capabilities, named after the skills that actually exist. A tag
+         for something the agent cannot do is worse than no tag: the user asks
+         for it, is told no, and every other tag is now in doubt. -->
+    <div class="caps">
+      <span>分子对接</span>
+      <span>结合剂设计</span>
+      <span>分子生成</span>
+      <span>序列设计</span>
+      <span>分子动力学</span>
+      <span>结构对比</span>
     </div>
   </div>
 </div>
@@ -990,9 +1601,49 @@
       <option value="spacefill">Space fill</option>
       <option value="line">Line</option>
     </select>
+    <!-- The backdrop the structure is drawn on. Not a rendering option — the
+         model is the same in all three — but a choice about the surround it is
+         read against, which is why it sits with the view controls and not with
+         the style pickers. -->
+    <select id="stage-sel" class="ctl" title="背景">
+      <option value="dark">背景：深蓝</option>
+      <option value="light">背景：浅色</option>
+      <option value="grey">背景：灰</option>
+      <option value="black">背景：纯黑</option>
+      <option value="custom">背景：自定义…</option>
+    </select>
+    <!-- Hidden until the custom backdrop is chosen. A visible file input in
+         the toolbar is a control that does nothing most of the time; this one
+         only appears when there is a reason to press it. -->
+    <!-- The accept list is the four types the server writes, not image/*.
+         A wider filter lets the picker offer BMP, HEIC or AVIF, which are
+         refused after the file has been chosen and read — the user picks a
+         picture and is told no, with nothing to show for the round trip. -->
+    <input type="file" id="stage-file"
+          accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+    <!-- Opens the picker for a custom backdrop. Hidden until the custom
+         option is chosen, so the toolbar gains a control only when there is
+         a reason to press it. -->
+    <button id="stage-pick" class="ctl" type="button" hidden
+            title="选择背景图片">选图</button>
     <button id="reset-btn" class="ctl icon" disabled title="Reset view">
       <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97-.7-2.8L3.84 11.66C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" opacity="0"/><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     </button>
+  </div>
+
+<div id="left-col">
+  <div id="metrics">
+    <div class="m-title">Metrics</div>
+    <div id="metrics-rows"></div>
+    <div class="m-notes" id="metrics-notes"></div>
+  </div>
+
+  <div id="seq-panel">
+    <div class="seq-head">
+      <span id="seq-title">Sequence</span>
+      <span id="seq-len"></span>
+    </div>
+    <div class="seq-body" id="seq-body"></div>
   </div>
 
   <div id="selection">
@@ -1010,20 +1661,85 @@
     </div>
     <div id="sel-list"></div>
   </div>
+</div>
 
-<div id="left-col">
-  <div id="metrics">
-    <div class="m-title">Metrics</div>
-    <div id="metrics-rows"></div>
-    <div class="m-notes" id="metrics-notes"></div>
+<!-- ---------- agent panel (right) ---------- -->
+<!-- A chat with the model that drives the skills. It is a sibling of the
+     viewer rather than an overlay on it: the model is asked about the
+     structure on screen, so both have to be visible at once, and a panel
+     that covers half the model to answer a question about it is worse than
+     no panel.
+
+     The panel is collapsed to a tab by default. It costs a third of the
+     width when open, and most of the time the user is looking at the
+     structure rather than talking to it. -->
+<div id="agent-panel">
+  <div class="ag-head">
+    <!-- The panel is named once, here. It used to read "Agent" with the model
+         beside it, which was two labels for one thing; the name is what the
+         user needs and the model is an implementation detail. -->
+    <span class="ag-title" id="ag-model" title="The model answering">biobench</span>
+    <!-- Automatic approval. Off by default: the permission prompt is the one
+         place the user sees what the agent is about to run. On, every request
+         is answered without asking, which is what makes a long skill sequence
+         run unattended — and what makes it unsafe to leave on around a
+         structure you care about. The state is on the server, so it survives
+         a reload and is shared by every tab. -->
+    <button class="ag-icon-btn ag-head-btn" id="ag-auto" type="button"
+            title="自动许可：关闭（点击开启）">⏵</button>
+    <button class="ag-icon-btn ag-head-btn" id="ag-new" type="button" title="新建对话">＋</button>
+    <button class="ag-icon-btn ag-head-btn" id="ag-history-btn" type="button" title="历史对话">☰</button>
+    <button class="ag-icon-btn" id="ag-collapse" type="button" title="收起面板">›</button>
   </div>
 
-  <div id="seq-panel">
-    <div class="seq-head">
-      <span id="seq-title">Sequence</span>
-      <span id="seq-len"></span>
+  <!-- The conversation list. A dropdown rather than a sidebar: it is looked at
+       occasionally to switch or delete, and a sidebar would cost panel width
+       the rest of the time. -->
+  <div class="ag-sessions" id="ag-sessions" hidden>
+    <div class="ag-ses-head">历史对话</div>
+    <div class="ag-ses-list" id="ag-ses-list"></div>
+  </div>
+
+  <div class="ag-body" id="ag-body">
+    <div class="ag-log" id="ag-log"></div>
+
+    <div class="ag-context" id="ag-context" hidden>
+      <span class="ag-ctx-label">上下文</span>
+      <span class="ag-ctx-text" id="ag-ctx-text"></span>
     </div>
-    <div class="seq-body" id="seq-body"></div>
+
+    <!-- A permission request, docked here rather than inside the transcript.
+         The agent blocks until it is answered, so a prompt buried under a
+         long conversation is a turn that hangs with no visible cause. Hidden
+         until there is something to ask. -->
+    <div id="ag-perm" hidden>
+      <div class="ag-perm-head"></div>
+      <div class="ag-perm-cmd"></div>
+      <div class="ag-perm-btns"></div>
+    </div>
+
+    <form class="ag-compose" id="ag-compose" autocomplete="off">
+      <textarea id="ag-input" rows="1" placeholder="问 Agent，或让它改这个结构…"
+                spellcheck="false"></textarea>
+      <!-- One button, two jobs. While a turn runs it becomes a stop control:
+           the same corner of the panel is where the user looks for "make this
+           stop", and a disabled send button there says nothing can be done
+           when the one thing worth doing is to cancel. -->
+      <button type="submit" id="ag-send" title="发送">
+        <svg id="ag-send-icon" viewBox="0 0 24 24" width="16" height="16"
+             fill="currentColor">
+          <path d="M3 20l18-8L3 4v6l12 2-12 2z"/>
+        </svg>
+        <svg id="ag-stop-icon" viewBox="0 0 24 24" width="16" height="16"
+             fill="currentColor" hidden>
+          <rect x="7" y="7" width="10" height="10" rx="1.5"/>
+        </svg>
+      </button>
+    </form>
+
+    <div class="ag-foot">
+      <span class="ag-hint" id="ag-hint">Enter 发送 · Shift+Enter 换行</span>
+    </div>
   </div>
 </div>
 
@@ -1040,8 +1756,19 @@
      side by side. Centred separately, each would land wherever its own width
      put it and the notice would not line up with the bar. -->
 <div id="status-wrap">
+<!-- A structure was published while the user was looking at something else.
+     The tab is already open — the poll adds it — so this is not the only way
+     to reach the structure, it is the way that does not require the user to
+     notice a new entry in the switcher. Clicking it goes there and clears it.
+
+     The label says what happened rather than leaving a bell to be decoded: a
+     bare icon is a thing to interpret, and "新任务已完成" next to it is not.
+     It is bound to the newest publish every time one arrives, whether or not
+     the user clicked the last one — an unclicked notice is not a dismissed
+     one, and the button has to keep pointing at what is actually new. -->
 <button class="st-notice" id="st-notice" type="button" hidden
         title="有新结构发布，点击查看">
+  <span class="st-notice-label">新任务已完成</span>
   <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5.25-2 6.5-2 6.5h18S19 14.25 19 9a7 7 0 0 0-7-7zM9.5 19a2.5 2.5 0 0 0 5 0z"/></svg>
   <span class="st-notice-name"></span>
 </button>
@@ -1085,7 +1812,104 @@ function webglAvailable() {
   }
 }
 
-const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "0b0f14" });
+const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "#0b0f14" });
+
+/* ---------------- stage theme ---------------- */
+
+// The backdrop the structure is drawn on.
+//
+// Only the viewer's surround changes — the panels, the text and the accents
+// stay as they are. A structure is read like a figure, and the right ground
+// behind it is a matter of the room and the eyes doing the reading; the rest
+// of the interface is not part of that question and re-theming it too would
+// make the choice bigger than it needs to be.
+//
+// Each entry is the gradient the page draws and the colour the canvas is
+// painted with. They are the same colour in two forms because the canvas is
+// transparent where nothing is drawn, and a mismatch shows as a seam around
+// the model.
+const STAGES = {
+  dark:  { css: ["#16202b", "#0b0f14"], hex: "#0b0f14" },
+  light: { css: ["#ffffff", "#dde5ee"], hex: "#dde5ee" },
+  grey:  { css: ["#3a424d", "#232930"], hex: "#232930" },
+  black: { css: ["#1a1a1a", "#000000"], hex: "#000000" },
+};
+
+const STAGE_KEY = "biobench.stage";
+const STAGE_IMAGE_KEY = "biobench.stageImage";
+
+function stageApply(name) {
+  const wrap = document.getElementById("viewer-wrap");
+  const sel = document.getElementById("stage-sel");
+  const stage = STAGES[name];
+
+  if (stage) {
+    // A colour backdrop. Written on the wrapper rather than the body, so
+    // nothing outside the viewer can be affected by the choice.
+    if (wrap) {
+      wrap.style.background =
+        `radial-gradient(ellipse at 50% 40%, ${stage.css[0]} 0%, ${stage.css[1]} 70%)`;
+    }
+    // The canvas is repainted too. Without this the model keeps the colour it
+    // was drawn with and the surround changes around it, which leaves a
+    // visible edge where the two meet.
+    // Alpha 1, stated rather than left to the default: the custom mode sets
+    // it to 0, and a canvas left transparent under a colour backdrop shows
+    // the page's own background through the model instead of the stage's.
+    try {
+      viewer.setBackgroundColor(stage.hex, 1);
+    } catch (e) { /* a viewer that has not finished initialising */ }
+    if (sel) sel.value = name;
+    return;
+  }
+
+  // The custom image. The canvas stays transparent so the picture shows
+  // through it — painting the canvas a colour here would cover the image
+  // with that colour, which is the one thing this mode exists to avoid.
+  if (stageImageUrl) {
+    if (wrap) {
+      wrap.style.background =
+        `center / cover no-repeat url("${stageImageUrl}")`;
+    }
+    // The canvas is made transparent so the picture behind it shows through.
+    //
+    // setBackgroundColor's second argument is alpha, and it is the only way
+    // to get a see-through canvas: the WebGL renderer clears to an opaque
+    // colour by default, and an opaque canvas covers whatever the page put
+    // behind it — which is the whole picture, in this mode. The colour itself
+    // is irrelevant at alpha 0, but a value still has to be given because
+    // 3Dmol resolves it through its colour table and an unknown name logs an
+    // error and leaves the previous colour in place.
+    try {
+      viewer.setBackgroundColor("#000000", 0);
+    } catch (e) { /* not initialised yet */ }
+  }
+  if (sel) sel.value = "custom";
+  // The pick button stays: the user is in custom mode and may well want to
+  // swap the picture, which is one press rather than going back through the
+  // select.
+  if (stagePickBtn) stagePickBtn.hidden = false;
+}
+
+// The URL of the backdrop image on the server, or "" when there is none.
+//
+// Remembered so a reload puts the same picture back without asking for the
+// file again — the bytes are already on disk, and a file picker on every
+// page load is a request the user cannot do anything useful with.
+let stageImageUrl = "";
+
+function stageLoad() {
+  let name = "dark";
+  try {
+    name = localStorage.getItem(STAGE_KEY) || "dark";
+    stageImageUrl = localStorage.getItem(STAGE_IMAGE_KEY) || "";
+  } catch (e) { /* private mode */ }
+  // A saved image that the server no longer has — cleared from the
+  // directory, or a fresh checkout — falls back to the colour backdrop
+  // rather than showing an empty stage.
+  if (name === "custom" && !stageImageUrl) name = "dark";
+  stageApply(name);
+}
 
 /* ================= state =================
  *
@@ -1108,6 +1932,18 @@ const state = {
   lastUpdated: null,
   /** Timestamp last seen in current.json, independent of which tab is shown */
   contractUpdated: null,
+  /**
+   * Ids of jobs already seen in the `done` state, or null before the first
+   * status read.
+   *
+   * The publish notice is raised for a job that turned done since the last
+   * poll, so the ones already done when the page loaded have to be recorded
+   * without being announced — otherwise every reload rings the bell for runs
+   * that finished hours ago. Null is what makes the first read seed the set
+   * instead of comparing against an empty one, which would announce all of
+   * them.
+   */
+  seenDoneJobs: null,
   /** Name of the structure the publish notice is offering, or null if none */
   noticeName: null,
   /** Name of the active structure, for selection.json */
@@ -1560,6 +2396,77 @@ const stylePicker = document.getElementById("style-picker");
 const colorPicker = document.getElementById("color-picker");
 const ligandStylePicker = document.getElementById("ligand-style-picker");
 const resetBtn = document.getElementById("reset-btn");
+const stageSel = document.getElementById("stage-sel");
+const stageFile = document.getElementById("stage-file");
+const stagePickBtn = document.getElementById("stage-pick");
+
+// Changing the backdrop repaints the canvas and re-themes the page. The choice
+// is remembered so the next load opens on the same stage.
+stageSel.addEventListener("change", () => {
+  const name = stageSel.value;
+  // The custom option is not a backdrop in itself — it is a request for a
+  // file, and the picker is opened by the button beside the select rather
+  // than from here. Calling input.click() out of a change event is a
+  // synthetic gesture, and browsers are entitled to refuse it: the dialog
+  // simply never opens, which looks like the control doing nothing at all.
+  // A real button the user presses is a gesture no browser argues with.
+  if (name === "custom") {
+    stagePickBtn.hidden = false;
+    stagePickBtn.focus();
+    return;
+  }
+  stagePickBtn.hidden = true;
+  stageApply(name);
+  try { localStorage.setItem(STAGE_KEY, name); } catch (e) { /* private mode */ }
+});
+
+// The button that opens the file picker for a custom backdrop.
+//
+// Separate from the select because a select's change handler cannot reliably
+// open a file dialog — see the note there. It appears next to the select only
+// while the custom option is chosen, so the toolbar carries one more control
+// only when there is a reason for it.
+stagePickBtn.addEventListener("click", () => stageFile.click());
+
+// A file was chosen. It is read in the browser and posted as a data URL, so
+// the server writes one file and the page uses a plain URL afterwards — no
+// second request to read the bytes back, and no multipart form to parse.
+stageFile.addEventListener("change", () => {
+  const file = stageFile.files && stageFile.files[0];
+  if (!file) return;
+  // Refused here rather than after the upload: a 20 MB photograph posted over
+  // localhost is a few seconds of nothing happening, and the reason is known
+  // before the bytes move.
+  if (file.size > 16 * 1024 * 1024) {
+    agentAppend("error", "\u56fe\u7247\u592a\u5927\uff08\u4e0a\u9650 16 MB\uff09");
+    stageFile.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    fetch("stage-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: reader.result }),
+    }).then(r => r.json()).then(d => {
+      if (d.error) {
+        agentAppend("error", `\u80cc\u666f\u8bbe\u7f6e\u5931\u8d25\uff1a${d.error}`);
+        return;
+      }
+      stageImageUrl = d.url || "";
+      stageApply("custom");
+      try {
+        localStorage.setItem(STAGE_KEY, "custom");
+        localStorage.setItem(STAGE_IMAGE_KEY, stageImageUrl);
+      } catch (e) { /* private mode */ }
+    }).catch(e => agentAppend("error", `\u80cc\u666f\u8bbe\u7f6e\u5931\u8d25\uff1a${e.message}`));
+  };
+  reader.onerror = () => agentAppend("error", "\u8bfb\u4e0d\u4e86\u8fd9\u4e2a\u6587\u4ef6");
+  reader.readAsDataURL(file);
+  // Cleared so choosing the same file twice in a row fires change again —
+  // otherwise the second pick is indistinguishable from no pick at all.
+  stageFile.value = "";
+});
 
 // `snap` is a per-tab snapshot from captureState(), or null for a
 // structure arriving fresh from a publish.
@@ -2527,7 +3434,982 @@ function selLabel(atom) {
   return `${atom.resn || "?"} ${atom.resi}${atom.chain ? " · " + atom.chain : ""}`;
 }
 
-/* ---------------- hover tooltip ---------------- */
+/* ---------------- agent chat ---------------- */
+
+const agentPanel = document.getElementById("agent-panel");
+const agentLog = document.getElementById("ag-log");
+const agentInput = document.getElementById("ag-input");
+const agentSend = document.getElementById("ag-send");
+const agentSendIcon = document.getElementById("ag-send-icon");
+const agentStopIcon = document.getElementById("ag-stop-icon");
+const agentCompose = document.getElementById("ag-compose");
+const agentCollapse = document.getElementById("ag-collapse");
+const agentCtx = document.getElementById("ag-context");
+const agentCtxText = document.getElementById("ag-ctx-text");
+const agentModelLabel = document.getElementById("ag-model");
+const agentNewBtn = document.getElementById("ag-new");
+const agentHistBtn = document.getElementById("ag-history-btn");
+const agentSesBox = document.getElementById("ag-sessions");
+const agentSesList = document.getElementById("ag-ses-list");
+
+// The conversation, in the shape the API wants. Kept here rather than read
+// back out of the DOM: the DOM holds rendered text, and re-deriving roles
+// and tool calls from markup is how a transcript quietly loses a turn.
+let agentMessages = [];
+// The opencode session the current turn runs in. A permission request has to
+// name the session it belongs to, and the only place that is known is the
+// stream itself — so it is recorded from the events as they arrive.
+let agentSessionId = null;
+// The AbortController for the turn in progress, or null when none is. The stop
+// button aborts through it.
+let agentAbort = null;
+let agentBusy = false;
+
+// One agent, and it can run skills. A read-only mode was tried and removed:
+// it could not use bash at all, so a question that needed a command was
+// answered from a guess instead of a look, and the switch asked the user to
+// decide something they had no way to judge. The permission system already
+// asks before anything changes, which is the guard that matters.
+const agentName = "biobench";
+
+// Whether the agent is installed and running, asked once on load. Without it
+// the panel looks ready and the first message fails, which reads as a bug in
+// the panel rather than a missing install.
+fetch("agent/status").then(r => r.json()).then(s => {
+  if (!s.installed) {
+    agentAppend("error",
+      "Agent 未安装。运行：bash vendor/install_opencode.sh");
+    agentSend.disabled = true;
+  } else if (!s.running) {
+    agentModelLabel.textContent = "启动中…";
+  }
+  // The switch is read from the same response rather than a second request:
+  // it is part of what the panel needs to know before it is usable, and two
+  // round trips for one page load is one more than necessary.
+  agentAutoRender(s.auto_approve);
+  // The conversation this page opens into may have a turn still running — a
+  // reload during a long turn, or a page left open overnight. The button is
+  // put in its stopping state so the first thing on screen matches what the
+  // session is doing, rather than offering a send that would queue behind it.
+  if (s.busy) agentSetBusy(true);
+  agentRestore();
+}).catch(() => { /* the panel still works; the first send reports the fault */ });
+
+// Rebuild the transcript after a reload.
+//
+// The conversation lives in opencode's session store, which survives the
+// reload — but the panel's copy of it was in memory and did not. So a refresh
+// showed an empty chat beside an agent that still remembered everything, and
+// the next message was answered with the whole earlier conversation as
+// context the user could no longer see. The history is read back and rendered
+// in the same shape a live turn produces, so a restored transcript and a live
+// one are indistinguishable.
+function agentRestore() {
+  fetch("agent/history").then(r => r.json()).then(d => {
+    const turns = d.turns || [];
+    if (!turns.length) return;
+    turns.forEach(t => {
+      if (t.role === "user") {
+        agentAppend("user", t.content);
+        agentMessages.push({ role: "user", content: t.content });
+      } else if (t.role === "assistant") {
+        agentAppend("assistant", t.reply, t.tools, t.reasoning);
+        agentMessages.push({ role: "assistant", content: t.reply });
+      }
+    });
+    agentScrollToEnd();
+  }).catch(() => { /* nothing to restore; the panel starts empty as before */ });
+}
+
+function agentScrollToEnd() {
+  agentLog.scrollTop = agentLog.scrollHeight;
+}
+
+/* ---------------- automatic approval ---------------- */
+
+// The switch that answers permission requests without asking. Its state lives
+// on the server so it survives a reload and is shared by every tab — a switch
+// that resets on refresh is one the user has to set again every time, and one
+// that differs between tabs is one they cannot trust.
+const agentAutoBtn = document.getElementById("ag-auto");
+
+function agentAutoRender(on) {
+  agentAutoBtn.classList.toggle("on", !!on);
+  agentAutoBtn.textContent = on ? "⏸" : "⏵";
+  agentAutoBtn.title = on
+    ? "自动许可：开启（Agent 将直接执行，不再询问）"
+    : "自动许可：关闭（点击开启）";
+}
+
+function agentAutoSet(on) {
+  fetch("agent/auto-approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ on: !!on }),
+  }).then(r => r.json()).then(d => {
+    // The server's state is what counts, not what was asked for: if the file
+    // it writes to is unwritable the switch stays off, and showing it as on
+    // would tell the user the agent is running unattended when it is not.
+    agentAutoRender(d.auto_approve);
+  }).catch(() => {
+    agentAutoBtn.title = "切换失败";
+  });
+}
+
+agentAutoBtn.addEventListener("click", () => {
+  agentAutoSet(!agentAutoBtn.classList.contains("on"));
+});
+
+/* ---------------- conversation management ---------------- */
+
+// Replace the transcript with one that came back from the server. Used after
+// switching, creating or deleting a conversation, so the panel always shows
+// the session the agent will actually answer from.
+function agentRenderTurns(turns) {
+  agentMessages = [];
+  agentLog.innerHTML = "";
+  (turns || []).forEach(t => {
+    if (t.role === "user") {
+      agentAppend("user", t.content);
+      agentMessages.push({ role: "user", content: t.content });
+    } else if (t.role === "assistant") {
+      agentAppend("assistant", t.reply, t.tools, t.reasoning);
+      agentMessages.push({ role: "assistant", content: t.reply });
+    }
+  });
+  agentScrollToEnd();
+}
+
+function agentToggleSessions(force) {
+  const show = force !== undefined ? force : agentSesBox.hidden;
+  agentSesBox.hidden = !show;
+  if (show) agentLoadSessions();
+}
+
+function agentLoadSessions() {
+  agentSesList.innerHTML =
+    '<div class="ag-ses-empty">加载中…</div>';
+  fetch("agent/sessions").then(r => r.json()).then(d => {
+    const list = d.sessions || [];
+    if (!list.length) {
+      agentSesList.innerHTML =
+        '<div class="ag-ses-empty">还没有历史对话</div>';
+      return;
+    }
+    agentSesList.innerHTML = "";
+    list.forEach(s => {
+      const row = document.createElement("div");
+      row.className = "ag-ses-row" + (s.current ? " on" : "");
+
+      const title = document.createElement("span");
+      title.className = "ag-ses-title";
+      title.textContent = s.title;
+      title.title = s.title;
+
+      const turns = document.createElement("span");
+      turns.className = "ag-ses-turns";
+      turns.textContent = `${s.turns} 轮`;
+
+      const del = document.createElement("button");
+      del.className = "ag-ses-del";
+      del.type = "button";
+      del.textContent = "×";
+      del.title = "删除这个对话";
+      // The delete stops here rather than bubbling to the row, which would
+      // otherwise switch to the conversation the user just asked to remove.
+      del.addEventListener("click", ev => {
+        ev.stopPropagation();
+        agentDeleteSession(s.id, s.title);
+      });
+
+      row.append(title, turns, del);
+      row.addEventListener("click", () => agentSwitchSession(s.id));
+      agentSesList.appendChild(row);
+    });
+  }).catch(() => {
+    agentSesList.innerHTML =
+      '<div class="ag-ses-empty">读取失败</div>';
+  });
+}
+
+// After the panel has moved to another conversation: rebuild the transcript,
+// close the dropdown, and put the send button in the state that conversation
+// needs.
+//
+// The button is a stop control while a turn runs and a send control when none
+// does, so it has to follow the switch. Showing a send button on a busy
+// conversation is a button that does nothing when pressed — and showing a
+// stop button on an idle one offers to stop something that is not running.
+//
+// The stream from the previous conversation is dropped: it belongs to a turn
+// in another session, and its events would land in this transcript.
+function agentAfterSwitch(d) {
+  if (agentAbort) {
+    agentAbort.abort();
+    agentAbort = null;
+  }
+  if (agentJobTimer) {
+    clearInterval(agentJobTimer);
+    agentJobTimer = null;
+  }
+  agentWatchedJobs = null;
+  agentDraft = "";
+  agentRenderTurns(d.turns);
+  agentToggleSessions(false);
+  agentSetBusy(!!d.busy);
+  if (!d.busy) agentInput.focus();
+}
+
+function agentSwitchSession(id) {
+  fetch("agent/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) {
+      agentAppend("error", d.error);
+      return;
+    }
+    agentAfterSwitch(d);
+  }).catch(e => agentAppend("error", `切换失败：${e.message}`));
+}
+
+function agentNewSession() {
+  fetch("agent/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: null }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) {
+      agentAppend("error", d.error);
+      return;
+    }
+    agentAfterSwitch(d);
+  }).catch(e => agentAppend("error", `新建失败：${e.message}`));
+}
+
+function agentDeleteSession(id, title) {
+  // Confirmed, because a conversation is not recoverable once it is gone and
+  // the click that gets here is a small × that only appears on hover.
+  if (!confirm(`删除对话「${title}」？此操作不可撤销。`)) return;
+  fetch("agent/session?id=" + encodeURIComponent(id), { method: "DELETE" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) {
+        agentAppend("error", d.error);
+        return;
+      }
+      // The deleted conversation may have been the one on screen, in which
+      // case the server has already started a fresh one — so the panel is
+      // rebuilt from whatever is current now rather than left showing a
+      // transcript that no longer exists.
+      return fetch("agent/history").then(r => r.json());
+    })
+    .then(d => {
+      if (!d) return;
+      agentRenderTurns(d.turns || []);
+      // The panel is now on a different conversation than the one it was on,
+      // so the send button has to be re-derived rather than left as it was.
+      // A deleted session cannot be busy — it is gone — and the one that
+      // replaced it has only just been created, so a send button is right in
+      // both cases.
+      agentSetBusy(false);
+    })
+    .then(() => agentLoadSessions())
+    .catch(e => agentAppend("error", `删除失败：${e.message}`));
+}
+
+agentNewBtn.addEventListener("click", agentNewSession);
+agentHistBtn.addEventListener("click", () => agentToggleSessions());
+
+// Clicking outside the dropdown closes it. Without this the list stays open
+// over the transcript until the button is pressed again, which is not where
+// the user's attention went.
+document.addEventListener("click", ev => {
+  if (agentSesBox.hidden) return;
+  if (agentSesBox.contains(ev.target)) return;
+  if (agentHistBtn.contains(ev.target)) return;
+  agentSesBox.hidden = true;
+});
+
+// Render the model's inline markdown — bold, code, and nothing else.
+//
+// The model writes `**bold**` and `` `code` `` whether or not it is asked to,
+// and showing the asterisks makes a careful answer look like a broken one.
+// A full markdown parser is not worth a dependency here; these two cover
+// what the model actually emits in a short reply.
+//
+// Everything is escaped first and the marks are then re-inserted as elements,
+// so a model that emits `<script>` in its answer gets it shown as text rather
+// than executed. Building the nodes directly rather than assigning innerHTML
+// is what makes that hold.
+// Render the model's markdown: fenced blocks, bold, inline code, and nothing
+// else.
+//
+// The model writes ``` blocks whether or not it is asked to, and they are how
+// it lays out anything columnar — a docking summary, a parameter table, a
+// list of chains. Rendered as prose those lose their alignment entirely,
+// because the panel's font is proportional and the spaces that did the
+// lining up collapse to nothing. A fenced block is set in a monospace font
+// with whitespace preserved, which is the only thing that makes it readable.
+//
+// A full markdown parser is not worth a dependency here. These three cover
+// what the model actually emits in a short reply.
+//
+// Everything is escaped first and the marks are then re-inserted as elements,
+// so a model that emits `<script>` in its answer gets it shown as text rather
+// than executed. Building the nodes directly rather than assigning innerHTML
+// is what makes that hold.
+function agentFormat(el, text) {
+  el.textContent = "";
+  const src = String(text);
+
+  // Fenced blocks first, so their contents are never scanned for the inline
+  // marks — a `**` inside a code block is literal, not bold.
+  const fenceRe = /```[^\n]*\n([\s\S]*?)```/g;
+  let last = 0;
+  let m;
+  while ((m = fenceRe.exec(src)) !== null) {
+    if (m.index > last) agentInline(el, src.slice(last, m.index));
+    const pre = document.createElement("pre");
+    pre.className = "ag-pre";
+    pre.textContent = m[1].replace(/\n$/, "");
+    el.appendChild(pre);
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) agentInline(el, src.slice(last));
+}
+
+// The inline marks: **bold** and `code`. Split on them, keeping them, so the
+// pieces between are literal.
+function agentInline(el, text) {
+  if (!text) return;
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  parts.forEach(part => {
+    if (!part) return;
+    let node;
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      node = document.createElement("b");
+      node.textContent = part.slice(2, -2);
+    } else if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+      node = document.createElement("code");
+      node.textContent = part.slice(1, -1);
+    } else {
+      node = document.createTextNode(part);
+    }
+    el.appendChild(node);
+  });
+}
+
+// Ask the user to allow or refuse something the agent wants to run.
+//
+// The agent blocks on this — it cannot proceed and it cannot time out — so a
+// request nobody answers is a turn that hangs forever. The prompt lives in
+// its own docked strip rather than in the transcript: a long conversation
+// would push an inline prompt out of sight, and an unseen prompt is a hung
+// turn with nothing on screen to explain it.
+function agentAskPermission(ev) {
+  const box = document.getElementById("ag-perm");
+  const head = box.querySelector(".ag-perm-head");
+  const cmd = box.querySelector(".ag-perm-cmd");
+  const btns = box.querySelector(".ag-perm-btns");
+
+  head.textContent = `需要许可 · ${ev.permission || "bash"}`;
+  // The patterns are what the rules matched against. Showing them rather than
+  // a summary is what lets the user judge the request — "ls *" and
+  // "rm -rf /*" are both one bash call.
+  cmd.textContent = (ev.patterns || []).join("\n") || "(no detail)";
+  btns.innerHTML = "";
+
+  // Answered, so the prompt goes away. Leaving it up would suggest the agent
+  // is still waiting when it is not.
+  //
+  // Two answers, not three. "Always allow" used to sit between them and was
+  // removed when the panel grew the auto-approve switch in the header: that
+  // switch is the same decision made once for the whole session instead of
+  // once per command, and having both meant two controls that each covered
+  // part of what the agent could run.
+  function respond(response) {
+    box.hidden = true;
+    btns.innerHTML = "";
+    fetch("agent/permission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session: agentSessionId,
+        id: ev.id,
+        response,
+      }),
+    }).catch(() => {
+      agentAppend("error", "许可答复失败");
+    });
+  }
+
+  [["once", "允许一次", "ag-perm-allow"],
+   ["reject", "拒绝", "ag-perm-deny"]].forEach(([resp, label, cls]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = cls;
+    b.textContent = label;
+    b.addEventListener("click", () => respond(resp));
+    btns.appendChild(b);
+  });
+
+  box.hidden = false;
+}
+
+// The model's working, as a collapsed block. Built once here so the streaming
+// placeholder and the finished message render it the same way.
+function agentThinkBlock(reasoning) {
+  const d = document.createElement("details");
+  d.className = "ag-think";
+  const sum = document.createElement("summary");
+  sum.textContent = "思考过程";
+  const body = document.createElement("div");
+  body.className = "ag-think-text";
+  agentFormat(body, reasoning);
+  d.append(sum, body);
+  return d;
+}
+
+// The tools the model called, folded like the working above it.
+//
+// `open` starts false: the answer is what the user asked for, and a turn that
+// read four files produces four lines of paths that would push it off the
+// bottom of a narrow panel. The count is in the summary so the evidence is
+// still visible without opening anything.
+function agentToolBox(tools) {
+  const d = document.createElement("details");
+  d.className = "ag-tools";
+  const sum = document.createElement("summary");
+  const count = document.createElement("span");
+  count.className = "ag-tool-count";
+  count.textContent = `${tools.length} 次调用`;
+  sum.append(document.createTextNode("工具调用"), count);
+  d.appendChild(sum);
+  tools.forEach(t => {
+    const line = document.createElement("div");
+    line.className = "ag-tool-line";
+    line.textContent = t;
+    d.appendChild(line);
+  });
+  return d;
+}
+
+function agentAppend(role, text, tools, reasoning) {
+  const wrap = document.createElement("div");
+  wrap.className = `ag-msg ${role}`;
+
+  // No label on the agent's own messages. The panel is the agent — there is
+  // nothing else it could be, and a name above every reply is a line of
+  // chrome that says the same thing each time. The user's messages keep
+  // theirs, because there the label is what tells the two apart.
+  const who = document.createElement("div");
+  who.className = "ag-who";
+  who.textContent = role === "user" ? "你"
+    : role === "error" ? "错误" : "";
+  who.hidden = role !== "user" && role !== "error";
+
+  // The order is the order the work happened in: the model thinks, acts on
+  // what it found, then answers. Reading it that way round is following the
+  // reasoning through to its conclusion; with the answer first it is a
+  // justification after the fact.
+  if (reasoning) wrap.appendChild(agentThinkBlock(reasoning));
+
+  // The tools the model called, named between the working and the answer.
+  // The user asked about the structure on screen; seeing that the model
+  // actually looked at it is the difference between trusting the answer and
+  // not — and it belongs here, where it was in the sequence, rather than
+  // after an answer it was the basis for.
+  if (tools && tools.length) {
+    wrap.appendChild(agentToolBox(tools));
+  }
+
+  const body = document.createElement("div");
+  body.className = "ag-text";
+  agentFormat(body, text);
+
+  wrap.append(who, body);
+
+  agentLog.appendChild(wrap);
+  agentScrollToEnd();
+  return wrap;
+}
+
+function agentSetBusy(on) {
+  agentBusy = on;
+  // The button stays enabled while a turn runs — it is the stop control. The
+  // textarea stays enabled too: a turn that runs a skill takes minutes, and
+  // the user often knows what they want to ask next while it works. Locking
+  // the box threw that away and left them waiting with nothing to do.
+  //
+  // What is locked is sending, not typing. A message typed during a turn is
+  // held in the box and sent when the turn ends — see agentQueueDraft().
+  agentSend.disabled = false;
+  agentSend.classList.toggle("stopping", on);
+  // setAttribute rather than the `hidden` property: on an SVG element that
+  // property is not the HTML boolean attribute, and assigning to it does
+  // nothing the CSS can see — both icons stay drawn, one on top of the other.
+  if (on) {
+    agentSendIcon.setAttribute("hidden", "");
+    agentStopIcon.removeAttribute("hidden");
+  } else {
+    agentSendIcon.removeAttribute("hidden");
+    agentStopIcon.setAttribute("hidden", "");
+  }
+  agentSend.title = on ? "停止" : "发送";
+  // The placeholder is the only feedback there is while the answer streams,
+  // so it says what the panel is doing rather than repeating the hint.
+  if (!agentWatchedJobs) {
+    agentInput.placeholder = on ? "Agent 正在工作…"
+                                : "问 Agent，或让它改这个结构…";
+  }
+}
+
+// What the model can see, stated in the panel rather than left implicit.
+// Without it the user cannot tell whether "the selection" means what they
+// selected or nothing at all — and a model answering about an empty
+// selection looks like it is ignoring them.
+// What the user has selected, as a line the model can read.
+//
+// Attached to every message so the agent does not have to spend a tool call
+// finding out what is being pointed at. The form matches what the Selection
+// panel already shows the user, so the two never disagree about what is
+// chosen — and the residue names carry their chain and number, which is what
+// makes "this" resolvable to a specific part of the structure.
+function agentSelectionSummary() {
+  const keys = Object.keys(state.selection);
+  if (!keys.length) return "";
+
+  const byKind = { res: [], chain: [], atom: [], bond: [], pocket: [] };
+  keys.forEach(k => {
+    const item = state.selection[k];
+    const kind = item.sel && item.sel.kind ? item.sel.kind
+               : (item.pocket ? "pocket" : "res");
+    (byKind[kind] || byKind.res).push(item.label || k);
+  });
+
+  const parts = [];
+  if (byKind.res.length) {
+    parts.push(`选中的残基（${byKind.res.length}）：${byKind.res.join(", ")}`);
+  }
+  if (byKind.chain.length) {
+    parts.push(`选中的链（${byKind.chain.length}）：${byKind.chain.join(", ")}`);
+  }
+  if (byKind.atom.length) {
+    parts.push(`选中的原子（${byKind.atom.length}）：${byKind.atom.join(", ")}`);
+  }
+  if (byKind.bond.length) {
+    parts.push(`选中的键（${byKind.bond.length}）：${byKind.bond.join(", ")}`);
+  }
+  if (byKind.pocket.length) {
+    parts.push(`选中的口袋（${byKind.pocket.length}）：${byKind.pocket.join(", ")}`);
+  }
+
+  const name = (state.meta && state.meta.name) || "";
+  const head = name ? `[当前结构：${name}]` : "[当前结构]";
+  return `${head}\n${parts.join("\n")}`;
+}
+
+function agentRefreshContext() {
+  const n = Object.keys(state.selection).length;
+  const name = (state.meta && state.meta.name) || "";
+  if (!name && !n) {
+    agentCtx.hidden = true;
+    return;
+  }
+  const parts = [];
+  if (name) parts.push(name);
+  if (n) parts.push(`${n} 项选中`);
+  agentCtxText.textContent = parts.join(" · ");
+  agentCtx.hidden = false;
+}
+
+// Read one SSE frame off a stream. Frames are separated by a blank line and
+// each carries one `data:` line; a chunk can hold several frames or half of
+// one, so the buffer is kept across reads.
+async function agentReadFrame(reader, dec, buf) {
+  while (!buf.s.includes("\n\n")) {
+    const { value, done } = await reader.read();
+    if (done) return null;
+    buf.s += dec.decode(value, { stream: true });
+  }
+  const i = buf.s.indexOf("\n\n");
+  const frame = buf.s.slice(0, i);
+  buf.s = buf.s.slice(i + 2);
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("data:")) {
+      try {
+        return JSON.parse(line.slice(5));
+      } catch (e) { /* a partial frame; the next read completes it */ }
+    }
+  }
+  return {};
+}
+
+// A message typed while a turn runs, waiting to be sent.
+//
+// The box stays usable during a turn — a skill run takes minutes and the user
+// often knows their next question while it works. Sending it immediately would
+// queue it behind the turn in progress, which opencode answers only after the
+// current one finishes and which the panel has no way to show. So it is held
+// here and sent the moment the turn ends.
+let agentDraft = "";
+
+async function agentSubmit() {
+  const text = agentInput.value.trim();
+  if (!text) return;
+  // Mid-turn: keep the text, clear the box, say so. The message is not lost
+  // and the user can see it is queued rather than wondering whether the click
+  // did anything.
+  if (agentBusy) {
+    agentDraft = text;
+    agentInput.value = "";
+    agentInput.style.height = "";
+    agentInput.placeholder = "已排队，当前回答完就发…";
+    return;
+  }
+  agentInput.value = "";
+  agentInput.style.height = "";
+  await agentTurn(text);
+}
+
+// Send whatever was typed during the turn that just ended.
+//
+// Called from the turn's finally block, after the panel is no longer busy. A
+// watched background task keeps the panel busy, so the draft waits for the
+// wake-up turn instead — which is right: the user typed it before the result
+// existed, and sending it now would answer the wrong question.
+function agentFlushDraft() {
+  if (!agentDraft || agentBusy || agentWatchedJobs) return;
+  const text = agentDraft;
+  agentDraft = "";
+  agentTurn(text);
+}
+
+// One turn, from a message that is already decided.
+//
+// Split from agentSubmit so the wake-up after a background task can send a
+// message the user never typed. That message has to go through exactly the
+// same path — same selection summary, same streaming, same history — or the
+// model is woken into a conversation that is missing the turn before it.
+async function agentTurn(text) {
+  if (!text || agentBusy) return;
+
+  // The selection goes with the question, spelled out.
+  //
+  // The agent can read selection.json for itself, and used to — but that
+  // costs a tool call and a round trip before it knows what the user is
+  // pointing at, and on a question like "design a binder for this" the
+  // selection *is* the question. Sending it inline means the first thing the
+  // model sees is what was selected, next to what was asked of it.
+  //
+  // Only the summary is attached, not the raw file: the panel shows the user
+  // the same short form it already displays, and the agent still has the file
+  // for anything the summary leaves out.
+  //
+  // The file is written first, so what the message says and what the agent
+  // reads off disk are the same selection. They can disagree otherwise — a
+  // selection made since the last persist — and a model told one thing and
+  // shown another has to stop and work out which to believe.
+  persistSelection(Object.keys(state.selection));
+  const selSummary = agentSelectionSummary();
+  const sent = selSummary ? `${text}\n\n${selSummary}` : text;
+
+  agentAppend("user", text);
+  agentMessages.push({ role: "user", content: sent });
+  agentSetBusy(true);
+
+  const pending = agentAppend("assistant", "…");
+  pending.classList.add("pending");
+  const pendingText = pending.querySelector(".ag-text");
+  let thinkBlock = null;
+  let toolBox = null;
+  let reply = "";
+  // Held where the stop button can reach it. Aborting the fetch closes the
+  // stream, which is what unblocks the read loop below; the turn itself is
+  // stopped by the request to /agent/abort, without which opencode would keep
+  // running and the next message would queue behind it.
+  agentAbort = new AbortController();
+
+  // The reply is filled in as it arrives. A turn that runs a skill takes
+  // minutes, and a panel that shows nothing until it finishes looks broken —
+  // the model emits text the whole time, so it is rendered as it comes.
+  try {
+    const res = await fetch("agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: agentMessages, agent: agentName }),
+      signal: agentAbort.signal,
+    });
+
+    // A non-streamed error arrives as JSON with a normal status.
+    const ct = res.headers.get("Content-Type") || "";
+    if (!ct.includes("event-stream")) {
+      const data = await res.json();
+      pending.remove();
+      agentAppend("error", data.error || `HTTP ${res.status}`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    const buf = { s: "" };
+    for (;;) {
+      const ev = await agentReadFrame(reader, dec, buf);
+      if (ev === null) break;
+      if (ev.type === "text") {
+        reply = ev.text || "";
+        agentFormat(pendingText, reply);
+        agentScrollToEnd();
+      } else if (ev.type === "reasoning") {
+        // The working is created on first sight and then updated in place,
+        // so it grows with the turn rather than appearing only at the end.
+        // It starts open: while the turn runs there is no answer yet, and a
+        // collapsed block would leave the user watching a blinking cursor
+        // with nothing to read. It is collapsed when the turn finishes, by
+        // which point the answer is what matters.
+        if (!thinkBlock) {
+          thinkBlock = agentThinkBlock(ev.text || "");
+          thinkBlock.open = true;
+          pending.insertBefore(thinkBlock, pendingText);
+        } else {
+          agentFormat(thinkBlock.querySelector(".ag-think-text"), ev.text || "");
+        }
+      } else if (ev.type === "tool") {
+        if (!toolBox) {
+          toolBox = agentToolBox([]);
+          // Inserted before the answer rather than appended after it, so the
+          // finished message reads in the order the work happened: working,
+          // what it looked at, then the answer.
+          pending.insertBefore(toolBox, pendingText);
+        }
+        const line = document.createElement("div");
+        line.className = "ag-tool-line";
+        line.textContent = ev.tool;
+        toolBox.appendChild(line);
+        // The count in the summary is the only thing visible while the turn
+        // runs, so it has to be kept current as calls arrive.
+        const c = toolBox.querySelector(".ag-tool-count");
+        if (c) c.textContent =
+          `${toolBox.querySelectorAll(".ag-tool-line").length} 次调用`;
+        agentScrollToEnd();
+      } else if (ev.type === "permission") {
+        // The agent is blocked until this is answered. Without a prompt it
+        // waits forever and the panel shows a turn that never finishes.
+        if (ev.session) agentSessionId = ev.session;
+        agentAskPermission(ev);
+      } else if (ev.type === "error") {
+        pending.remove();
+        agentAppend("error", ev.message);
+        return;
+      } else if (ev.type === "waiting") {
+        // The model started a background task and stopped talking. The turn is
+        // over as far as the stream is concerned, but the work is not — the
+        // skill scripts publish their progress to status.json and run for
+        // minutes. The panel takes over watching so the model's "I'll report
+        // when it's done" is a promise something keeps.
+        agentWatchJobs(ev.jobs || []);
+      } else if (ev.type === "done") {
+        reply = ev.reply || reply;
+        if (ev.session) agentSessionId = ev.session;
+        agentFormat(pendingText, reply || "（无回复）");
+      }
+    }
+    pending.classList.remove("pending");
+    // The working collapses once the answer is there. It was open while the
+    // turn ran because there was nothing else to read; now the answer is
+    // what the user asked for, and the working is one click away.
+    if (thinkBlock) thinkBlock.open = false;
+    if (!reply) agentFormat(pendingText, "（无回复）");
+    agentMessages.push({ role: "assistant", content: reply });
+  } catch (e) {
+    // An abort is the user's doing, not a fault, so it is reported as one:
+    // whatever arrived before the stop is kept and marked, rather than
+    // replaced by an error the user did not make.
+    if (e.name === "AbortError") {
+      pending.classList.remove("pending");
+      if (thinkBlock) thinkBlock.open = false;
+      if (reply) {
+        agentFormat(pendingText, reply + "\n\n_（已停止）_");
+        agentMessages.push({ role: "assistant", content: reply });
+      } else {
+        pending.remove();
+        agentAppend("assistant", "（已停止）");
+      }
+      return;
+    }
+    pending.remove();
+    agentAppend("error", `请求失败：${e.message}`);
+  } finally {
+    agentAbort = null;
+    // A watched task keeps the panel busy after the turn ends — the button
+    // stays a stop control, because there is something in flight the user may
+    // want to cancel. Clearing busy here would let a second message queue
+    // behind the wake-up turn that is about to happen.
+    if (!agentWatchedJobs) agentSetBusy(false);
+    agentScrollToEnd();
+    agentInput.focus();
+    // Whatever was typed during the turn goes now. After the flush rather
+    // than before it, so the panel is idle when the next turn starts and the
+    // draft is not sent into a panel that still looks busy.
+    agentFlushDraft();
+  }
+}
+
+// Stop the turn in progress. Both ends have to be told: the fetch is aborted
+// so the panel stops waiting, and /agent/abort stops opencode, which would
+// otherwise keep running and make the next message queue behind a turn the
+// user already gave up on.
+function agentStop() {
+  if (agentAbort) agentAbort.abort();
+  // A watched task is dropped too. Leaving the poll running would wake the
+  // model for a run the user just cancelled, which is the opposite of what
+  // pressing stop asked for.
+  if (agentJobTimer) {
+    clearInterval(agentJobTimer);
+    agentJobTimer = null;
+  }
+  agentWatchedJobs = null;
+  // The panel is released here rather than waiting for the aborted fetch to
+  // unwind. The stream is already closed, so the turn is over as far as the
+  // user is concerned; holding the button in its stopping state until the
+  // server answers made a stop that had already worked look like it had not.
+  agentSetBusy(false);
+  agentInput.placeholder = "问 Agent，或让它改这个结构…";
+  // The server is told, and the answer is checked rather than dropped. An
+  // abort that failed leaves opencode running with the next message queued
+  // behind it, which is the one failure the user cannot see from here — so
+  // it is said out loud instead of swallowed.
+  fetch("agent/abort", { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.error) agentAppend("error", `停止失败：${d.error}`);
+    })
+    .catch(e => agentAppend("error", `停止失败：${e.message}`));
+}
+
+/* ---------------- watching a background task ---------------- */
+
+// The tasks the panel is waiting on, and the timer that checks them.
+//
+// A turn that starts a skill run ends before the run does: the model says
+// "started, I'll report when it's done" and stops, and the script keeps going
+// for minutes. Nothing was keeping that promise — the panel showed a finished
+// turn and the result arrived as a publish notice the user had to act on. The
+// panel watches instead, and sends the model back in when the work lands.
+let agentWatchedJobs = null;
+let agentJobTimer = null;
+
+function agentWatchJobs(jobs) {
+  if (!jobs.length) return;
+  agentWatchedJobs = jobs;
+  // The panel stays busy even though the turn is over: the button stays a stop
+  // control, because there is something in flight the user may want to cancel.
+  // The box stays usable — a message typed now is held and sent after the
+  // wake-up turn, which is when it can actually be answered.
+  // The wait is stated in the compose box rather than in the transcript. The
+  // model's own reply already says it started the run, and a second message
+  // saying the same thing one line below it is the panel talking over the
+  // model. The placeholder is where a status belongs: it is the one line that
+  // is always visible while the user decides what to type next, and it is
+  // replaced by the live step as the run progresses.
+  const names = jobs.map(j => j.step || j.group || j.id).filter(Boolean);
+  agentInput.placeholder =
+    `等待任务完成… ${names.join("、")}`;
+
+  // Polled on the same 2s tick as everything else the panel watches. The
+  // server reads status.json, which the skills write as they go, so this is
+  // the run's own progress rather than a guess from timing.
+  agentJobTimer = setInterval(agentPollJobs, 2000);
+}
+
+async function agentPollJobs() {
+  if (!agentWatchedJobs) return;
+  let jobs = [];
+  try {
+    const r = await fetch("agent/jobs");
+    if (r.ok) jobs = (await r.json()).jobs || [];
+  } catch (e) {
+    return;  // the server is between restarts; the next tick tries again
+  }
+
+  if (jobs.length) {
+    // Still running. The placeholder says which step, so a long run shows
+    // where it is rather than a spinner with no noun.
+    const cur = jobs[0];
+    const label = cur.step || cur.group || cur.id;
+    agentInput.placeholder = cur.message
+      ? `等待任务完成… ${label}：${cur.message}`
+      : `等待任务完成… ${label}`;
+    return;
+  }
+
+  // Nothing left running. The watched set is cleared before the wake-up is
+  // sent, so a second completion — a task that published twice — does not
+  // start another turn.
+  clearInterval(agentJobTimer);
+  agentJobTimer = null;
+  const watched = agentWatchedJobs;
+  agentWatchedJobs = null;
+  // The panel goes idle before the wake-up is sent. It was held busy across
+  // the wait so the button stayed a stop control, but agentTurn refuses to
+  // start while busy — and the wake-up is a turn like any other.
+  agentSetBusy(false);
+
+  // The wake-up. It is a user-role message because that is what the panel
+  // sends, and it says what finished rather than "continue" — the model has
+  // been idle for minutes and its own last words are the only context it has
+  // for what it was doing.
+  const names = watched.map(j => j.step || j.group || j.id)
+    .filter(Boolean).join("、");
+  const wake = `后台任务已完成：${names}。请查看结果并汇报。`;
+  agentTurn(wake);
+}
+
+agentCompose.addEventListener("submit", ev => {
+  ev.preventDefault();
+  // The same button sends and stops, so which one it is depends on whether a
+  // turn is running.
+  if (agentBusy) {
+    agentStop();
+    return;
+  }
+  agentSubmit();
+});
+
+// Enter sends, Shift+Enter makes a new line — the convention every chat
+// uses, and the one a user will try first.
+agentInput.addEventListener("keydown", ev => {
+  if (ev.key === "Enter" && !ev.shiftKey) {
+    ev.preventDefault();
+    // The same key sends and stops, exactly as the button does. Without the
+    // check, Enter during a turn queued the text as a draft and did nothing
+    // else — the user pressed the key every chat uses for "go" and watched
+    // nothing happen, with no way to tell that the button beside the box was
+    // the only thing that would have stopped it.
+    if (agentBusy) {
+      agentStop();
+      return;
+    }
+    agentSubmit();
+  }
+});
+
+// Grow with the content up to the CSS max-height, so a pasted paragraph is
+// visible rather than scrolled inside a two-line box.
+agentInput.addEventListener("input", () => {
+  agentInput.style.height = "auto";
+  agentInput.style.height = Math.min(agentInput.scrollHeight, 140) + "px";
+});
+
+agentCollapse.addEventListener("click", () => {
+  agentPanel.classList.toggle("collapsed");
+  agentCollapse.textContent = agentPanel.classList.contains("collapsed")
+    ? "‹" : "›";
+  agentCollapse.title = agentPanel.classList.contains("collapsed")
+    ? "展开面板" : "收起面板";
+});
 
 const hoverTip = document.getElementById("hover-tip");
 
@@ -2535,7 +4417,39 @@ const hoverTip = document.getElementById("hover-tip");
 // so track that ourselves and place the tip next to it.
 let hoverPos = { x: 0, y: 0 };
 
+// True while a mouse button is down on the viewer, which is how 3Dmol rotates
+// and pans. The tooltip is suppressed for the duration — see onAtomHover.
+let viewerDragging = false;
+
+// Bound to the viewer's own canvas rather than to the page, so a drag that
+// starts on the structure and ends over a panel still counts as one gesture.
+// mouseup is on the window: the button is often released outside the canvas,
+// and missing that would leave the tooltip off until the next click.
+const viewerCanvas = document.getElementById("viewer");
+viewerCanvas.addEventListener("mousedown", () => {
+  viewerDragging = true;
+  onHoverOut();
+});
+window.addEventListener("mouseup", () => {
+  if (!viewerDragging) return;
+  viewerDragging = false;
+  // The cursor is still over whatever residue it stopped on, but 3Dmol has
+  // already fired its hover for it and will not fire again until the pointer
+  // moves. So the tip is cleared rather than left showing a stale residue,
+  // and the next mousemove brings it back.
+  onHoverOut();
+});
+
 function onAtomHover(atom) {
+  // While the structure is being rotated or dragged, the tooltip is off. The
+  // cursor sweeps across dozens of residues on its way, and each one would
+  // raise a tip naming a residue the user is not looking at — so the tip
+  // flickers through the whole chain and covers the part being rotated. It
+  // comes back when the button is released.
+  if (viewerDragging) {
+    onHoverOut();
+    return;
+  }
   if (!atom) {
     onHoverOut();
     return;
@@ -2704,6 +4618,10 @@ function renderSelectionPanel() {
   selectionPanel.classList.add("show");
 
   persistSelection(keys);
+  // The agent panel says what it can see. It reads the same selection, so
+  // it has to be told when it changes — otherwise it keeps describing a
+  // selection the user has since cleared.
+  agentRefreshContext();
 
   if (!keys.length) {
     const hint = {
@@ -3133,6 +5051,9 @@ function stJobRow(j, isActive) {
   const row = document.createElement("div");
   row.className = "st-row" + (isActive ? " on" : "");
   row.dataset.state = j.state || "";
+  // Whether this step leads to a structure. The row is styled on it, so the
+  // distinction is visible before the meta line is read.
+  if (j.structure) row.dataset.hasStructure = "1";
 
   const dot = document.createElement("span");
   dot.className = "st-dot";
@@ -3168,6 +5089,10 @@ function stJobRow(j, isActive) {
   meta.className = "st-meta";
   const bits = [];
   if (j.skill) bits.push(j.skill);
+  // A step that published a structure says so. Without it the row is
+  // indistinguishable from one that only reported a state, and the user has
+  // no way to tell which steps of a run lead somewhere before clicking.
+  if (j.structure) bits.push("\u2192 \u7ed3\u6784");
   // Elapsed time only once the step has actually run. A queued step's
   // "started" is when the plan was declared, so counting from it would
   // report the whole task's age as this step's — "0s" for a step that has
@@ -3937,6 +5862,31 @@ function syncPillToTab() {
 
 /* ---------------- polling ---------------- */
 
+// Whether a task has finished since the last poll.
+//
+// The notice means "a run finished, there is a structure to look at" — so it
+// is keyed on the task's state, not on the contract file's timestamp. Every
+// publish rewrites current.json, including the `--status --state running` one
+// a skill makes before it does any work, so watching the timestamp raised the
+// notice the moment a task was queued and again when it finished. Two bells
+// for one run, the first of them a lie.
+//
+// A job is "newly done" when it is done now and was not done last time. The
+// set of ids seen done is what makes that decidable: a job that was already
+// done when the page loaded is not news, and neither is one that has been
+// done for several polls.
+function newlyDoneJobs(status, seen) {
+  const jobs = (status && status.jobs) || [];
+  const out = [];
+  for (const j of jobs) {
+    if (!j || j.state !== "done" || !j.id) continue;
+    if (seen.has(j.id)) continue;
+    seen.add(j.id);
+    out.push(j);
+  }
+  return out;
+}
+
 async function poll() {
   try {
     const res = await fetch("current.json?t=" + Date.now());
@@ -4006,7 +5956,6 @@ async function poll() {
         }
         if (withFile.file) addTab(null, withFile, false);
         state.contractUpdated = meta.updated;
-        raisePublishNotice(meta);
         // A new publish is newer than whatever step the user had pinned, so
         // the pin goes and the pill follows the run again. Leaving it would
         // freeze the pill on a step that finished before this one started.
@@ -4021,6 +5970,33 @@ async function poll() {
     if (res.ok) {
       lastStatus = await res.json();
       renderStatus(lastStatus, pillJob());
+      // The notice is raised here rather than where the contract file
+      // changed, because this is the only place that knows a run finished.
+      // `current.json` is rewritten by every publish — including the
+      // `--status --state running` one a skill makes before it does any work
+      // — so keying the notice on it rang the bell when a task was queued.
+      //
+      // Only a job that turned done since the last poll counts, so a page
+      // loaded mid-run does not announce the runs that finished before it
+      // arrived, and a run that publishes several structures raises one
+      // notice rather than one per publish.
+      if (state.seenDoneJobs === null) {
+        // First read of this page load: record what is already done and say
+        // nothing. A notice means "this happened while you were here", and
+        // none of these did.
+        state.seenDoneJobs = new Set(
+          ((lastStatus && lastStatus.jobs) || [])
+            .filter(j => j && j.state === "done" && j.id)
+            .map(j => j.id));
+      } else {
+        const fresh = newlyDoneJobs(lastStatus, state.seenDoneJobs);
+        if (fresh.length) {
+          const last = fresh[fresh.length - 1];
+          raisePublishNotice({
+            name: last.structure || state.structureName || "structure",
+          });
+        }
+      }
     }
   } catch (e) { /* no status file */ }
 
@@ -4115,6 +6091,11 @@ restoreTabs().then(() => {
   poll();
   setInterval(poll, 2000);
 });
+
+// The backdrop is applied before anything is drawn, so the canvas is created
+// with the right colour rather than repainted into it — a viewer made dark
+// and then switched shows the old colour through the model for a frame.
+stageLoad();
 </script>
 </body>
 </html>

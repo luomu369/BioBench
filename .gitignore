@@ -1,6 +1,29 @@
 # Local LLM credentials — never commit
 config.json
 
+# The agent panel's API settings. Holds a live key, so it is written by hand
+# on each machine and never committed — the environment variables are the
+# other way to set it and are equally invisible to git.
+webapp/agent.json
+
+# The model API key, as NAME=value lines. The viewer outlives the terminal
+# that started it, so a key exported into one shell is gone the moment that
+# shell closes — and the panel then fails with a 401 that reads like a bad
+# key rather than a missing one. This file is read by webapp/agent.py and
+# passed to the opencode server it starts.
+webapp/agent.key
+
+# The vendored opencode binary. 177 MB and platform-specific, so it is
+# fetched by vendor/install_opencode.sh rather than committed — a repo
+# carrying a compiled ARM64 executable cannot be cloned on anything else.
+vendor/bin/
+
+# The opencode session the viewer's agent panel is currently using. Written by
+# webapp/agent.py so a reload of the page continues the same conversation
+# rather than starting a new one; it is runtime state, not configuration.
+webapp/.opencode-session
+webapp/.auto-approve
+
 # Run outputs
 runs/
 
@@ -10,6 +33,7 @@ webapp/static/current.json
 webapp/static/status.json
 webapp/static/structures.json
 webapp/static/structures/
+webapp/static/stage-bg.*
 webapp/static/selection.json
 webapp/static/*.tmp
 

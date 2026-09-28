@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """BioBench Viewer server.
 
-Serves the static viewer and accepts one write endpoint:
+Serves the static viewer and accepts two write endpoints:
 
   POST /selection.json   — the viewer posts the user's residue selection here;
                            it is saved to selection.json for skills to read.
+  POST /agent            — one turn of the chat panel's conversation, driven
+                           through the vendored opencode server.
 
-It also serves one read endpoint:
+It also serves two read endpoints:
 
   GET /sysinfo.json      — CPU, GPU and memory utilisation, sampled on demand.
+  GET /agent/status      — whether the agent is installed and running.
 
 Everything else is plain static file serving. No framework, no dependencies
 beyond the standard library.
@@ -18,8 +21,11 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 STATIC = Path(__file__).resolve().parent / "static"
 SELECTION = STATIC / "selection.json"
@@ -145,7 +151,88 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             return
+        # The panel asks this on load so it can say "not installed" with the
+        # command to fix it, rather than letting the user type a message into
+        # a box that cannot answer.
+        if route == "/agent/status":
+            try:
+                import agent
+                installed = agent.configured()
+                running = agent.server_up()
+                auto = agent.auto_approve()
+                # Whether the conversation the panel will open has a turn
+                # running. A reload into a busy session has to show a stop
+                # button, or the user is offered a send that queues behind a
+                # turn already in progress.
+                busy = agent.session_busy(agent.current_session_id())
+            except ImportError:
+                installed = running = auto = busy = False
+            self._json(200, {"installed": installed, "running": running,
+                             "auto_approve": auto, "busy": busy})
+            return
+        if route == "/agent/history":
+            self.do_GET_history()
+            return
+        if route == "/agent/jobs":
+            self.do_GET_jobs()
+            return
+        if route == "/agent/sessions":
+            self.do_GET_sessions()
+            return
         super().do_GET()
+
+    def do_GET_jobs(self):
+        """The tasks still running, for the panel to watch.
+
+        A turn that starts a background task ends before the task does — the
+        skill scripts publish their progress to status.json and run for
+        minutes. The panel polls this to know when to bring the model back,
+        and it reads the same file the viewer already polls, so what the panel
+        watches and what the model is waiting on cannot disagree.
+        """
+        try:
+            import agent
+            jobs = agent.pending_jobs()
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+        self._json(200, {"jobs": jobs})
+
+    def do_GET_sessions(self):
+        """Every conversation, newest first, with a line of its first message.
+
+        The panel needs a list the user can pick from, and a session id is not
+        something to recognise. The first user message is what the conversation
+        was about, so that is the label.
+        """
+        try:
+            import agent
+            sessions = agent.list_sessions()
+        except Exception as e:
+            self._json(200, {"error": str(e), "sessions": []})
+            return
+        self._json(200, {"sessions": sessions})
+
+    def do_GET_history(self):
+        """The current session's turns, so a reload can rebuild the panel.
+
+        The conversation lives in opencode's session store, which survives a
+        reload of the page — but the panel's own copy of it was in memory and
+        did not. Without this the user refreshes and finds an empty chat next
+        to an agent that still remembers everything, which reads as the agent
+        having lost the thread rather than the page.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+        try:
+            turns = agent.history()
+        except Exception as e:
+            self._json(200, {"error": str(e), "turns": []})
+            return
+        self._json(200, {"turns": turns})
 
     def do_DELETE(self):
         # Only select.json is deletable, and only by the viewer consuming a
@@ -166,7 +253,42 @@ class Handler(SimpleHTTPRequestHandler):
         if route == "/task.json":
             self.delete_task()
             return
-        self.send_error(404, "only DELETE /select.json and /task.json are supported")
+        if route == "/agent/session":
+            self.do_DELETE_session()
+            return
+        self.send_error(404, "only DELETE /select.json, /task.json and "
+                             "/agent/session are supported")
+
+    def do_DELETE_session(self):
+        """Delete one conversation from opencode's store.
+
+        The id comes as a query parameter rather than in a body, because a
+        DELETE with a body is awkward to make from `fetch` and easy to get
+        wrong. Deleting the session the panel is currently in leaves it
+        pointing at nothing, so a fresh one is started in its place.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        sid = (q.get("id") or [""])[0].strip()
+        if not sid:
+            self._json(400, {"error": "no session id given"})
+            return
+
+        try:
+            was_current = agent.current_session_id() == sid
+            agent.delete_session(sid)
+            if was_current:
+                agent.new_session()
+        except Exception as e:
+            self._json(200, {"error": str(e)})
+            return
+        self._json(200, {"ok": True})
 
     def delete_task(self):
         """Drop one task's steps, and the archive entries nothing else points at.
@@ -348,8 +470,33 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if self.path.rstrip("/") != "/selection.json":
-            self.send_error(404, "only POST /selection.json is supported")
+        route = self.path.split("?")[0].rstrip("/")
+        if route == "/agent":
+            self.do_POST_agent()
+            return
+        if route == "/agent/permission":
+            self.do_POST_permission()
+            return
+        if route == "/agent/auto-approve":
+            self.do_POST_auto_approve()
+            return
+        if route == "/stage-image":
+            self.do_POST_stage_image()
+            return
+        if route == "/agent/clear":
+            self.do_POST_clear()
+            return
+        if route == "/agent/abort":
+            self.do_POST_abort()
+            return
+        if route == "/agent/session":
+            self.do_POST_session()
+            return
+        if route != "/selection.json":
+            self.send_error(404, "only POST /selection.json, /agent, "
+                                 "/agent/permission, /agent/auto-approve, "
+                                 "/stage-image, /agent/clear, /agent/abort "
+                                 "and /agent/session are supported")
             return
 
         length = int(self.headers.get("Content-Length") or 0)
@@ -374,6 +521,281 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(b'{"ok":true}')
+
+    def do_POST_agent(self):
+        """One turn of the chat panel's conversation.
+
+        The page sends the messages so far; this drives the vendored opencode
+        server and returns the reply plus which tools it called. The model's
+        API key stays in opencode's own credential store — the page is static,
+        so anything handed to it would be readable by anyone with the URL.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 1_000_000:
+            self.send_error(413, "request too large")
+            return
+        try:
+            data = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid JSON"})
+            return
+
+        messages = data.get("messages")
+        if not isinstance(messages, list) or not messages:
+            self._json(400, {"error": "no messages"})
+            return
+
+        # Which agent to use. The panel offers a read-only mode for questions
+        # about the structure and a full one that can run skills; the choice
+        # is the user's, so it comes in the request rather than being decided
+        # here.
+        which = data.get("agent")
+        if which not in (None, "biobench", "biobench-readonly"):
+            which = None
+
+        # Streamed unless the caller asks otherwise. A turn that runs a skill
+        # takes minutes, and a panel that shows nothing until it finishes
+        # looks broken — the model emits text the whole time, so it is
+        # forwarded as it arrives. `?stream=0` keeps the old one-shot shape
+        # for scripts that want a single JSON document.
+        if data.get("stream") is False or "stream=0" in self.path:
+            try:
+                reply, reasoning, used = agent.chat(messages, agent=which)
+            except Exception as e:
+                self._json(200, {"error": str(e)})
+                return
+            self._json(200, {"reply": reply, "reasoning": reasoning,
+                             "tools": used})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            for ev in agent.stream(messages, agent=which):
+                line = "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
+                self.wfile.write(line.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the user navigated away; nothing to report to
+        except Exception as e:
+            try:
+                line = "data: " + json.dumps(
+                    {"type": "error", "message": str(e)},
+                    ensure_ascii=False) + "\n\n"
+                self.wfile.write(line.encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    def do_POST_abort(self):
+        """Stop the turn that is running.
+
+        Closing the browser's end of the stream is not enough: opencode keeps
+        going, and the next message would queue behind a turn the user already
+        gave up on. So the session is aborted here as well, which is what
+        actually stops the model.
+        """
+        try:
+            import agent
+            agent.abort_turn()
+        except Exception as e:
+            self._json(200, {"error": str(e)})
+            return
+        self._json(200, {"ok": True})
+
+    def do_POST_session(self):
+        """Switch to another conversation, or start a new one.
+
+        `{"id": null}` starts fresh; an id switches to that one. Either way the
+        panel is rebuilt from the session that is now current, so what the user
+        sees and what the agent will answer from are the same conversation.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 100_000:
+            self.send_error(413, "request too large")
+            return
+        try:
+            data = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid JSON"})
+            return
+
+        sid = data.get("id")
+        try:
+            if sid:
+                agent.use_session(sid)
+            else:
+                agent.new_session()
+            turns = agent.history()
+            # Whether the conversation just switched to has a turn running.
+            # The panel's send button is a stop control while one is, and a
+            # send control when it is not — so switching to a busy
+            # conversation has to put the button in its stopping state, or the
+            # user presses send on a session that cannot accept a message and
+            # the click does nothing.
+            busy = agent.session_busy(agent.current_session_id())
+        except Exception as e:
+            self._json(200, {"error": str(e)})
+            return
+        self._json(200, {"ok": True, "turns": turns, "busy": busy})
+
+    def do_POST_clear(self):
+        """Forget the conversation, in the panel and in opencode.
+
+        Clearing only the panel would leave the session in opencode's store,
+        and the next reload would restore exactly what the user just asked to
+        get rid of — which makes the button look broken.
+        """
+        try:
+            import agent
+            agent.clear_session()
+        except Exception as e:
+            self._json(200, {"error": str(e)})
+            return
+        self._json(200, {"ok": True})
+
+    def do_POST_permission(self):
+        """Answer a permission request the agent is blocked on.
+
+        The agent asks before running anything the rules do not cover, and it
+        waits. A request nobody answers is a turn that never ends — the panel
+        shows a running agent and the user sees a hang with no explanation.
+        So the request is surfaced and the answer comes back here.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 100_000:
+            self.send_error(413, "request too large")
+            return
+        try:
+            data = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid JSON"})
+            return
+
+        response = data.get("response")
+        # Two answers, matching the two buttons. "always" used to be accepted
+        # here and was removed with the button that sent it: the auto-approve
+        # switch in the panel header is that decision made once for the whole
+        # session, and a per-command "always" beside it was a second control
+        # covering part of the same ground.
+        if response not in ("once", "reject"):
+            self._json(400, {"error": "response must be once or reject"})
+            return
+
+        try:
+            agent.answer_permission(data.get("session"), data.get("id"),
+                                    response)
+        except Exception as e:
+            self._json(200, {"error": str(e)})
+            return
+        self._json(200, {"ok": True})
+
+    def do_POST_auto_approve(self):
+        """Turn automatic approval of permission requests on or off.
+
+        With it on, the agent's requests are answered "always" the moment they
+        arrive instead of being shown — a run that needs nobody at the
+        keyboard. With it off, every request is surfaced as before.
+
+        The state is read back from the module rather than echoed from the
+        request, so the response says what is actually in force: a switch that
+        reports success while the file it writes to is unwritable would be
+        lying about the one thing the user needs to know.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 1_000:
+            self.send_error(413, "request too large")
+            return
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid JSON"})
+            return
+
+        on = data.get("on")
+        if not isinstance(on, bool):
+            self._json(400, {"error": "on must be true or false"})
+            return
+
+        state = agent.set_auto_approve(on)
+        self._json(200, {"ok": True, "auto_approve": state})
+
+    def do_POST_stage_image(self):
+        """Set the viewer's backdrop to an image the user chose.
+
+        The image arrives as a data URL because that is what a file input
+        gives without a round trip through a form: the browser has already
+        read the bytes, and posting them as a string keeps this to one
+        request. It is decoded and written under webapp/static/, which is
+        where the viewer already serves its own assets from — so the file is
+        reachable at a plain URL and needs no second endpoint to read back.
+
+        An empty `image` clears it and puts the colour backdrop back.
+        """
+        try:
+            import agent
+        except ImportError as e:
+            self._json(500, {"error": f"agent module unavailable: {e}"})
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        # A photograph is a few megabytes and a screenshot of a desktop more.
+        # The cap is on the encoded body, which is a third larger than the
+        # file, so it is generous rather than tight.
+        if length > 24_000_000:
+            self.send_error(413, "image too large")
+            return
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid JSON"})
+            return
+
+        image = data.get("image") or ""
+        try:
+            url = agent.set_stage_image(image)
+        except Exception as e:
+            self._json(200, {"error": str(e)})
+            return
+        self._json(200, {"ok": True, "url": url})
+
+    def _json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def end_headers(self):
         # Allow the page to POST from any origin during local development.

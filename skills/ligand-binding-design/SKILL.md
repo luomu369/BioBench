@@ -87,8 +87,8 @@ entities:
 ### Around user-selected residues
 
 If the user selected residues in the viewer and wants the design to bind near
-them, read `webapp/static/selection.json` and add a `binding` block to the
-protein entity:
+them, take the residues from the request's `[当前结构：...]` block and add a
+`binding` block to the protein entity:
 
 ```yaml
 entities:

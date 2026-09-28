@@ -771,6 +771,15 @@ def publish(cif_text: str, meta: dict, viewer: Path):
     验证" rather than "全部通过" — so nobody later reads it as a result. The
     same applies to a run you abandon: report `--state error` with what
     stopped it rather than leaving the last step mid-flight.
+13. **Publish complete structures.** A design run that cropped its context
+    publishes a receptor in pieces — a valid file with real metrics that
+    looks broken on screen. The target must arrive whole: every chain of
+    the source, minus only the residues the source itself leaves
+    unresolved. Fragments are never repaired by merging them back onto the
+    full target after the fact — the pose was scored against the crop, so
+    the merged picture is not the pose that was scored. Repeat the run
+    against the whole target. The per-chain check is in `binder-design`
+    Step 6 and the trap in `_shared/silent-failures.md`.
 
 ## When the user says the structure looks wrong
 

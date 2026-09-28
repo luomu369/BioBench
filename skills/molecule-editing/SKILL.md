@@ -1,6 +1,6 @@
 ---
 name: molecule-editing
-description: '**EDITING SKILL** — Modify a molecule in place from atoms the user selected in the viewer: rebuild a fragment as a benzene ring, a vinyl, or any standard group, and publish the edited structure with the rest of the complex intact. Replaces exactly the atoms selected — never more, never fewer, and never by rewriting selection.json. USE FOR: "change this into a benzene ring"; "make this a vinyl"; replacing a selected fragment with a standard group; editing a ligand the user is pointing at in the viewer; any request to alter part of a structure while keeping the rest. DO NOT USE FOR: designing a new molecule from scratch (use molecule-generation or pocket-molecule-design); docking (use molecular-docking); publishing an unmodified structure (use structure-viewer). Requires a selection in the viewer — read selection.json first. INVOKES: file system tools, the structure-viewer publisher.'
+description: '**EDITING SKILL** — Modify a molecule in place from atoms the user selected in the viewer: rebuild a fragment as a benzene ring, a vinyl, or any standard group, and publish the edited structure with the rest of the complex intact. Replaces exactly the atoms selected — never more, never fewer, and never by rewriting selection.json. USE FOR: "change this into a benzene ring"; "make this a vinyl"; replacing a selected fragment with a standard group; editing a ligand the user is pointing at in the viewer; any request to alter part of a structure while keeping the rest. DO NOT USE FOR: designing a new molecule from scratch (use molecule-generation or pocket-molecule-design); docking (use molecular-docking); publishing an unmodified structure (use structure-viewer). Requires a selection in the viewer, which arrives with the request. INVOKES: file system tools, the structure-viewer publisher.'
 ---
 
 # Molecule Editing
@@ -8,9 +8,11 @@ description: '**EDITING SKILL** — Modify a molecule in place from atoms the us
 Change part of a structure the user selected in the viewer, and publish the
 result with everything else intact.
 
-**Prerequisite:** the user must have selected atoms in the viewer. Read
-`webapp/static/selection.json` first — if `atoms` is empty, ask them to switch
-the viewer to **Atom** mode and select the atoms to change.
+**Prerequisite:** the user must have selected atoms in the viewer. The
+selection arrives with the request as a `[当前结构：...]` block, so you already
+know what was picked — if it lists no atoms, ask them to switch the viewer to
+**Atom** mode and select the atoms to change. The script reads
+`selection.json` itself, so there is no need to read it first.
 
 ## When to Use
 

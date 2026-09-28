@@ -61,12 +61,13 @@ class Atom:
     y: float
     z: float
     elem: str
+    icode: str = " "
     record: str = "HETATM"
 
     def line(self) -> str:
         return atom_line(self.serial, self.name, self.resn, self.chain,
                          self.resi, self.x, self.y, self.z, self.elem,
-                         record=self.record)
+                         record=self.record, icode=self.icode)
 
 
 def _fit(value: int, width: int, what: str) -> str:
@@ -88,9 +89,25 @@ def _fit(value: int, width: int, what: str) -> str:
     return f"{value:{width}d}"
 
 
+def _fit_icode(icode: str) -> str:
+    """One insertion-code column, or a blank.
+
+    An insertion code is what makes ``LYS H  49A`` a different residue from
+    ``LYS H  49``. Dropping it merges the two: no atom goes missing, so a
+    coordinate comparison sees nothing wrong, while the file now holds one
+    residue carrying two atom sets. A two-character code is refused for the
+    same reason an over-wide number is — it shifts every column after it.
+    """
+    icode = icode or " "
+    if len(icode) > 1:
+        raise PdbFormatError(
+            f"insertion code {icode!r} is longer than 1 column")
+    return icode
+
+
 def atom_line(serial: int, name: str, resn: str, chain: str, resi: int,
               x: float, y: float, z: float, elem: str,
-              record: str = "HETATM") -> str:
+              record: str = "HETATM", icode: str = " ") -> str:
     """One ATOM/HETATM line, with every column where PDB puts it.
 
     `serial` continues across a file. A ligand appended to a receptor must
@@ -132,7 +149,8 @@ def atom_line(serial: int, name: str, resn: str, chain: str, resi: int,
         f" "
         f"{chain}"
         f"{_fit(resi, 4, 'residue number')}"
-        f"    "                               # iCode + 3 spaces
+        f"{_fit_icode(icode)}"
+        f"   "                                # 3 spaces to the coordinates
         f"{x:8.3f}{y:8.3f}{z:8.3f}"
         f"{'  1.00':>6s}{'  0.00':>6s}"
         f"          "
@@ -161,6 +179,7 @@ def parse_atom_line(line: str) -> Optional[Atom]:
             y=float(line[38:46]),
             z=float(line[46:54]),
             elem=line[76:78].strip(),
+            icode=line[26] if len(line) > 26 else " ",
         )
     except (ValueError, IndexError):
         # A truncated or malformed line. Returning None lets a caller skip it

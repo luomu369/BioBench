@@ -203,6 +203,31 @@ def publish_structure(args) -> int:
         "notes": args.notes or "",
         "updated": utcnow_iso(),
     }
+    # The run's parameters, as data rather than as a sentence in --notes.
+    #
+    # A repeat run needs the same box, the same exhaustiveness, the same
+    # ligand — and the only place those lived was the prose of the previous
+    # run's notes. Prose is not something to read a number out of: the agent
+    # went looking for the previous run's directory and its log instead, which
+    # is a dozen tool calls to recover what one field would have held. With
+    # the numbers structured, the next run reads them off current.json in the
+    # same step that reads the structure.
+    #
+    # Invalid JSON is a warning rather than a failure: the structure is still
+    # worth publishing, and refusing to publish it over a malformed optional
+    # field would lose the result to keep the metadata tidy.
+    if args.params:
+        try:
+            params = json.loads(args.params)
+        except json.JSONDecodeError as e:
+            print(f"warning: --params is not valid JSON ({e}); the run "
+                  "parameters were not recorded", file=sys.stderr)
+        else:
+            if isinstance(params, dict):
+                meta["params"] = params
+            else:
+                print("warning: --params must be a JSON object; the run "
+                      "parameters were not recorded", file=sys.stderr)
     # Which task produced this. The viewer groups structures under the task
     # that made them, so a finished task is the way to reach its results —
     # without this a structure is only reachable through the flat tab list,
@@ -226,11 +251,6 @@ def publish_structure(args) -> int:
     # the same one.
     if args.step:
         record_step_structure(args, meta["name"])
-    # The index of the step that published, so the backfill can tell which
-    # steps came before it. Falls back to 0 when the caller did not say,
-    # which makes this publish the task's earliest structure.
-    backfill_group_structures(meta["job"], meta["name"],
-                              published_index=args.index or 0)
     print(f"published structure: {meta['name']} "
           f"({len(chains)} chains, {fmt})")
     return 0
@@ -252,74 +272,12 @@ def record_step_structure(args, name: str) -> None:
                        and j.get("index") == args.index), None)
     if target is None:
         return
+    # Only the step that actually published gets a structure. The others
+    # keep none: a step that prepared a receptor or scored a batch has a
+    # finding but no file of its own, and inventing one for it sent the user
+    # to a structure the step had nothing to do with.
     target["structure"] = name
-    # Marks this step as a source rather than a borrower. The backfill reads
-    # the flag to tell the two apart, so an inherited structure is never
-    # mistaken for one the step produced itself.
-    target["published"] = True
     atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
-
-
-def backfill_group_structures(group_id: str, name: str,
-                              published_index: int = 0) -> None:
-    """Give every step of a task a structure to show.
-
-    A task's steps do not each produce a structure. Preparing a receptor,
-    scoring a batch, analysing a trajectory — those steps have a finding but
-    no file of their own, and the viewer's step rows are only clickable when
-    they point at one. The result is a menu where some rows do nothing when
-    clicked, which reads as a broken row rather than as a step that had
-    nothing to publish.
-
-    So a step that published nothing inherits a structure — but not blindly
-    the newest one. A step shows the state of the work *at that point*:
-    "preparing the receptor" belongs to the structure it was preparing, and
-    "docking complete" belongs to the docked complex. Handing every step the
-    final result would send the user to a structure the step had nothing to
-    do with.
-
-    The rule is therefore by position: a step takes the structure published
-    by the latest step at or before its own index. Steps after the last
-    publish take that one, which is the task's result and what they are
-    working towards.
-    """
-    if not group_id:
-        return
-    data = load_status()
-    jobs = data.get("jobs") or []
-    in_group = [j for j in jobs
-                if (j.get("group") or j.get("id")) == group_id]
-    if not in_group:
-        return
-
-    # Structures this task has published, with the step index that made them.
-    # Only steps that published their own count — a step that inherited one
-    # is not a source, or the inheritance would feed itself.
-    published = sorted((j.get("index") or 0, j["structure"]) for j in in_group
-                       if j.get("structure") and j.get("published"))
-    if not published:
-        return
-
-    changed = False
-    for j in in_group:
-        # A step that published its own structure keeps it. A step that only
-        # inherited one is recomputed every time, because a later publish may
-        # be the better match for it — the inheritance is a default, not a
-        # decision the step made.
-        if j.get("published"):
-            continue
-        idx = j.get("index") or 0
-        # Latest publish at or before this step. If the step sits before
-        # every publish, it takes the first one — the task's input, which is
-        # what an early step is working on.
-        candidates = [s for i, s in published if i <= idx]
-        name_for_step = candidates[-1] if candidates else published[0][1]
-        if j.get("structure") != name_for_step:
-            j["structure"] = name_for_step
-            changed = True
-
-    if changed:
-        atomic_write(VIEWER / "status.json", json.dumps(data, indent=2))
 
 
 # Where published structures are kept so the viewer can restore them.
@@ -415,6 +373,21 @@ def utcnow_iso():
     20-second job into "8h 0m". The trailing Z removes the ambiguity.
     """
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def proc_starttime(pid):
+    """When a process started, in clock ticks since boot, or None.
+
+    Field 22 of /proc/<pid>/stat. Read after the last ')' because the comm
+    field before it can itself contain spaces and parentheses, so counting
+    fields from the front lands on the wrong column.
+    """
+    try:
+        with open(f"/proc/{int(pid)}/stat") as f:
+            raw = f.read()
+        return int(raw[raw.rindex(")") + 2:].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 def load_status():
@@ -516,6 +489,30 @@ def publish_status(args) -> int:
         target["state"] = args.state
         target["updated"] = now
         target["message"] = args.message or ""
+        # The process behind this step, when the caller named one.
+        #
+        # A step's own word for its state is the only thing status.json
+        # otherwise carries, and a script that dies without writing `error`
+        # leaves `running` there forever — the viewer waits on a run that
+        # ended minutes ago. The pid is checkable against the OS, so the
+        # viewer can tell "still going" from "said running and vanished".
+        #
+        # Cleared when the step is done or errored: a finished step has no
+        # process to check, and a stale pid would eventually be reused by
+        # something unrelated and read as this run still going.
+        if args.pid:
+            target["pid"] = args.pid
+            # When that process started, so a reused pid is not mistaken for
+            # this run. Linux recycles pids, and `kill(pid, 0)` on whatever
+            # inherited the number succeeds — the viewer would wait forever
+            # on a run that ended. The start time cannot collide: two
+            # processes holding one pid existed at different times.
+            start = proc_starttime(args.pid)
+            if start is not None:
+                target["pid_start"] = start
+        elif args.state in ("done", "error", "idle"):
+            target.pop("pid", None)
+            target.pop("pid_start", None)
         # The pill is one line and ellipsizes what does not fit, so a long
         # message is not lost — but it is not readable either, and the status
         # bar is the one thing that must stay glanceable while a run is going.
@@ -627,6 +624,16 @@ def main() -> int:
     ap.add_argument("--notes", help="free-text context")
     ap.add_argument("--roles", help='chain roles, e.g. "A=target,B=binder"')
     ap.add_argument("--metrics", help="JSON object of metrics")
+    ap.add_argument("--params",
+                    help='JSON object of the run parameters, e.g. '
+                         '{"box_center": [25.8, 90.0, 46.0], '
+                         '"box_size": 20, "exhaustiveness": 8, '
+                         '"num_modes": 9, "flexibility": "rigid", '
+                         '"ligand_smiles": "c1ccc2c(c1)OCO2", '
+                         '"ligand_chain": "re"}. Written to current.json '
+                         'as a `params` block, so a repeat run reads the '
+                         'numbers instead of reconstructing them from '
+                         'prose or from the previous run\'s directory.')
     ap.add_argument("--step-metrics",
                     help='metrics for the step itself rather than the '
                          'structure, e.g. \'{"hits": 0}\'. Only needed when '
@@ -653,6 +660,12 @@ def main() -> int:
     ap.add_argument("--index", type=int, help="current step number")
     ap.add_argument("--total", type=int, help="total step count")
     ap.add_argument("--message", help="human-readable progress message")
+    ap.add_argument("--pid", type=int,
+                    help="process id of the background run this step drives, "
+                         "from `setsid ... & echo $!`. Recorded in "
+                         "status.json so the viewer can tell a finished run "
+                         "from a stalled one by asking the OS rather than "
+                         "believing the last thing the script said.")
     ap.add_argument("--skill", help="skill name for attribution")
     ap.add_argument("--job",
                     help="identify this run so several can proceed at once. "

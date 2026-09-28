@@ -42,7 +42,7 @@ why.
 ## Workflow
 
 ```
-1. Read the selected bond from selection.json
+1. Take the selected bond from the request's `[当前结构：...]` block
 2. Pick the four atoms of the dihedral
 3. Run the scan
 4. Report the profile, and publish the minimum if it is interesting

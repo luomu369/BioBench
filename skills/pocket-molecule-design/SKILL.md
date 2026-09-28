@@ -19,8 +19,10 @@ publish them alongside the receptor.
 
 ## Reading a selection from the viewer
 
-When the user points at residues in the viewer, they are in
-`webapp/static/selection.json`:
+When the user points at residues in the viewer, the selection arrives with the
+request as a `[当前结构：...]` block listing the residues — use that. Read
+`webapp/static/selection.json` only when you need the exact residue list for a
+script, which is what the snippet below is for:
 
 ```bash
 BB="${BB:-$HOME/biobench}"
@@ -210,9 +212,26 @@ SDF/                   # one file per molecule
 Each successful molecule is logged as
 `successfully generate: <SMILES>` — grep the log to list them.
 
-> **Run it in the background.** With `beam_size: 20` expect ~10 minutes;
-> the log is silent until molecules finish. Use `setsid nohup ... &` and
-> poll, or the call will look hung.
+> **Run it in the background, and report the pid.** With `beam_size: 20`
+> expect ~10 minutes; the log is silent until molecules finish. Use
+> `setsid nohup ... & echo $!` and poll, or the call will look hung.
+>
+> The pid is not optional. The viewer watches the process to know when the
+> run is over, and a step that only says `running` in status.json is a step
+> the viewer cannot tell from a crashed one — it waits on work that ended
+> minutes ago. Capture it and pass it with `--pid`:
+>
+> ```bash
+> setsid nohup $PY $GEN ... > gen.log 2>&1 &
+> PID=$!
+> echo "started pid $PID"
+> python3 $PUB --status --state running --step "分子生成" --index 1 --total 2 \
+>   --skill pocket-molecule-design --job my_run --pid $PID \
+>   --message "正在生成分子"
+> ```
+>
+> `setsid` rather than plain `&` so the run survives the shell that started
+> it, and `$!` immediately after so the pid is the one just launched.
 
 ## Step 4 — Publish
 

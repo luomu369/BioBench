@@ -85,6 +85,33 @@ Write standard amino acids as `ATOM` and everything else as `HETATM`.
 `_shared/pdb_format.py` takes a `record` argument; `replace_with_group.py`
 picks it from `STANDARD_AA`.
 
+## A cropped design context is not a publishable structure
+
+`include_proximity` in a BoltzGen spec keeps only the residues within
+`radius` of the hotspots and deletes the rest of every chain. It is a
+design-time context crop and nothing more — but the design output is what
+gets published, so the viewer ends up drawing the crop.
+
+One 1RUZ peptide design ran with a 15 Å crop. The output was valid, the
+metrics were real (ipTM 0.34, 4 hbonds, 3 saltbridges), the ring was
+verified closed — and the receptor arrived as five chains in pieces: chain
+B as 76-77/79-85/87-88/90-91, chain E as 103-111/265-268/301-303/309-310.
+The user's first question was why the structure was broken. Nothing in the
+pipeline had erred; the spec had asked for a context and the publish step
+had shown it as a receptor.
+
+Two things follow:
+
+1. **Design against the whole target.** No `include_proximity`, no partial
+   `include` — the design is slower and the published complex is complete.
+   `binding_types` alone biases the design toward the pocket.
+2. **Check the output against the source before publishing.** Every target
+   chain must carry its full residue count minus the unresolved residues
+   `boltzgen check` reported. A chain short by more than that was cropped;
+   re-run the design, and do not repair the picture by merging the design
+   back onto the full target afterwards — the pose was scored against the
+   crop, not against the receptor the merge would show.
+
 ## Vina's score is not a clash check
 
 Vina's scoring function softens the van der Waals term, so a pose with real

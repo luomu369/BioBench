@@ -98,24 +98,12 @@ so do not rely on it downstream.
 ### Designing around user-selected residues
 
 If the user selected residues in the viewer and asked to design around them,
-read `webapp/static/selection.json` and turn it into a `binding` block:
+the selection is already in the request as a `[当前结构：...]` block — use the
+residues it lists.
 
-```bash
-BB="${BB:-$HOME/biobench}"
-[ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
-python3 -c "
-import json
-d = json.load(open('$BB/webapp/static/selection.json'))
-if not d.get('count'):
-    raise SystemExit('no residues selected')
-# Keep only residues on the target chain
-target_chain = 'A'
-resi = [r['resi'] for r in d['residues'] if r['chain'] == target_chain]
-print(f'hotspots on chain {target_chain}: {resi}')
-"
-```
-
-Then add the `binding` block to the target entity:
+**The hotspot key is `binding_types`, not `binding`.** A `binding` block on a
+`file` entity is rejected by `boltzgen check` with `Found invalid keys in yaml
+file: {'binding'}`. The form that passes:
 
 ```yaml
 entities:
@@ -127,24 +115,46 @@ entities:
       include:
         - chain:
             id: A
-      binding:
+      binding_types:
         - chain:
             id: A
-            res_index: [216, 217, 220]
+            binding: "216,217,220"
 ```
 
-BoltzGen then biases the design toward contacting those residues.
+> **`binding` takes a string, not a list.** `"216,217,220"` passes;
+> `[216, 217, 220]` does not. The same applies to `res_index`.
 
-> **The key is `res_index`, not `residue`.** `boltzgen check` rejects
-> `residue` with `Found invalid keys in yaml file: {'residue'}` and lists
-> the valid ones. The error names the fix, but it costs a round trip — the
-> spec above is the form that passes.
-
-> **Residue numbers are the file's, not the PDB's auth numbers.** When the
-> target comes from a local file, `res_index` counts positions in that file.
-> Extract the receptor chain first and check what numbering it carries
-> before writing the block — see `pocket-detection` for how to get the
-> interface residues and which chain is the receptor.
+> **`res_index` and `binding` are 1-based positions within the chain as it
+> appears in the file — not the PDB's auth numbers.** Auth 582 on a chain
+> whose first residue is auth 531 is position 52. Getting this wrong does not
+> fail: the run completes and the design is biased toward the wrong residues,
+> which is worse than an error because nothing says so.
+>
+> Convert with the chain's own numbering rather than assuming it starts at 1:
+>
+> ```bash
+> $PY -c "
+> import gemmi
+> st = gemmi.read_structure('target.cif')
+> ch = st[0]['A']                      # the chain named in include
+> auth = [r.seqid.num for r in ch]
+> print('first auth:', auth[0], 'last:', auth[-1], 'count:', len(auth))
+> for want in (582, 586, 590):
+>     print(f'auth {want} -> res_index {auth.index(want) + 1}')
+> "
+> ```
+>
+> **Never put `include_proximity` in a spec whose result will be published.**
+> It crops the target to the residues within `radius` of the hotspots and
+> deletes the rest of every chain, so the design output is a receptor in
+> pieces — one 1RUZ run left chain E as 103-111, 265-268, 301-303, 309-310,
+> and the viewer drew a structure the user read as broken. The file is
+> valid and the metrics are real, which is what makes the mistake so easy
+> to publish. Design against the whole target: it is slower, and what
+> reaches the viewer is the complete structure. `binding_types` alone gives
+> the same pocket bias without the crop. A cropped spec is acceptable only
+> for a throwaway run whose output is never published, and the spec must
+> say so in a comment.
 
 ### A cyclic peptide needs `cyclic: true`
 
@@ -163,6 +173,88 @@ entities:
 Without it BoltzGen sets `cyclic_period = 0` and adds no closing bond. A
 comment saying "cyclic peptide" does nothing — the field is the only thing
 that does.
+
+### A complete cyclic-peptide spec
+
+The shape of the whole file. Every value in `<angle brackets>` is something to
+fill in — the chain ids and the indices are the two that are easy to get wrong,
+and each has its own section below:
+
+```yaml
+entities:
+  # The designed binder: 12 residues, head-to-tail closed
+  - protein:
+      id: P
+      sequence: 12..12
+      cyclic: true
+  # The target, complete: every chain in the file, uncropped. No `include`,
+  # no `include_proximity` — the design runs against the whole target so the
+  # published complex shows the complete receptor.
+  - file:
+      path: <target.cif>
+      # The hotspots themselves — 1-based positions in that chain of this file
+      binding_types:
+        - chain: {id: <label chain>, binding: "<i,j,k>"}
+```
+
+`sequence: 12..12` is a fixed length; `12..18` lets BoltzGen sample within the
+range. A user who asked for "12 aa" wants the former.
+
+> **Do not go reading BoltzGen's source to work out the schema.** The keys
+> above are the ones that pass `boltzgen check`. Reading `schema.py` to
+> confirm them costs a dozen tool calls and reaches the same answer — if a
+> spec is rejected, the error message names the invalid key and lists the
+> valid ones, which is faster than the source and always current.
+
+### Which chain id: `label_asym_id`, not the auth chain
+
+**This is the one that costs the most when it is wrong.** An mmCIF file names
+each chain twice: `auth_asym_id` is the PDB's own chain name (`H`, `I`, `J`,
+`K`, `L`, `M` for 1RUZ), and `label_asym_id` is the file's internal one
+(`A`, `B`, `C`, `D`, `E`, `F`, …). They are not the same, and they do not
+correspond in order — a glycan gets its own `label_asym_id` inside an auth
+chain, so auth `K` can be label `D` while auth `H` is label `K`.
+
+**`include` and `binding_types` take `label_asym_id`** — as does
+`include_proximity`, which a published spec must not contain (see the
+warning above). The viewer shows auth names, the selection arrives with
+auth names, and the spec wants label names — so the conversion has to
+happen explicitly.
+
+Get the mapping in one call, and get the `res_index` in the same call:
+
+```bash
+$PY -c "
+import gemmi
+st = gemmi.read_structure('<target.cif>')
+# gemmi's chain.name is the auth name; the label name comes from the block
+block = st.make_mmcif_document().sole_block()
+label_of = {}
+for row in block.find('_atom_site.', ['auth_asym_id', 'label_asym_id']):
+    label_of.setdefault(row.str(0), row.str(1))
+print('auth -> label:', label_of)
+# residues of one chain, in file order — gemmi indexes by auth name
+want = '<auth chain>'
+ch = [c for c in st[0] if c.name == want][0]
+auth = [r.seqid.num for r in ch]
+print(f'auth {want} = label {label_of[want]}: {len(auth)} res, '
+      f'auth {auth[0]}..{auth[-1]}')
+for n in (<582>, <586>, <590>):
+    print(f'  auth {n} -> res_index {auth.index(n) + 1}')
+"
+```
+
+Write the **label** name in the spec and the **res_index** this prints. For
+1RUZ that is `id: D` with `binding: "82,86,90"` — the auth names the viewer
+shows (`K`, `582`) appear nowhere in the yaml.
+
+> **A wrong chain id does not say so.** `Specified end 79,83,86,90 is higher
+> than the length of the chain` is what a chain id that resolved to the wrong
+> (shorter) chain looks like — not a missing chain, which would be a clearer
+> error. When that message appears, the chain id is the first thing to check,
+> and the mapping above is how to check it. Reading BoltzGen's `parse_range`
+> to understand the message will not help: the numbers are fine, the chain is
+> not.
 
 **Verify the ring in the output before publishing.** Count the covalent bonds
 between the designed chain's first and last residue:
@@ -186,7 +278,7 @@ peptide has a free N-terminus and C-terminus. Check it before publishing —
 calling a linear peptide cyclic in `--notes` is a claim about the molecule
 that the file does not support.
 
-**If `selection.json` is missing or `count` is 0**, the user has not selected
+**If the request has no `[当前结构：...]` block**, the user has not selected
 anything — ask them to click residues in the viewer first rather than guessing
 a binding site.
 
@@ -273,6 +365,29 @@ boltzgen run design.yaml \
 | `--steps ...` | Explicit pipeline; omitting `inverse_folding` avoids needing `mols.zip` |
 | `--use_kernels false` | Disables optimized kernels; set `auto` once a run succeeds |
 
+### Run it in the background, and report the pid
+
+A design run is 20–30 minutes and the log is silent for most of it, so the
+call is backgrounded. The pid is what the viewer watches to know the run is
+over — a step that only says `running` in status.json is one the viewer
+cannot tell from a crashed run, and it waits on work that ended minutes ago.
+
+```bash
+setsid nohup env HF_HOME=$MODELS/boltzgen-1 HF_HUB_OFFLINE=1 \
+  boltzgen run design.yaml --output results/ ... > run.log 2>&1 &
+PID=$!
+echo "started pid $PID"
+
+python3 $PUB --status --state running --step "生成主铯" \
+  --index 2 --total 5 --skill binder-design --job my_design \
+  --pid $PID --message "正在运行 BoltzGen"
+```
+
+`setsid` rather than plain `&` so the run survives the shell that started it,
+and `$!` immediately after so the pid is the one just launched. Pass the same
+`--pid` again on the `--state done` report only if the process is still
+yours; otherwise leave it out and the viewer clears it.
+
 ### Protocols
 
 | Protocol | Use |
@@ -335,6 +450,45 @@ python3 $PUB \
   --status --state done --step "筛选并排序设计" --index 5 --total 5 \
   --skill binder-design --message "Published $(basename "$BEST")"
 ```
+
+**The published structure must be the complete target.** If the spec
+cropped the receptor, the output is a receptor in pieces and the viewer
+shows a broken structure — valid file, real metrics, wrong picture. Two
+checks before publishing:
+
+1. `boltzgen check` reports the residues it trims ("Removing leading
+   and/or trailing unresolved residues"). The design output may be short
+   only by those.
+2. Every target chain in the output carries the source's residue count
+   minus that trim, with no interior residues missing:
+
+```bash
+$PY -c "
+import gemmi, sys
+src = gemmi.read_structure(sys.argv[1])
+out = gemmi.read_structure(sys.argv[2])[0]
+# boltzgen names output chains by label_asym_id; count the source the same way
+counts = {}
+for ch in src[0]:
+    for sub in ch.subchains():
+        counts[sub.subchain_id()] = len(sub)
+for c in out:
+    if len(c) < 40:
+        continue                        # the designed binder
+    want = counts.get(c.name)
+    assert want is not None, f'chain {c.name} is not a source chain'
+    # 8 residues of slack for the leading/trailing trim check reported
+    assert len(c) >= want - 8, \
+        f'chain {c.name}: {len(c)} of {want} residues — context was cropped'
+    print(f'{c.name}: {len(c)} of {want} residues, complete')
+print('every target chain is complete')
+" <source.cif> <rank1_design.cif>
+```
+
+A chain short by more than the trim was cropped. Re-run the design against
+the whole target — do not publish the crop, and do not "repair" it by
+merging fragments back together after the fact; the design was made
+against the crop, and the merged pose is not the pose that was scored.
 
 **Check the chain IDs in the generated `.cif` before setting `--roles`** —
 BoltzGen does not preserve the IDs from your spec.
