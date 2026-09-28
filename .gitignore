@@ -27,6 +27,12 @@ webapp/.auto-approve
 # Run outputs
 runs/
 
+# Working directory for a run in progress. Same kind of thing as runs/ and
+# just as large — a molecular dynamics trajectory is 400 MB on its own — but
+# the skills write here while they work and move the result to runs/ or
+# publish it directly. Nothing in it is meant to survive the session.
+work/
+
 # Viewer runtime state (written by skills and the page at runtime)
 webapp/static/current.cif
 webapp/static/current.json
@@ -50,3 +56,13 @@ __pycache__/
 
 # Viewer server log (stdout of serve.py; never a repo artifact)
 webapp/viewer.log
+
+# The opencode server's own log, appended by start_server() on every launch.
+# It grows without bound over a long session and is only ever read to find out
+# why the server did not come up.
+webapp/opencode-server.log
+
+# The viewer's pid, written by run_viewer.sh so the script can stop what it
+# started. Machine-specific by definition — the number means nothing anywhere
+# else.
+run.pid

@@ -171,6 +171,42 @@ The ligand is parameterised with GAFF2 and am1-bcc charges; the protein with
 amber14. Charge generation runs `sqm` and takes a minute or two, so the first
 call is slower than a protein-only run of the same size.
 
+### Run it in the background, and do not wait in the turn
+
+A 1 ns run on this machine is 50 minutes at 26 ns/day. That is far past the
+point where a turn should still be open, and the way to spend it is not to hold
+the turn open:
+
+```bash
+setsid nohup python3 $BB/skills/molecular-dynamics/scripts/simulate_complex.py \
+  --structure complex.pdb --ligand-smiles "..." --ligand-resname UNL \
+  --out md_out --ns 1 > md.log 2>&1 &
+PID=$!
+echo "started pid $PID"
+
+python3 $PUB --status --state running --step "产出运衈" \
+  --index 4 --total 5 --skill molecular-dynamics --job <run-id> \
+  --pid $PID --message "正在运行 1 ns 分子动力学"
+```
+
+Then end the turn. The panel watches the pid, shows the step in the compose
+box, and wakes the model with the log's tail when the run finishes — so the
+report is written from the ending rather than from a poll.
+
+> **Do not `sleep` in the turn to wait for it.** `sleep 280; tail md.log` holds
+> the turn open for five minutes at a time, and a run that needs an hour is
+> twelve of those. Each one is a tool call that produces nothing the panel did
+> not already know, and the user watching the panel sees a turn that never
+> ends. Worse, a question asked during the wait queues behind it — "how far
+> along is it?" is answered after the next sleep finishes, not when it is
+> asked.
+>
+> The one thing worth checking before ending the turn is that the run actually
+> started: the log exists, the pid is alive, and the first minimisation line
+> has appeared. That is one call, and it catches the failures that would
+> otherwise sit silent for an hour — a missing `sqm`, a ligand that will not
+> parameterise, a platform that will not initialise.
+
 On top of the protein-only metrics it reports `ligand_rmsd_nm` and
 `ligand_protein_min_dist_nm` — the latter is the one that says whether the
 pose survived: a ligand that stays bound keeps a small, steady minimum

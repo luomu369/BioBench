@@ -1607,7 +1607,6 @@
          the style pickers. -->
     <select id="stage-sel" class="ctl" title="背景">
       <option value="dark">背景：深蓝</option>
-      <option value="light">背景：浅色</option>
       <option value="grey">背景：灰</option>
       <option value="black">背景：纯黑</option>
       <option value="custom">背景：自定义…</option>
@@ -1830,7 +1829,6 @@ const viewer = $3Dmol.createViewer("viewer", { backgroundColor: "#0b0f14" });
 // the model.
 const STAGES = {
   dark:  { css: ["#16202b", "#0b0f14"], hex: "#0b0f14" },
-  light: { css: ["#ffffff", "#dde5ee"], hex: "#dde5ee" },
   grey:  { css: ["#3a424d", "#232930"], hex: "#232930" },
   black: { css: ["#1a1a1a", "#000000"], hex: "#000000" },
 };
@@ -1841,7 +1839,18 @@ const STAGE_IMAGE_KEY = "biobench.stageImage";
 function stageApply(name) {
   const wrap = document.getElementById("viewer-wrap");
   const sel = document.getElementById("stage-sel");
-  const stage = STAGES[name];
+  // "custom" is not in the table — it is the one option that means "the
+  // image on disk" rather than a colour. Everything else has to be a name in
+  // the table, and one that is not — a backdrop that was removed, or one
+  // saved by an older build — falls back to the default rather than being
+  // treated as custom, which would leave the select saying "custom" over a
+  // colour backdrop.
+  const isCustom = name === "custom";
+  // A name that is no longer in the table — a backdrop that was removed, or
+  // one saved by an older build — is applied as the default. Done here
+  // rather than by falling through, because the branch below is the custom
+  // image and a stale name must not be mistaken for it.
+  const stage = isCustom ? null : (STAGES[name] || STAGES.dark);
 
   if (stage) {
     // A colour backdrop. Written on the wrapper rather than the body, so
@@ -4327,9 +4336,17 @@ function agentWatchJobs(jobs) {
 async function agentPollJobs() {
   if (!agentWatchedJobs) return;
   let jobs = [];
+  let finished = [];
   try {
     const r = await fetch("agent/jobs");
-    if (r.ok) jobs = (await r.json()).jobs || [];
+    if (r.ok) {
+      const d = await r.json();
+      jobs = d.jobs || [];
+      // The tail of what just finished, sent with the empty list. Read on the
+      // server because the panel does not know where the skills keep their
+      // logs.
+      finished = d.finished || [];
+    }
   } catch (e) {
     return;  // the server is between restarts; the next tick tries again
   }
@@ -4363,7 +4380,28 @@ async function agentPollJobs() {
   // for what it was doing.
   const names = watched.map(j => j.step || j.group || j.id)
     .filter(Boolean).join("、");
-  const wake = `后台任务已完成：${names}。请查看结果并汇报。`;
+  let wake = `后台任务已完成：${names}。请查看结果并汇报。`;
+
+  // The log's tail goes with it. Without it the model's first act on waking is
+  // to read the log — a tool call and a round trip before it can say
+  // anything, on a turn whose whole purpose is to report. With it, the numbers
+  // are already in the message.
+  //
+  // Only the jobs that were actually watched are reported. `finished` is
+  // whatever ended most recently, which after a long session may be a run from
+  // an hour ago that has nothing to do with this wait.
+  const watchedGroups = new Set(
+    watched.map(j => j.group || j.id).filter(Boolean));
+  const mine = finished.filter(f =>
+    watchedGroups.has(f.group || f.id) || !f.group && !f.id);
+  if (mine.length) {
+    const parts = mine.map(f => {
+      const head = `—— ${f.step || f.group || f.id}` +
+        (f.state === "error" ? "（失败）" : "") + " ——";
+      return `${head}\n${f.log_tail}`;
+    });
+    wake += `\n\n任务日志的最后几行：\n\n${parts.join("\n\n")}`;
+  }
   agentTurn(wake);
 }
 

@@ -100,17 +100,33 @@ The user's first question was why the structure was broken. Nothing in the
 pipeline had erred; the spec had asked for a context and the publish step
 had shown it as a receptor.
 
-Two things follow:
+The crop is worth having — on a trimer it is the difference between a
+two-minute run and a forty-five-minute one. So the rule is not "never
+crop", it is "never publish the crop":
 
-1. **Design against the whole target.** No `include_proximity`, no partial
-   `include` — the design is slower and the published complex is complete.
-   `binding_types` alone biases the design toward the pocket.
-2. **Check the output against the source before publishing.** Every target
-   chain must carry its full residue count minus the unresolved residues
-   `boltzgen check` reported. A chain short by more than that was cropped;
-   re-run the design, and do not repair the picture by merging the design
-   back onto the full target afterwards — the pose was scored against the
-   crop, not against the receptor the merge would show.
+1. **Design against the crop when speed matters, then rebuild the complex
+   onto the full target.** The crop is a subset of the same file, so the
+   retained residues carry the same coordinates: superimpose the design's
+   target chains onto the full target, carry the designed chain across, and
+   publish the full target plus the binder. The procedure is in
+   `binder-design` Step 6.
+2. **Check the designed chain against the residues the crop removed.**
+   Those residues were absent when the pose was scored, so a clash with
+   them means the merged picture is not the pose that was designed — a
+   bigger `radius` or the whole target is the fix, and the design must not
+   be published as sound. Waters are skipped: they are mobile and were
+   usually cropped away en masse.
+3. **Check the output against the source before publishing.** Every target
+   chain of the *full* structure must arrive whole, at its residue count,
+   with no interior gaps the source did not have. A chain the crop removed
+   entirely is still published — from the full target, not from the design.
+
+Two things the rebuild has to get right, both of which were wrong on the
+first attempt: the design's chains are renumbered from 1 and the crop
+leaves interior gaps, so the correspondence is by **order** (align the
+residue-name sequences), never by residue number; and a trimer holds three
+copies of the same sequence, so the mapping must be **one-to-one** or every
+copy claims the same target chain.
 
 ## Vina's score is not a clash check
 

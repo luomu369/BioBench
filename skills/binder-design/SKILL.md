@@ -19,7 +19,8 @@ Run a BoltzGen binder design against a protein target and publish the result.
 
 ## Confirm before running
 
-**A design run costs 20–30 minutes of GPU time. Never start one without
+**A design run costs 20–30 minutes of GPU time against a whole target, and
+far less with a cropped context and kernels on. Never start one without
 confirming the parameters with the user first.**
 
 Before running, state the plan and ask for confirmation:
@@ -144,17 +145,24 @@ entities:
 > "
 > ```
 >
-> **Never put `include_proximity` in a spec whose result will be published.**
-> It crops the target to the residues within `radius` of the hotspots and
-> deletes the rest of every chain, so the design output is a receptor in
-> pieces — one 1RUZ run left chain E as 103-111, 265-268, 301-303, 309-310,
-> and the viewer drew a structure the user read as broken. The file is
-> valid and the metrics are real, which is what makes the mistake so easy
-> to publish. Design against the whole target: it is slower, and what
-> reaches the viewer is the complete structure. `binding_types` alone gives
-> the same pocket bias without the crop. A cropped spec is acceptable only
-> for a throwaway run whose output is never published, and the spec must
-> say so in a comment.
+> **`include_proximity` is allowed — but the published complex must still be
+> the complete target.** The crop keeps only the residues within `radius` of
+> the hotspots and deletes the rest of every chain, so the design output is a
+> receptor in pieces: one 1RUZ run left chain E as 103-111, 265-268,
+> 301-303, 309-310, and publishing that shows the user a broken structure. The
+> file is valid and the metrics are real, which is what makes the mistake so
+> easy to publish.
+>
+> The crop is worth having — on a trimer-sized target it is the difference
+> between a two-minute run and a forty-five-minute one. What is not
+> acceptable is publishing the crop. So: design against the cropped context
+> when the whole-target run is too slow, then **put the designed chain back
+> onto the full target and publish that**. The procedure and its two checks
+> are in Step 6, under "The published structure must be the complete target".
+>
+> `binding_types` alone gives the same pocket bias with no crop at all, and
+> is the right choice whenever the whole-target run is affordable. A cropped
+> spec must say in a comment that its output is not publishable as it stands.
 
 ### A cyclic peptide needs `cyclic: true`
 
@@ -187,12 +195,32 @@ entities:
       id: P
       sequence: 12..12
       cyclic: true
-  # The target, complete: every chain in the file, uncropped. No `include`,
-  # no `include_proximity` — the design runs against the whole target so the
-  # published complex shows the complete receptor.
+  # The target. Either the whole file — no `include`, no `include_proximity`,
+  # which is what the published complex should show — or a cropped context
+  # for speed, in which case Step 6 rebuilds the complex onto the full target.
   - file:
       path: <target.cif>
       # The hotspots themselves — 1-based positions in that chain of this file
+      binding_types:
+        - chain: {id: <label chain>, binding: "<i,j,k>"}
+```
+
+A cropped variant of the same spec, for a run where the whole target is too
+slow. The comment is required: it is the only thing in the file that says the
+output is not publishable as it stands.
+
+```yaml
+entities:
+  - protein:
+      id: P
+      sequence: 12..12
+      cyclic: true
+  # CROPPED CONTEXT — output is NOT publishable as-is; Step 6 rebuilds the
+  # complex onto the full target before publishing.
+  - file:
+      path: <target.cif>
+      include_proximity:
+        - chain: {id: <label chain>, res_index: "<i,j,k>", radius: 15.0}
       binding_types:
         - chain: {id: <label chain>, binding: "<i,j,k>"}
 ```
@@ -215,11 +243,11 @@ each chain twice: `auth_asym_id` is the PDB's own chain name (`H`, `I`, `J`,
 correspond in order — a glycan gets its own `label_asym_id` inside an auth
 chain, so auth `K` can be label `D` while auth `H` is label `K`.
 
-**`include` and `binding_types` take `label_asym_id`** — as does
-`include_proximity`, which a published spec must not contain (see the
-warning above). The viewer shows auth names, the selection arrives with
-auth names, and the spec wants label names — so the conversion has to
-happen explicitly.
+**`include`, `binding_types` and `include_proximity` all take
+`label_asym_id`** — `include_proximity` may be used, but its output has to be
+rebuilt onto the full target before publishing (see the note above and Step
+6). The viewer shows auth names, the selection arrives with auth names, and
+the spec wants label names — so the conversion has to happen explicitly.
 
 Get the mapping in one call, and get the `res_index` in the same call:
 
@@ -351,7 +379,7 @@ boltzgen run design.yaml \
   --num_designs 4 \
   --diffusion_batch_size 1 \
   --num_workers 0 \
-  --use_kernels false \
+  --use_kernels auto \
   --skip_inverse_folding \
   --steps design design_folding folding affinity analysis filtering
 ```
@@ -363,7 +391,7 @@ boltzgen run design.yaml \
 | `--num_workers 0` | Avoids DataLoader worker deadlock on some systems |
 | `--skip_inverse_folding` | Skips the `ifold` checkpoint |
 | `--steps ...` | Explicit pipeline; omitting `inverse_folding` avoids needing `mols.zip` |
-| `--use_kernels false` | Disables optimized kernels; set `auto` once a run succeeds |
+| `--use_kernels auto` | Uses the optimized kernels. Keep `false` for a first run on an untried setup, then switch to `auto` — it is worth a third to a half of the runtime |
 
 ### Run it in the background, and report the pid
 
@@ -426,8 +454,12 @@ python3 -c "import torch; f,t = torch.cuda.mem_get_info(); print(f'{f/1024**3:.1
 | 40–80 GB | 4 | 8–16 |
 | > 80 GB | 8 | 16–32 |
 
-Each design takes ~2 minutes on a DGX Spark; a 4-design run with folding and
-affinity takes roughly 20–30 minutes.
+Each design takes ~2 minutes on a DGX Spark with `--use_kernels auto` and a
+cropped context; a 4-design run with folding and affinity takes roughly
+20–30 minutes. Against an uncropped trimer the same run is far slower — one
+1ru7 trimer run took 21 minutes for the design step and 25 for folding with
+kernels off — so quote the time from the run's own log rather than from this
+table, and say which of the two it was.
 
 ## Step 6 — Publish the result
 
@@ -451,10 +483,12 @@ python3 $PUB \
   --skill binder-design --message "Published $(basename "$BEST")"
 ```
 
-**The published structure must be the complete target.** If the spec
-cropped the receptor, the output is a receptor in pieces and the viewer
-shows a broken structure — valid file, real metrics, wrong picture. Two
-checks before publishing:
+**The published structure must be the complete target.** A cropped spec
+outputs a receptor in pieces, and publishing that shows the user a broken
+structure — valid file, real metrics, wrong picture. What reaches the viewer
+is the full target with the designed chain on it, never the crop.
+
+**If the spec was uncropped**, two checks before publishing:
 
 1. `boltzgen check` reports the residues it trims ("Removing leading
    and/or trailing unresolved residues"). The design output may be short
@@ -467,7 +501,6 @@ $PY -c "
 import gemmi, sys
 src = gemmi.read_structure(sys.argv[1])
 out = gemmi.read_structure(sys.argv[2])[0]
-# boltzgen names output chains by label_asym_id; count the source the same way
 counts = {}
 for ch in src[0]:
     for sub in ch.subchains():
@@ -477,7 +510,6 @@ for c in out:
         continue                        # the designed binder
     want = counts.get(c.name)
     assert want is not None, f'chain {c.name} is not a source chain'
-    # 8 residues of slack for the leading/trailing trim check reported
     assert len(c) >= want - 8, \
         f'chain {c.name}: {len(c)} of {want} residues — context was cropped'
     print(f'{c.name}: {len(c)} of {want} residues, complete')
@@ -485,10 +517,172 @@ print('every target chain is complete')
 " <source.cif> <rank1_design.cif>
 ```
 
-A chain short by more than the trim was cropped. Re-run the design against
-the whole target — do not publish the crop, and do not "repair" it by
-merging fragments back together after the fact; the design was made
-against the crop, and the merged pose is not the pose that was scored.
+**If the spec was cropped**, the design is rebuilt onto the full target
+before anything is published. The crop is a subset of the same file, so the
+retained residues carry the same coordinates: superimpose the design's target
+chains onto the full target, carry the designed chain across with that
+transform, and write the full target plus the binder.
+
+```bash
+$PY -c "
+import gemmi, numpy as np, sys
+from difflib import SequenceMatcher
+design = gemmi.read_structure(sys.argv[1]); design.setup_entities()
+target = gemmi.read_structure(sys.argv[2]); target.setup_entities()
+
+binder = min(design[0], key=len)                 # the designed chain
+dt = [c for c in design[0] if c is not binder]   # the cropped target
+tt = list(target[0])
+
+# The binder's chain id can collide with a target chain's: BoltzGen names the
+# designed chain 'A' (or 'R') whatever the target's own ids are, and gemmi
+# merges same-named chains when it writes — which buries the binder inside a
+# target chain instead of giving it its own. One 12-residue peptide arrived as
+# a 335-residue chain A. Rename it to a free id first.
+used = {c.name for c in tt}
+binder.name = next((x for x in 'PQRSTUVWXYZ' if x not in used), 'BND')
+print(f'binder chain renamed to {binder.name}')
+
+def heavy_per_res(ch):
+    return [[a for a in r if a.element.name != 'H'] for r in ch]
+
+def correspond(dc, tc):
+    '''(design position, target position) pairs, matched in order by residue
+    name. BoltzGen renumbers residues sequentially in its output and a
+    proximity crop leaves interior gaps, so a residue number in the design
+    says nothing about the same number in the target.'''
+    sm = SequenceMatcher(None, [r.name for r in dc], [r.name for r in tc],
+                         autojunk=False)
+    out = []
+    for b in sm.get_matching_blocks():
+        if b.size:
+            out.extend((b.a + k, b.b + k) for k in range(b.size))
+    return out
+
+# One design chain per target chain. The crop can delete a whole chain, and
+# a trimer holds three copies of the same sequence — without the one-to-one
+# rule every HA1 in the design claims the same target chain.
+pairs, taken = [], set()
+for dc in dt:
+    dh = heavy_per_res(dc)
+    cands = []
+    for tc in tt:
+        if tc.name in taken:
+            continue
+        idx = correspond(dc, tc)
+        th = heavy_per_res(tc)
+        n = sum(1 for i, j in idx if len(dh[i]) == len(th[j]))
+        if n >= max(1, len(dc) // 2):
+            cands.append((n, tc, idx))
+    if not cands:
+        sys.exit(f'design chain {dc.name} matches no free target chain — '
+                 f'check that --target is the structure this design was '
+                 f'made against')
+    cands.sort(key=lambda t: t[0], reverse=True)
+    _, tc, idx = cands[0]
+    taken.add(tc.name)
+    pairs.append((dc, tc, idx))
+    print(f'   design chain {dc.name} -> target chain {tc.name}: '
+          f'{len(idx)} of {len(tc)} residues kept')
+
+# the residues the crop removed — absent when the pose was scored
+seen = {}
+for _, tc, idx in pairs:
+    seen.setdefault(tc.name, set()).update(j for _, j in idx)
+
+def shared_xyz(dc, tc, idx):
+    '''Coordinates of the residues both chains hold, in the same order, so
+    they can be superimposed. A crop leaves the two chains different lengths,
+    so the whole-chain arrays cannot be used.'''
+    dh, th = heavy_per_res(dc), heavy_per_res(tc)
+    Pd, Pt = [], []
+    for i, j in idx:
+        if len(dh[i]) == len(th[j]):
+            Pd += [a.pos for a in dh[i]]
+            Pt += [a.pos for a in th[j]]
+    f = lambda ps: np.array([[p.x, p.y, p.z] for p in ps])
+    return f(Pt), f(Pd)                    # target first, design second
+
+def kabsch(P, Q):
+    pc, qc = P.mean(0), Q.mean(0)
+    H = (P - pc).T @ (Q - qc)
+    U, S, Vt = np.linalg.svd(H)
+    d = np.sign(np.linalg.det(Vt.T @ U.T))
+    R = Vt.T @ np.diag([1, 1, d]) @ U.T
+    return R, qc, pc, float(np.sqrt((((P - pc) - (Q - qc) @ R) ** 2).sum() / len(P)))
+
+# carry the binder across with the transform of the chain it touches most
+Pb = np.array([[a.pos.x, a.pos.y, a.pos.z] for r in binder for a in r
+               if a.element.name != 'H'])
+best, bestd = None, 1e9
+for dc, tc, idx in pairs:
+    d = np.linalg.norm(shared_xyz(dc, tc, idx)[0][:, None, :]
+                       - Pb[None, :, :], axis=2).min()
+    if d < bestd:
+        bestd, best = d, (dc, tc, idx)
+dc, tc, idx = best
+P, Q = shared_xyz(dc, tc, idx)
+R, qc, pc, rmsd = kabsch(P, Q)
+print(f'binder placed via chain {tc.name}: {len(P)} shared heavy atoms, '
+      f'superposition RMSD {rmsd:.2f} A')
+for r in binder:
+    for a in r:
+        v = (np.array([a.pos.x, a.pos.y, a.pos.z]) - qc) @ R + pc
+        a.pos = gemmi.Position(*[float(x) for x in v])
+
+out = gemmi.Structure(); out.name = 'complete_complex'
+out.spacegroup_hm = 'P 1'; out.cell = target.cell
+out.add_model(gemmi.Model('1'))
+for tc in tt:
+    out[0].add_chain(tc)
+out[0].add_chain(binder)
+out.setup_entities()
+out.make_mmcif_document().write_file(sys.argv[3])
+
+# the two checks that decide whether this is publishable
+print('chains:', {c.name: len(c) for c in out[0]})
+clash = []
+batoms = [np.array([a.pos.x, a.pos.y, a.pos.z]) for r in binder for a in r
+          if a.element.name != 'H']
+for c in tt:
+    for j, r in enumerate(c):
+        if j in seen.get(c.name, set()):
+            continue                    # the crop kept this one — it was scored
+        if r.name in ('HOH', 'WAT', 'DOD'):
+            continue                    # crystal water is mobile, not interface
+        for a in r:
+            if a.element.name == 'H':
+                continue
+            p = np.array([a.pos.x, a.pos.y, a.pos.z])
+            if any(np.linalg.norm(p - b) < 2.2 for b in batoms):
+                clash.append(f'{c.name}:{r.seqid.num}{r.name}')
+print('clashes against cropped-away residues:', clash)
+sys.exit(1 if clash else 0)
+" <rank1_design.cif> <full_target.cif> <complete.cif>
+```
+
+> **Match by order, never by residue number.** The design's chains are
+> renumbered from 1 and a proximity crop leaves interior gaps, so a number
+> found in the design says nothing about the same number in the target. The
+> snippet aligns residue-name sequences to find which target positions the
+> design actually kept. A chain the crop removed whole simply has no
+> counterpart in the design — it is still published, and counts as
+> never-seen, so the clash check covers it too.
+
+Two things must hold, and the script exits non-zero when they do not:
+
+1. **Every chain of the full target is in the output, at its full residue
+   count.** The merge copies the target, so this holds by construction — it
+   is printed so it can be read off against the source.
+2. **The designed chain does not clash with the residues the crop removed.**
+   Those residues were absent when the pose was scored, so a clash means the
+   merged picture is not the pose that was designed. Re-run with a larger
+   `radius` or against the whole target; do not publish it and do not paper
+   over it in `--notes`.
+
+Say in `--notes` which it was: a cropped run is faster and the metrics
+describe the pose against the crop, so the reader needs to know the clash
+check passed rather than that it was never run.
 
 **Check the chain IDs in the generated `.cif` before setting `--roles`** —
 BoltzGen does not preserve the IDs from your spec.

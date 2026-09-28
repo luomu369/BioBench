@@ -975,6 +975,23 @@ def stream(messages, agent=None, on_event=None):
     # watch for it and bring the model back when it lands.
     pending = pending_jobs()
     if pending:
+        # The tail of each job's log, read now rather than when the job ends.
+        #
+        # A run that takes an hour leaves the model waking up to a log it has
+        # not seen, and the first thing it does is read it — which is a tool
+        # call and a round trip before it can say anything. Reading the tail
+        # here, while the turn is still open and the paths are known, means the
+        # wake-up message carries the result with it.
+        #
+        # Only the last few lines. The log is the record; the wake-up needs the
+        # ending, and a model handed the whole file reads it instead of
+        # answering.
+        # Only the path is carried here. The tail is read when the job ends,
+        # by /agent/jobs, because a tail read now is the middle of the run and
+        # the wake-up needs the ending.
+        for j in pending:
+            if not j.get("log"):
+                j["log"] = _find_log(j.get("group"), j.get("pid"))
         yield {"type": "waiting", "jobs": pending}
 
     yield {"type": "done", "reply": text, "reasoning": reasoning,
@@ -1045,6 +1062,107 @@ def _pid_alive(pid, starttime=None):
     return True
 
 
+# Where a running job's log is looked for, relative to the repo root.
+#
+# The skills write their logs next to their output, and the names are theirs
+# rather than ours — so the candidates are the ones actually in use, and a
+# miss is not an error: a job with no log found simply wakes the model with
+# nothing attached, which is what happened before this existed.
+LOG_NAMES = ("md.log", "run.log", "gen.log", "dock.log", "boltzgen.log",
+             "simulate.log")
+
+
+def _log_tail(path, lines=12):
+    """The last few lines of a log file, or "" if there is nothing to read.
+
+    Read as bytes and decoded with errors replaced: a log being written by
+    another process can be read mid-line, and a decode error over a partial
+    UTF-8 sequence would lose the whole tail over one character.
+    """
+    if not path:
+        return ""
+    try:
+        p = Path(path)
+        if not p.is_file():
+            return ""
+        with open(p, "rb") as f:
+            try:
+                f.seek(0, 2)
+                size = f.tell()
+                # Enough for a dozen lines of a wide OpenMM log, without
+                # reading a 400 MB trajectory by mistake.
+                f.seek(max(0, size - 8192))
+            except OSError:
+                f.seek(0)
+            raw = f.read()
+    except OSError:
+        return ""
+    text = raw.decode(errors="replace")
+    out = [l for l in text.splitlines() if l.strip()]
+    return "\n".join(out[-lines:])
+
+
+def _find_log(group, pid=None):
+    """A running job's log, if one can be found.
+
+    The pid is the reliable route and is tried first, by reading the process's
+    own command line: the skills take `--out <dir>` and write their log inside
+    it, so the directory is right there in argv. That is the only route that
+    works — `/proc/<pid>/cwd` is the repo root for a run started with absolute
+    paths, and the job's group name has nothing to do with the directory
+    (`1ru7_ra_md` ran out of `work/pockets_1ru7/md_ra`).
+
+    The group name is the fallback, for a job whose process has already gone by
+    the time this is asked. It matches the directory under runs/ or work/ when
+    the skill named them the same, which some do.
+    """
+    if pid:
+        out = _proc_outdir(pid)
+        if out:
+            for base in (out, out / "md_out", out / "out"):
+                for name in LOG_NAMES:
+                    cand = base / name
+                    if cand.is_file():
+                        return str(cand)
+    if not group:
+        return None
+    for base in (ROOT / "runs", ROOT / "work"):
+        d = base / group
+        if not d.is_dir():
+            continue
+        for name in LOG_NAMES:
+            for cand in (d / name, d / "md_out" / name, d / "out" / name):
+                if cand.is_file():
+                    return str(cand)
+    return None
+
+
+def _proc_outdir(pid):
+    """The `--out` directory a running process was given, or None.
+
+    Read from /proc/<pid>/cmdline, which is the argv the process started with.
+    The skills all take `--out`, and it is where their log goes — so this is
+    the one place the answer is written down by the thing that knows it.
+
+    A relative path is resolved against the repo root, because that is where
+    the viewer starts its children and where the skills are run from.
+    """
+    try:
+        raw = open(f"/proc/{int(pid)}/cmdline", "rb").read()
+    except (OSError, ValueError, OverflowError):
+        return None
+    argv = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+    for i, a in enumerate(argv):
+        if a == "--out" and i + 1 < len(argv):
+            d = Path(argv[i + 1])
+            return d if d.is_absolute() else (ROOT / d)
+        # `--out=dir` is the other form a script may accept.
+        if a.startswith("--out="):
+            d = Path(a[6:])
+            return d if d.is_absolute() else (ROOT / d)
+    return None
+
+
 def pending_jobs():
     """The tasks still running, as the panel needs to see them.
 
@@ -1077,6 +1195,7 @@ def pending_jobs():
             "message": j.get("message") or "",
             "pid": j.get("pid"),
             "pid_start": j.get("pid_start"),
+            "log": j.get("log") or _find_log(j.get("group"), j.get("pid")),
         }
 
     def still_running(j):
@@ -1094,6 +1213,44 @@ def pending_jobs():
     if isinstance(active, dict) and still_running(active):
         if not any(p["id"] == active.get("id") for p in out):
             out.append(describe(active))
+    return out
+
+
+def finished_jobs_tail(limit=3):
+    """The logs of the jobs that finished most recently, newest first.
+
+    Asked when nothing is running any more, which is the moment the panel is
+    about to wake the model. The tail goes with the wake-up so the model does
+    not spend its first tool call reading a log to find out what happened.
+
+    Only jobs that ended are considered, and only the last few — a run that
+    published five structures is one job with five steps, not five things to
+    report. The newest by `updated` wins, because that is the one the user was
+    watching.
+    """
+    try:
+        status = json.loads(STATUS_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    done = [j for j in (status.get("jobs") or [])
+            if isinstance(j, dict) and j.get("state") in ("done", "error")]
+    done.sort(key=lambda j: j.get("updated") or "", reverse=True)
+
+    out = []
+    for j in done[:limit]:
+        path = j.get("log") or _find_log(j.get("group"), j.get("pid"))
+        tail = _log_tail(path)
+        if not tail:
+            continue
+        out.append({
+            "id": j.get("id") or "",
+            "group": j.get("group") or "",
+            "step": j.get("step") or "",
+            "state": j.get("state"),
+            "message": j.get("message") or "",
+            "log": path,
+            "log_tail": tail,
+        })
     return out
 
 

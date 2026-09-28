@@ -1,157 +1,167 @@
 # BioBench
 
-Run biomolecular AI models on local NVIDIA hardware through Agent Skills,
-and see the results in a web viewer.
+在本地 NVIDIA 硬件上运行生物分子 AI 模型，并通过 Web 查看器看到结果。
 
-An agent (Claude Code, GitHub Copilot, DeepSeek Harness, or any harness that
-can read `SKILL.md` and run shell commands) reads the skills, executes the
-models on the local GPU, and publishes structures to the viewer.
+一个 Agent（Claude Code、GitHub Copilot、DeepSeek Harness，或任何能读
+`SKILL.md` 并执行 shell 命令的 harness）读取技能说明，在本地 GPU 上运行模型，
+把结构发布到查看器。
 
-## Layout
+## 目录结构
 
 ```
 biobench/
-├── SKILL.md                  Entry point: bootstrap, route, orchestrate
+├── SKILL.md                  入口：环境检查、路由、编排
 ├── skills/
-│   ├── viewer-launch/        Start the viewer; bootstrap the environment
+│   ├── viewer-launch/        启动查看器；引导环境
 │   │   └── scripts/
-│   │       └── bootstrap.sh  Environment check (--fix to repair)
-│   ├── structure-viewer/     Publish structures and progress
+│   │       └── bootstrap.sh  环境检查（--fix 修复）
+│   ├── structure-viewer/     发布结构与进度
 │   │   └── scripts/
-│   │       └── publish.py    Atomic publisher (structure + status)
-│   ├── boltzgen-deploy/      Install BoltzGen and its weights
+│   │       └── publish.py    原子发布（结构 + 状态）
+│   ├── boltzgen-deploy/      安装 BoltzGen 及权重
 │   │   └── scripts/
-│   │       ├── preflight.py  GPU/CUDA/weights readiness
+│   │       ├── preflight.py  GPU/CUDA/权重就绪检查
 │   │       └── fetch_weights.sh
-│   ├── binder-design/        Run a BoltzGen binder design
-│   ├── proteinmpnn-deploy/   Install ProteinMPNN
+│   ├── binder-design/        运行 BoltzGen 结合剂设计
+│   ├── proteinmpnn-deploy/   安装 ProteinMPNN
 │   │   └── scripts/
-│   │       └── preflight.py  Env/import/weights readiness
-│   ├── sequence-design/      Design sequences for a fixed backbone
-│   ├── genmol-deploy/        Install GenMol and its weights
+│   │       └── preflight.py  环境/导入/权重就绪检查
+│   ├── sequence-design/      为固定骨架设计序列
+│   ├── genmol-deploy/        安装 GenMol 及权重
 │   │   └── scripts/
-│   │       └── preflight.py  Env/import/weights/checkpoint readiness
-│   ├── molecule-generation/ Generate small molecules with GenMol
+│   │       └── preflight.py  环境/导入/权重/检查点就绪检查
+│   ├── molecule-generation/  用 GenMol 生成小分子
 │   │   └── scripts/
-│   │       └── generate.py  de novo / fragment completion / linking
-│   ├── foldseek-deploy/      Install Foldseek
+│   │       └── generate.py   全新生成 / 片段补全 / 连接
+│   ├── foldseek-deploy/      安装 Foldseek
 │   │   └── scripts/
-│   │       └── preflight.py  Binary/version/smoke-search readiness
-│   └── structure-comparison/ Compare structures with Foldseek
+│   │       └── preflight.py  二进制/版本/冒烟搜索就绪检查
+│   └── structure-comparison/ 用 Foldseek 比较结构
 ├── webapp/
-│   ├── run_viewer.sh         Launch the viewer
+│   ├── serve.py              查看器服务端（Agent 面板 + 静态服务）
+│   ├── agent.py              opencode 客户端：会话、流式、权限、任务监控
+│   ├── run_viewer.sh         启动查看器
 │   └── static/
-│       ├── index.html        The viewer (3Dmol.js, no backend)
+│       ├── index.html        查看器与 Agent 面板（3Dmol.js）
 │       ├── 3Dmol-min.js
-│       ├── current.cif       ← published structure
-│       ├── current.json      ← published metadata
-│       └── status.json       ← published progress
-└── structures/               Locally cached PDB entries
+│       ├── current.cif       ← 发布的结构
+│       ├── current.json      ← 发布的元数据
+│       └── status.json       ← 发布的进度
+├── vendor/                   内置的 opencode 及项目配置
+└── structures/               本地缓存的 PDB 条目
 ```
 
-## Quick start
+## 快速开始
 
 ```bash
-# 1. Check the environment (add --fix to repair)
+# 1. 检查环境（加 --fix 修复）
 bash skills/viewer-launch/scripts/bootstrap.sh
 
-# 2. Start the viewer
+# 2. 启动查看器
 bash webapp/run_viewer.sh --port 8282
 #    → http://localhost:8282
 
-# 3. Ask your agent:
-#    "design a binder for NK1R"
+# 3. 向 Agent 提问：
+#    "为 NK1R 设计一个结合剂"
 ```
 
-## How it fits together
+查看器启动后，右侧是 Agent 面板。直接用自然语言描述要做什么；在结构上选中残基
+或原子，选中的内容会连同问题一起发给模型。
+
+## 工作原理
 
 ```
-        agent (any harness)
-              │  reads SKILL.md, runs commands
+        Agent（任意 harness）
+              │  读 SKILL.md，执行命令
               ▼
       ┌───────────────┐
-      │  biobench/    │  entry: bootstrap + routing
+      │  biobench/    │  入口：环境检查 + 路由
       │  SKILL.md     │
       └───────┬───────┘
-              │ routes to
+              │ 路由到
     ┌─────────┼──────────────┐
     ▼         ▼              ▼
 viewer-    structure-    boltzgen-
 launch     viewer        deploy
     │         │              │
-    │         │              │ runs BoltzGen on the local GPU
+    │         │              │ 在本地 GPU 上运行 BoltzGen
     │         │              │
     └─────────┴──────────────┘
-              │ publishes
+              │ 发布
               ▼
       webapp/static/current.cif + current.json + status.json
-              │ 2s poll
+              │ 2 秒轮询
               ▼
-        BioBench Viewer
+        BioBench 查看器
 ```
 
-The viewer has no backend and no LLM. It is a static page that renders
-whatever a skill publishes. This keeps the app trivial to run and lets any
-agent harness drive it.
+查看器本身没有 LLM，渲染结构也不需要后端——它是一个静态页面，渲染技能发布的
+内容。这让它极易运行，也让任何 Agent harness 都能驱动它。
 
-## Skills
+`webapp/serve.py` 只做三件事：提供静态文件、把 Agent 面板的请求转给 opencode、
+读写查看器的状态文件。API key 存放在 `webapp/agent.key`，从不发到浏览器。
 
-| Skill | Role |
-|-------|------|
-| `biobench` (root) | Entry point — bootstrap, route, orchestrate |
-| `viewer-launch` | Start/restart the viewer; environment bootstrap |
-| `structure-viewer` | Publishing contract for structures and progress |
+## 技能
 
-**Deploy** — install a tool and verify it works:
+| 技能 | 职责 |
+|------|------|
+| `biobench`（根） | 入口 — 环境检查、路由、编排 |
+| `viewer-launch` | 启动/重启查看器；环境引导 |
+| `structure-viewer` | 结构与进度的发布契约 |
 
-| Skill | Installs |
-|-------|----------|
+**部署** — 安装工具并验证可用：
+
+| 技能 | 安装 |
+|------|------|
 | `vina-deploy` | AutoDock Vina + meeko/RDKit |
-| `boltzgen-deploy` | BoltzGen and its weights |
+| `boltzgen-deploy` | BoltzGen 及权重 |
 | `proteinmpnn-deploy` | ProteinMPNN |
-| `genmol-deploy` | GenMol and its weights |
-| `resgen-deploy` | ResGen and its checkpoint |
-| `foldseek-deploy` | Foldseek (static binary) |
+| `genmol-deploy` | GenMol 及权重 |
+| `resgen-deploy` | ResGen 及检查点 |
+| `foldseek-deploy` | Foldseek（静态二进制） |
 | `mmseqs-deploy` | MMseqs2 |
 | `molecular-dynamics-deploy` | OpenMM + AmberTools |
 
-**Run** — do the work and publish the result:
+**运行** — 完成工作并发布结果：
 
-| Skill | Does |
-|-------|------|
-| `molecular-docking` | Dock a ligand into a receptor with Vina |
-| `molecular-dynamics` | Simulate a complex with OpenMM |
-| `pocket-detection` | Find and rank binding pockets with fpocket |
-| `binder-design` | Design a protein binder with BoltzGen |
-| `ligand-binding-design` | Design a binder for a small-molecule ligand |
-| `pocket-molecule-design` | Design molecules that fit a pocket with ResGen |
-| `molecule-generation` | Generate small molecules with GenMol |
-| `molecule-editing` | Replace a selected group in place, from the viewer |
-| `sequence-design` | Design sequences for a fixed backbone |
-| `sequence-search` | Search sequences with MMseqs2 |
-| `structure-comparison` | Search and cluster structures with Foldseek |
-| `conformational-analysis` | Scan a torsion with RDKit |
-| `admet-prediction` | Predict drug-likeness and ADMET properties |
+| 技能 | 作用 |
+|------|------|
+| `molecular-docking` | 用 Vina 把配体对接到受体 |
+| `molecular-dynamics` | 用 OpenMM 模拟复合物 |
+| `pocket-detection` | 用 fpocket 查找并排序结合口袋 |
+| `binder-design` | 用 BoltzGen 设计蛋白结合剂 |
+| `ligand-binding-design` | 为小分子配体设计结合剂 |
+| `pocket-molecule-design` | 用 ResGen 设计适配口袋的分子 |
+| `molecule-generation` | 用 GenMol 生成小分子 |
+| `molecule-editing` | 从查看器就地替换选中的基团 |
+| `sequence-design` | 为固定骨架设计序列 |
+| `sequence-search` | 用 MMseqs2 搜索序列 |
+| `structure-comparison` | 用 Foldseek 搜索并聚类结构 |
+| `conformational-analysis` | 用 RDKit 扫描扭转角 |
+| `admet-prediction` | 预测类药性与 ADMET 性质 |
 
-`skills/_shared/` holds what every skill uses: `biobench_paths.py` (where
-things live), `pdb_format.py` (the PDB column layout), `silent-failures.md`
-(traps already hit here), and `pytorch-cuda.md` (which wheel matches the
-driver).
+`skills/_shared/` 存放所有技能共用的东西：`biobench_paths.py`（东西放在哪）、
+`pdb_format.py`（PDB 列布局）、`silent-failures.md`（这里踩过的坑）、
+`pytorch-cuda.md`（哪个 wheel 匹配驱动）。
 
-## Installing a skill elsewhere
+## 把技能装到别处
 
-Skills follow the open Agent Skills spec, so they install with the standard
-CLI or by copying:
+技能遵循开放的 Agent Skills 规范，所以用标准 CLI 或直接复制即可安装：
 
 ```bash
-# Symlink into an agent's skill directory
+# 软链接到 Agent 的技能目录
 ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
 
-# Or copy
+# 或复制
 cp -r skills/binder-design ~/.claude/skills/
 ```
 
-## Hardware
+## 硬件
 
-Developed and tested on NVIDIA DGX Spark (GB10, aarch64, CUDA 13.0, 121 GB
-unified memory). BoltzGen needs ~40 GB of that memory for a typical design.
+在 NVIDIA DGX Spark（GB10，aarch64，CUDA 13.0，121 GB 统一内存）上开发和测试。
+一次典型的 BoltzGen 设计需要其中约 40 GB 内存。
+
+## 相关文档
+
+- [项目介绍书](docs/项目介绍书.md) — 设计动机、架构决策、以及为什么是现在
+- [英文版 README](README.en.md)

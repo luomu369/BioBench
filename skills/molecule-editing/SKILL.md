@@ -65,11 +65,35 @@ the viewer.
 BB="${BB:-$HOME/biobench}"
 [ -d "$BB/skills" ] || BB=$(cd ~ 2>/dev/null; for d in biobench BioBench; do [ -d "$HOME/$d/skills" ] && echo "$HOME/$d" && break; done)
 python3 $BB/skills/molecule-editing/scripts/replace_with_group.py \
-  --structure <the PDB the selection was made on> \
+  --structure <the .cif or .pdb the selection was made on> \
   --group benzene --out runs/edited.pdb
 ```
 
-The script reads `selection.json` itself. RDKit does the chemistry:
+Pass the file the selection was made on, in whatever format it is. A `.cif` is
+converted here, and the conversion is the part that has already cost a day:
+
+> **Do not convert the CIF yourself, and never write a PDB with gemmi.**
+> gemmi's PDB writer assigns its own serial as it writes and drops the one it
+> was given, so atom 11612 in the CIF comes back as a different atom in the
+> PDB — and the edit lands on a carbon instead of the hydrogen the user
+> clicked. The script writes through `skills/_shared/pdb_format.py`, which
+> refuses a field that would not fit its columns rather than shifting the ones
+> after it, so the serial survives. If you find yourself building a PDB to
+> hand to this script, stop: pass the CIF.
+
+> **A structure with several molecules in the same place is ambiguous.** A set
+> of designs against one pocket are all superimposed, so the selected atom has
+> neighbours from ten different molecules within 1.0 Å and the group bonds to
+> whichever the distance test reaches first. The script warns when it sees
+> this. The fix is to publish one design and edit that — not to pick a
+> neighbour by hand.
+
+The script reads `selection.json` itself. RDKit does the chemistry, and it
+reports what it did — which atoms it selected, what it bonded to, the
+alignment RMSD. **Read that output before doing anything else.** It is the
+cheapest check there is, and every surprising thing it says is the structure
+disagreeing with the selection. A turn that ignores it and writes a finaliser
+first spends its length discovering the same fact one edit at a time.
 
 1. **Resolve the selection.** The viewer records the PDB serial for every atom
    it selects, so this is a lookup. The 3Dmol index is deliberately not used —
@@ -173,6 +197,56 @@ warning. Say what changed, not how.
 and the group's own internal bond lengths are the numbers that say whether the
 substitution is sound, and they are already computed by the time the edit is
 done.
+
+### The publisher's flags, in one place
+
+Reading them out of `publish.py` costs five `sed` calls and still misses one.
+The ones an edit needs:
+
+| Flag | What it takes |
+|------|---------------|
+| `--structure` | path to the `.pdb` or `.cif` to publish |
+| `--name` | display name; defaults to the filename stem |
+| `--source` | producing skill, e.g. `molecule-editing` |
+| `--job` | run id, so several runs of one skill can coexist |
+| `--roles` | `"A=receptor,L=ligand"` — every chain, or it shows bare |
+| `--notes` | free text; the prose the panel shows under the metrics |
+| `--metrics` | JSON object of `{key: {label, value, hint}}` |
+| `--params` | JSON object of the run's parameters, for a repeat run |
+| `--highlight` | `"A:385,A:386"` — residues to select on arrival |
+| `--status` | also write `status.json` |
+| `--state` | `idle` \| `queued` \| `running` \| `done` \| `error` |
+| `--step` | step name, matched inside the task |
+| `--index` / `--total` | step number and count, for the progress bar |
+| `--message` | one line for the status pill, 60 chars |
+| `--skill` | attribution |
+| `--pid` | process id of a background run, from `echo $!` |
+| `--plan` | declare every step up front, comma-separated |
+
+`--metrics` and `--step-metrics` differ in where the numbers land: the former
+goes on the structure, the latter on the step. A call with no `--structure`
+sends `--metrics` to the step on its own.
+
+### Check the shape before writing the script
+
+An edit is two commands and a verification. Writing a hundred-line finaliser
+before either has run is how a turn becomes a hundred tool calls: the script is
+wrong in a way that only shows up when it runs, and every fix is another edit
+and another run.
+
+The order that works:
+
+1. Run `replace_with_group.py` and read what it says — which atoms it
+   selected, what it bonded to, the RMSD.
+2. Check the geometry with a five-line probe: the bond to the attachment, the
+   group's internal bonds, and that no other chain's atom count moved.
+3. Publish.
+
+If step 1 reports something surprising — an attachment point that is not the
+atom you expected, a warning about atoms from other residues — stop and read
+it. It is the script telling you the structure is not what the selection
+assumed, and the next fifty calls will not find a better answer than the one
+already printed.
 
 ## Traps this skill has already fallen into
 

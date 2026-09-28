@@ -291,9 +291,16 @@ conf = lig.GetConformer()
 new = gemmi.Structure(); new.spacegroup_hm = "P 1"
 new.cell = gemmi.UnitCell(90, 90, 90, 90, 90, 90)
 m = gemmi.Model("1")
-m.add_chain(gemmi.Chain("A"))
-for r in prot[0]["A"]:
-    m["A"].add_residue(r)
+# Every chain of the prepared protein, in order — a multimer's binding site
+# sits at the interface of two or more of them, and keeping only the first
+# chain silently puts the ligand in a pocket that no longer exists.
+n_res = 0
+for ch in prot[0]:
+    nc = gemmi.Chain(ch.name)
+    for r in ch:
+        nc.add_residue(r)
+    m.add_chain(nc)
+    n_res += len(ch)
 
 m.add_chain(gemmi.Chain("L"))
 r2 = gemmi.Residue(); r2.name = a.resname
@@ -315,13 +322,28 @@ new.write_pdb(a.out)
 
 # gemmi writes no CONECT, so OpenMM sees the ligand as isolated atoms.
 # Add them from the RDKit bond list.
+#
+# The ligand's first serial is read with the shared column layout, not with a
+# slice. Slicing here is how the CONECT records came to name protein atoms:
+# l[7:11] on a five-digit serial drops its first digit, so a ligand starting
+# at 22638 was read as 2638 and every ligand bond bonded chain A's residue
+# 171 to its neighbours. OpenMM reports that as "the residue has ... too many
+# bonds" and refuses to template it, and nothing in the message points at the
+# CONECT records.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.environ["BIOBENCH_SHARED"])
+from pdb_format import iter_atoms, conect_line
+
 lines = open(a.out).read().splitlines()
 lig_start = None
-for l in lines:
-    if l.startswith("HETATM") and a.resname in l:
-        lig_start = int(l[7:11]); break
-conect = [f"CONECT{lig_start + b.GetBeginAtomIdx():5d}"
-          f"{lig_start + b.GetEndAtomIdx():5d}"
+for atom in iter_atoms("\n".join(lines)):
+    if atom.resn == a.resname:
+        lig_start = atom.serial
+        break
+if lig_start is None:
+    raise SystemExit(f"no {a.resname} residue in the merged PDB")
+conect = [conect_line(lig_start + b.GetBeginAtomIdx(),
+                      lig_start + b.GetEndAtomIdx())
           for b in lig.GetBonds()]
 out = []
 for l in lines:
@@ -329,7 +351,8 @@ for l in lines:
         out += conect
     out.append(l)
 open(a.out, "w").write("\n".join(out) + "\n")
-print(f"  merged: {len(m['A'])} residues + ligand, {len(conect)} bonds")
+print(f"  merged: {n_res} residues across {len(m)} chains + ligand, "
+      f"{len(conect)} bonds")
 '''
 
 

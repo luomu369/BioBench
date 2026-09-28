@@ -14,6 +14,7 @@ Exit codes: 0 ok, 1 simulation failed, 2 bad input.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import env_python
 
 OPENMM_PY = str(env_python("openmm"))
+
+# am1-bcc charges are computed by AmberTools' `sqm`, which the OpenFF
+# AmberTools toolkit finds by looking for the executable on PATH. The child
+# below is started by absolute path, so nothing puts the environment's own
+# bin directory on PATH unless the caller activated it — and without it the
+# toolkit silently fails to register, and the run dies with "No registered
+# toolkits can provide the capability assign_partial_charges". The error
+# names no missing binary, so it reads like a broken install rather than a
+# PATH problem.
+_ENV_BIN = str(Path(OPENMM_PY).parent)
+if _ENV_BIN not in os.environ.get("PATH", "").split(os.pathsep):
+    os.environ["PATH"] = _ENV_BIN + os.pathsep + os.environ.get("PATH", "")
 
 
 def main():

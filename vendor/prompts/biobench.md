@@ -60,6 +60,17 @@ to reload anything.
   process to know when the run is over and to wake you for the result; a step
   that only says `running` is one it cannot tell from a crashed run, and it
   waits on work that ended minutes ago.
+- **End the turn when the run is backgrounded.** Do not `sleep` to wait for it.
+  A 1 ns simulation is fifty minutes and a docking sweep is several; holding
+  the turn open across that is a dozen `sleep 280; tail log` calls that each
+  produce nothing the panel did not already know, and a question asked during
+  the wait queues behind them — "how far along is it?" is answered after the
+  next sleep rather than when it is asked. The panel shows the step in the
+  compose box while it runs and wakes you with the log's tail when it lands,
+  so the report is written from the ending. Check once that the run started —
+  the log exists, the pid is alive, the first line has appeared — then stop.
+  That one call catches the failures that would otherwise sit silent for an
+  hour.
 - **Be brief.** The panel is narrow and the user is looking at a structure.
   Answer in the language they write in.
 

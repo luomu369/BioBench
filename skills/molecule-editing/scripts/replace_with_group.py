@@ -16,6 +16,7 @@ Usage:
       --group benzene
 """
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -25,7 +26,8 @@ from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
-from pdb_format import (atom_line, check_serials_unique, conect_line)
+from pdb_format import (PdbFormatError, atom_line, check_serials_unique,
+                        conect_line, iter_atoms)
 from selection import build_mol, pos, read_selection, resolve
 
 # Groups the skill can build, by the name a user would say. Each is the SMILES
@@ -92,10 +94,141 @@ COVALENT = {
 }
 
 
+def to_pdb(structure: Path) -> Path:
+    """The structure as a PDB, converting from CIF when that is what it is.
+
+    The serial is carried through unchanged. It is the only join between the
+    viewer's selection and the file, and every other writer in this repo
+    renumbers as it goes: gemmi's PDB writer assigns its own ordinal and drops
+    the serial it was handed, so a CIF's atom 11612 comes back as a different
+    atom and the edit lands on whatever now holds that number.
+
+    Writing through `pdb_format.atom_line` is what prevents it. That module
+    refuses a field that would not fit its columns instead of shifting the
+    ones after it, so a serial that is too wide is an error rather than a
+    silent renumber.
+
+    A PDB is returned as it is. The one thing that is checked is that its
+    serials are unique, because a file with two atoms sharing a serial makes
+    the selection resolve to one of them arbitrarily.
+    """
+    if structure.suffix.lower() in (".pdb", ".ent"):
+        try:
+            check_serials_unique(structure.read_text(errors="replace"))
+        except PdbFormatError as e:
+            sys.exit(f"{structure}: {e}")
+        return structure
+
+    try:
+        import gemmi
+    except ImportError:
+        sys.exit("gemmi is required to read a .cif — use the docking env")
+
+    st = gemmi.read_structure(str(structure))
+    st.setup_entities()
+
+    # PDB chain IDs are one character, and a CIF from the viewer routinely has
+    # more chains than that — a trimer with its ligands is ra..rj plus the
+    # protein's own A..F. Truncating to the first character folds them all
+    # together: ten ligands become one chain of 205 atoms, the residues merge,
+    # and the edit is applied to a molecule that is not the one on screen.
+    #
+    # So each chain is given a unique single character, and the mapping is
+    # written beside the file for whoever needs to read the result back. The
+    # first pass keeps the chains that already fit; the rest are assigned from
+    # the characters still free, in the order they appear.
+    used = set()
+    for model in st:
+        for ch in model:
+            name = (ch.name or "").strip()
+            if len(name) == 1:
+                used.add(name)
+        break
+    free = [c for c in "abcdefghijklmnopqrstuvwxyz0123456789"
+            if c not in used]
+    chain_map = {}
+    for model in st:
+        for ch in model:
+            name = (ch.name or "").strip()
+            if name in chain_map:
+                continue
+            if len(name) == 1:
+                chain_map[name] = name
+            elif free:
+                chain_map[name] = free.pop(0)
+            else:
+                sys.exit(f"too many chains to write as PDB: {name} has no "
+                         f"single-character id left")
+        break
+
+    # Every atom first, then the numbering. The serial written is the atom's
+    # own — the selection the viewer recorded is resolved against the file as
+    # it stands (for a CIF, to the atom's position, whose id is what every
+    # other reader reports), and the PDB written here has to mean the same
+    # atom by that number. Renumbering from one only coincides with it when
+    # the file's ids happen to be 1..N, which these files are and a file from
+    # elsewhere need not be. An atom with no serial of its own falls back to
+    # a running count, and the duplicate check below catches the collision
+    # that a mixed file would make.
+    flat = []
+    for model in st:
+        for ch in model:
+            pdb_chain = chain_map[(ch.name or "").strip()]
+            for res in ch:
+                resn = (res.name or "UNL")[:3]
+                record = "ATOM" if resn in STANDARD_AA else "HETATM"
+                for a in res:
+                    flat.append((a, pdb_chain, resn, record,
+                                 res.seqid.num, (res.seqid.icode or " ")[:1]))
+        break  # one model; the viewer shows one
+    if not flat:
+        sys.exit(f"no atoms read from {structure}")
+
+    out, n = [], 0
+    for a, pdb_chain, resn, record, resi, icode in flat:
+        n += 1
+        serial = a.serial if a.serial else n
+        out.append(atom_line(
+            serial=serial,
+            name=a.name,
+            resn=resn,
+            chain=pdb_chain,
+            resi=resi,
+            x=a.pos.x, y=a.pos.y, z=a.pos.z,
+            elem=a.element.name,
+            record=record,
+            icode=icode,
+        ))
+
+    dest = structure.with_suffix(".edit.pdb")
+    dest.write_text("\n".join(out) + "\n")
+    # The mapping, for the caller that has to put the result back. Written
+    # beside the file rather than printed: it is data, and a line in a log is
+    # data the next step has to scrape.
+    structure.with_suffix(".edit.chains.json").write_text(
+        json.dumps(chain_map, indent=2))
+    return dest
+
+
+def selected_residues(structure: Path, serials) -> set:
+    """The (chain, resn, resi) of every residue the selection touches.
+
+    Used to bound proximity bonding: the edit needs the bonds inside the
+    residue being edited and nothing else, and bonding a whole complex is
+    quadratic in a way that does not finish.
+    """
+    want = set(serials)
+    out = set()
+    for atom in iter_atoms(structure.read_text(errors="replace")):
+        if atom.serial in want:
+            out.add((atom.chain.strip(), atom.resn, atom.resi))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--structure", required=True,
-                    help="the PDB the selection was made on")
+                    help="the .cif or .pdb the selection was made on")
     ap.add_argument("--out", required=True, help="output PDB")
     ap.add_argument("--group", default="benzene", choices=sorted(GROUPS),
                     help="which group to build (default benzene)")
@@ -107,8 +240,31 @@ def main():
     smiles = GROUPS[args.group]
     structure = Path(args.structure)
     sel, sel_atoms = read_selection()
+
+    # Resolve the selection against the file it was made on, before any
+    # conversion. The viewer's serial is the file's own numbering only when
+    # that file is a PDB; for a CIF it is the atom's position in the file,
+    # and the id at that position is what resolve() returns. Converting
+    # first and resolving after would read that position as a serial of the
+    # converted file and land one atom off — see selection.resolve.
     serials = resolve(structure, sel)
-    mol = build_mol(structure)
+
+    # A CIF is converted to PDB here rather than by the caller.
+    #
+    # The viewer publishes CIF, and the selection resolves to the CIF's own
+    # atom numbering. Converting outside this script meant gemmi's PDB writer,
+    # which renumbers atoms as it writes and drops the serial it was given —
+    # so serial 11612 in the CIF came back as a different atom in the PDB, and
+    # the edit was applied to a carbon instead of the hydrogen the user
+    # clicked. Writing through pdb_format.atom_line keeps the serial exactly
+    # as it was read, because that module refuses to write a line whose
+    # columns do not fit rather than shifting them.
+    structure = to_pdb(structure)
+
+    # Only the selected residue is bonded. proximityBonding over a whole
+    # complex is quadratic and does not finish on one — see build_mol.
+    sel_res = selected_residues(structure, serials)
+    mol = build_mol(structure, bond_within=sel_res)
     conf = mol.GetConformer()
 
     # PDB serial -> RDKit atom index. MolFromPDBFile keeps the serial in the
@@ -119,6 +275,49 @@ def main():
         info = a.GetPDBResidueInfo()
         if info is not None:
             by_serial[info.GetSerialNumber()] = a.GetIdx()
+
+    # A selected atom sitting on top of atoms from other residues is a
+    # structure where several molecules were written to the same place — a
+    # set of designs against one pocket, all of them superimposed. The
+    # selection then resolves to an atom whose neighbours belong to ten
+    # different molecules, and the group is attached to whichever of them the
+    # distance test reaches first. Nothing about the file says so, and the
+    # edit looks like it worked.
+    #
+    # Reported rather than refused: the user may well mean it, and the fix is
+    # to publish one design at a time. But it has to be said out loud, because
+    # the alternative is a benzene bonded to an oxygen 1.0 A away with no
+    # indication that anything was ambiguous.
+    for s in serials:
+        i = by_serial.get(s)
+        if i is None:
+            continue
+        info = mol.GetAtomWithIdx(i).GetPDBResidueInfo()
+        if info is None:
+            continue
+        mine = (info.GetChainId().strip(), info.GetResidueName(),
+                info.GetResidueNumber())
+        pi = pos(conf, i)
+        others = set()
+        for a in mol.GetAtoms():
+            if a.GetIdx() == i or a.GetSymbol() == "H":
+                continue
+            ainfo = a.GetPDBResidueInfo()
+            if ainfo is None:
+                continue
+            key = (ainfo.GetChainId().strip(), ainfo.GetResidueName(),
+                   ainfo.GetResidueNumber())
+            if key == mine:
+                continue
+            if float(np.linalg.norm(pi - pos(conf, a.GetIdx()))) < 1.6:
+                others.add(key)
+        if others:
+            names = ", ".join(f"{c}:{r}{n}" for c, r, n in sorted(others)[:6])
+            print(f"warning: serial {s} is within 1.6 A of atoms from other "
+                  f"residues ({names}) — the structure has several "
+                  f"molecules in the same place. The group will bond to one of "
+                  f"them; publish a single design first if that is not what "
+                  f"you want.", file=sys.stderr)
 
     doomed = [by_serial[s] for s in serials if s in by_serial]
     if len(doomed) != len(serials):
@@ -206,41 +405,49 @@ def main():
     if inherit is None:
         inherit = (args.chain, "RNG", args.resi)
 
-    # Delete the selected atoms. RemoveAtom renumbers everything after it, so
-    # the surviving indices are remapped through `shift`.
-    doomed_set = set(doomed)
-    shift, removed_below = {}, 0
-    for idx in range(mol.GetNumAtoms()):
-        if idx in doomed_set:
-            removed_below += 1
-        else:
-            shift[idx] = idx - removed_below
-    attachments = [shift[j] for j in attachments if j in shift]
-
-    rw = Chem.RWMol(mol)
-    for i in sorted(doomed, reverse=True):
-        rw.RemoveAtom(i)
-
     # Hydrogens the deletion orphaned. A PDB read with proximityBonding bonds
     # every hydrogen it finds, so the hydrogens that sat on the removed group's
     # atoms survive it — bonded to nothing, floating where the group used to
     # be. Leaving them puts stray atoms exactly where the new group is about
     # to go.
     #
-    # A hydrogen with no heavy-atom neighbour is one of these. Hydrogens bonded
-    # to each other are not a thing in these structures, so the test is simply
-    # whether any neighbour is not itself a hydrogen.
-    while True:
-        orphan = None
-        for a in rw.GetAtoms():
-            if a.GetSymbol() != "H":
-                continue
-            if not any(n.GetSymbol() != "H" for n in a.GetNeighbors()):
-                orphan = a.GetIdx()
-                break
-        if orphan is None:
-            break
-        rw.RemoveAtom(orphan)
+    # The test is against the bonds the file was read with, not against the
+    # bonds that survive the deletion. Bonding is bounded to the selected
+    # residue — `build_mol(bond_within=...)` — so every hydrogen on every
+    # other residue arrives with no bonds at all, and "no heavy-atom
+    # neighbour" is true of all of them: sweeping on that test deleted the
+    # hydrogens of nine untouched ligands in one run. A hydrogen is an
+    # orphan of *this* deletion when it had heavy-atom neighbours before it
+    # and every one of them is being removed. A hydrogen with no neighbours
+    # at all was never bonded by this read; it is not this deletion's
+    # doing, and removing it would take atoms the selection never named.
+    doomed_set = set(doomed)
+    orphan_h = []
+    for a in mol.GetAtoms():
+        if a.GetSymbol() != "H" or a.GetIdx() in doomed_set:
+            continue
+        heavy_nb = [n.GetIdx() for n in a.GetNeighbors()
+                    if n.GetSymbol() != "H"]
+        if heavy_nb and all(j in doomed_set for j in heavy_nb):
+            orphan_h.append(a.GetIdx())
+
+    # Delete the selected atoms, and the hydrogens they stranded. RemoveAtom
+    # renumbers everything after each removal, so the surviving indices are
+    # remapped through `shift` — over every atom being removed, orphans
+    # included, or an attachment sitting above an orphan is remapped to the
+    # wrong atom.
+    removed = doomed_set | set(orphan_h)
+    shift, removed_below = {}, 0
+    for idx in range(mol.GetNumAtoms()):
+        if idx in removed:
+            removed_below += 1
+        else:
+            shift[idx] = idx - removed_below
+    attachments = [shift[j] for j in attachments if j in shift]
+
+    rw = Chem.RWMol(mol)
+    for i in sorted(removed, reverse=True):
+        rw.RemoveAtom(i)
     edited = rw.GetMol()
 
     # The group template, with real geometry from an MMFF optimisation — a

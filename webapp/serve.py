@@ -193,10 +193,24 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             import agent
             jobs = agent.pending_jobs()
+            # When nothing is running, the tail of what just finished.
+            #
+            # The panel asks this every two seconds while it watches, and the
+            # answer that ends the watch is the one that matters: the model is
+            # about to be woken, and the first thing it would do is read the
+            # log to find out what happened. Sending the tail with the empty
+            # list means it wakes up already knowing.
+            #
+            # Read here rather than in the panel because the panel does not
+            # know where the logs live — that is the skills' business, and
+            # agent.py is the side that already reads their status file.
+            finished = []
+            if not jobs:
+                finished = agent.finished_jobs_tail()
         except ImportError as e:
             self._json(500, {"error": f"agent module unavailable: {e}"})
             return
-        self._json(200, {"jobs": jobs})
+        self._json(200, {"jobs": jobs, "finished": finished})
 
     def do_GET_sessions(self):
         """Every conversation, newest first, with a line of its first message.
