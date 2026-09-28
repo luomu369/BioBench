@@ -1,131 +1,21 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#07111c">
-<title>BioBench · Agent Skills 生物计算工作台</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BioBench｜DGX Spark Agent Skills</title>
 <style>
-:root{
-  --bg:#050a10;--panel:#0a121b;--panel2:#0d1722;--line:rgba(148,163,184,.16);
-  --text:#edf5f8;--muted:#91a4b4;--soft:#c4d1da;--cyan:#63e6d2;--blue:#62a8ff;
-  --glow:rgba(99,230,210,.18);--max:1180px
-}
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:
- radial-gradient(circle at 12% 5%,rgba(56,189,248,.11),transparent 30%),
- radial-gradient(circle at 88% 12%,rgba(99,230,210,.08),transparent 27%),
- linear-gradient(180deg,#050a10 0%,#071019 55%,#050a10 100%);
- color:var(--text);font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.85}
-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.18;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,#000,transparent 75%)}
-a{color:inherit}
-.wrap{width:min(var(--max),calc(100% - 36px));margin:auto}
-.topbar{height:70px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);position:relative;z-index:10}
-.brand{display:flex;align-items:center;gap:11px;font-weight:750;letter-spacing:.12em;font-size:14px}
-.brand-mark{width:25px;height:25px;border:1px solid rgba(99,230,210,.7);border-radius:7px;position:relative;box-shadow:0 0 22px var(--glow)}
-.brand-mark:before,.brand-mark:after{content:"";position:absolute;background:var(--cyan)}
-.brand-mark:before{width:7px;height:7px;border-radius:50%;left:4px;top:8px;box-shadow:10px -5px 0 var(--blue),10px 5px 0 var(--cyan)}
-.brand-mark:after{width:11px;height:1px;left:7px;top:12px;transform:rotate(-26deg);opacity:.7}
-.toplink{font-size:12px;color:var(--muted);text-decoration:none}
-.hero{padding:92px 0 82px;position:relative}
-.eyebrow{display:inline-flex;align-items:center;gap:9px;padding:7px 12px;border:1px solid rgba(99,230,210,.22);background:rgba(99,230,210,.055);border-radius:999px;color:var(--cyan);font-size:11px;letter-spacing:.16em;font-weight:700}
-.dot{width:6px;height:6px;background:var(--cyan);border-radius:50%;box-shadow:0 0 12px var(--cyan)}
-h1{font-size:clamp(42px,7vw,78px);line-height:1.05;letter-spacing:-.045em;margin:23px 0 20px;max-width:980px}
-.gradient{background:linear-gradient(105deg,#fff 0%,#d9f7f3 48%,#79b8ff 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{font-size:18px;color:var(--soft);max-width:760px;margin:0}
-.hero-actions{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 17px;border-radius:11px;text-decoration:none;font-size:13px;font-weight:700;border:1px solid var(--line)}
-.btn.primary{background:#e8fffa;color:#07111c;border-color:#e8fffa}
-.btn.secondary{background:rgba(255,255,255,.035);color:var(--soft)}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:55px;border:1px solid var(--line);background:var(--line);border-radius:17px;overflow:hidden}
-.stat{background:rgba(9,17,25,.86);padding:20px 22px}.stat b{display:block;font-size:22px}.stat span{color:var(--muted);font-size:11px}
-nav{position:sticky;top:12px;z-index:9;margin-bottom:24px;border:1px solid var(--line);background:rgba(7,13,20,.82);backdrop-filter:blur(18px);border-radius:15px;padding:8px;display:flex;gap:4px;overflow:auto;box-shadow:0 14px 40px rgba(0,0,0,.22)}
-nav a{white-space:nowrap;text-decoration:none;color:var(--muted);font-size:12px;padding:8px 11px;border-radius:9px}
-nav a:hover{background:rgba(255,255,255,.06);color:#fff}
-article{border:1px solid var(--line);border-radius:24px;background:rgba(8,15,23,.78);overflow:hidden;box-shadow:0 25px 90px rgba(0,0,0,.2)}
-.sec{padding:58px clamp(25px,5vw,66px);border-bottom:1px solid var(--line)}
-.sec:last-child{border:0}
-.kicker{font-size:10px;letter-spacing:.18em;color:var(--cyan);font-weight:800;text-transform:uppercase;margin-bottom:9px}
-h2{font-size:29px;line-height:1.25;margin:0 0 22px;letter-spacing:-.02em}
-h3{font-size:18px}p{color:#bdcbd4;margin:0 0 17px}strong{color:#eef8f7}
-.note{margin:24px 0;padding:17px 19px;border:1px solid rgba(99,230,210,.18);border-left:3px solid var(--cyan);border-radius:12px;background:linear-gradient(90deg,rgba(99,230,210,.07),rgba(99,230,210,.015));color:#d7e7e9}
-.code{margin:24px 0;background:#03070b;border:1px solid rgba(148,163,184,.13);border-radius:15px;padding:23px;overflow:auto;font:12px/1.75 "SFMono-Regular",Consolas,monospace;color:#bcd1d9}
-ol,ul{color:#bdcbd4;padding-left:23px}li{margin:10px 0}
-.feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin-top:26px}
-.card{border:1px solid var(--line);background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));padding:21px;border-radius:15px}
-.card .num{font:11px Consolas;color:var(--cyan)}.card h3{margin:12px 0 7px}.card p{font-size:13px;margin:0;color:var(--muted)}
-.pipeline{display:flex;align-items:stretch;gap:8px;margin:27px 0;overflow:auto;padding-bottom:5px}
-.step{min-width:125px;flex:1;padding:17px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025)}
-.step b{font-size:13px;display:block}.step span{font-size:11px;color:var(--muted)}
-.arrow{display:flex;align-items:center;color:#526779}
-.footer{padding:45px 0 60px;text-align:center;color:#607383;font-size:11px}
-@media(max-width:760px){
- .wrap{width:min(100% - 24px,var(--max))}.toplink{display:none}.hero{padding:65px 0 55px}
- .hero p{font-size:16px}.stats{grid-template-columns:repeat(2,1fr)}.feature-grid{grid-template-columns:1fr}
- .sec{padding:42px 23px}h2{font-size:25px}.pipeline{display:grid;grid-template-columns:1fr 1fr}.arrow{display:none}
-}
-</style>
-</head>
-<body>
-<div class="wrap">
-<header class="topbar">
-  <div class="brand"><span class="brand-mark"></span>BIOBENCH</div>
-  <a class="toplink" href="https://github.com/luomu369/BioBench">OPEN SOURCE · GITHUB ↗</a>
-</header>
-
-<section class="hero">
-  <div class="eyebrow"><span class="dot"></span>NVIDIA DGX SPARK · AGENT SKILLS</div>
-  <h1><span class="gradient">让生物计算成为</span><br>Agent 可以掌握的 Skill</h1>
-  <p>BioBench 是一个面向计算生物学与 AI 制药的智能工作台。用自然语言提出科研任务，让 Agent 组织 Skills、调用科学计算引擎，并把结果重新带回结构、序列与可视化环境。</p>
-  <div class="hero-actions">
-    <a class="btn primary" href="#产品">探索 BioBench ↓</a>
-    <a class="btn secondary" href="https://github.com/luomu369/BioBench">查看项目源码 ↗</a>
-  </div>
-  <div class="stats">
-    <div class="stat"><b>Agent</b><span>自然语言任务入口</span></div>
-    <div class="stat"><b>Skills</b><span>可组合的科研能力</span></div>
-    <div class="stat"><b>GPU</b><span>本地科学计算执行</span></div>
-    <div class="stat"><b>Viewer</b><span>结果可视化工作台</span></div>
-  </div>
-</section>
-
-<nav>
-<a href="#摘要">摘要</a><a href="#产品">产品</a><a href="#架构">架构</a><a href="#代码">代码</a><a href="#流程">流程</a><a href="#创新">创新</a><a href="#展望">展望</a>
-</nav>
-
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#070b10;color:#dce5ed;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif;line-height:1.9}
+.wrap{max-width:1180px;margin:auto;padding:0 20px 70px}.top{height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #263544}.brand{font-weight:800;letter-spacing:.14em;font-size:13px}.brand span{color:#67e8c1}.top a{color:#8798a7;text-decoration:none;font-size:12px}
+.hero{padding:58px 0 42px}.eyebrow{color:#67e8c1;letter-spacing:.18em;font-size:11px;font-weight:700}.hero h1{font-size:clamp(36px,5vw,58px);line-height:1.2;margin:12px 0 10px}.hero h1 span{color:#67e8c1}.sub{font-size:19px;color:#aebdcc}.tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.tag{border:1px solid #304151;border-radius:99px;padding:3px 10px;color:#9cabb8;font-size:11px}
+nav{position:sticky;top:10px;z-index:5;padding:9px;margin-bottom:18px;background:#0a0f15ee;border:1px solid #263544;border-radius:14px;backdrop-filter:blur(10px)}nav a{color:#aebdca;text-decoration:none;margin-right:14px;font-size:13px}nav a:hover{color:#fff}
+article{background:#0b1017;border:1px solid #263544;border-radius:20px;overflow:hidden}.sec{padding:40px 52px;border-bottom:1px solid #22303d}.sec:last-child{border:0}h2{font-size:25px;color:#f3f7fa;margin:0 0 18px}p{margin:0 0 16px}li{margin:7px 0}.code{background:#05080c;border:1px solid #263544;border-radius:12px;padding:18px;overflow:auto;font:13px/1.65 Consolas,monospace;color:#cbd7df}.note{border-left:3px solid #67e8c1;background:#0d1718;padding:12px 16px;margin:18px 0}
+.footer{text-align:center;color:#687786;font-size:12px;margin-top:22px}@media(max-width:700px){.sec{padding:30px 24px}.hero h1{font-size:34px}.top a{display:none}nav{position:relative}}
+</style></head><body><div class="wrap">
+<header class="top"><div class="brand"><span>●</span> BIOBENCH</div><a href="https://github.com/luomu369/BioBench">GITHUB ↗</a></header>
+<section class="hero"><div class="eyebrow">NVIDIA DGX SPARK · AGENT SKILLS</div><h1>BioBench：让生物计算成为 <span>Agent 可以掌握的 Skill</span></h1><div class="sub">——面向计算生物学与 AI 制药的 Agent Skills 智能工作台</div><div class="tags"><span class="tag">DGX Spark</span><span class="tag">Agent Skills</span><span class="tag">计算生物学</span><span class="tag">AI 制药</span><span class="tag">分子设计</span></div></section>
+<nav><a href="#摘要">摘要</a><a href="#产品">产品</a><a href="#架构">核心架构</a><a href="#代码">代码结构</a><a href="#流程">开发流程</a><a href="#创新">创新</a><a href="#展望">下一步</a></nav>
 <article>
-<section class="sec" id="摘要">
-<div class="kicker">01 · Overview</div><h2>我们真正想做的，不是再造一个工具</h2>
-<p>在计算生物学和 AI 制药领域，结构预测、分子生成、蛋白/多肽设计、分子对接、分子动力学以及 ADMET 评价已经形成丰富的算法与工具生态，但“工具很多”并不等于“科研流程已经自动化”。真实研究任务需要在不同程序、数据格式和计算环境之间反复切换。</p>
-<p>BioBench 的目标，是把这些分散的生物计算能力重新组织成 Agent 可以理解、调用、组合和执行的 Skills。项目以 Agent 为任务入口，以 Skills 为能力单元，以 DGX Spark 的本地 AI 与计算资源为执行基础，以 Web Viewer 为结果呈现界面，形成“自然语言提出任务—Agent 拆解任务—Skill 执行计算—结果回到可视化工作台”的闭环。</p>
-<div class="note">我们的核心叙事：把 AI 从“会回答问题”推进到“能够完成科研工作流”。</div>
-</section>
-
-<section class="sec" id="产品">
-<div class="kicker">02 · Product</div><h2>一个真正面向科研流程的生物工作台</h2>
-<p>最终产品不是十几个按钮的工具集合，而是一个面向生物分子设计与分析的智能工作台。中央区域呈现蛋白质、配体和复合物三维结构；结构指标、链信息与序列进入同一个上下文；右侧保留 Agent 对话区，使任务提出、计算过程和结果观察处于同一个界面。</p>
-<div class="feature-grid">
-<div class="card"><div class="num">01</div><h3>分子设计</h3><p>分子生成、编辑、口袋分子设计与候选探索。</p></div>
-<div class="card"><div class="num">02</div><h3>蛋白设计</h3><p>结构预测、序列设计、结合肽与 Binder 设计。</p></div>
-<div class="card"><div class="num">03</div><h3>计算分析</h3><p>对接、分子动力学、结构比较与构象分析。</p></div>
-<div class="card"><div class="num">04</div><h3>序列分析</h3><p>序列搜索与设计能力进入统一 Agent 工作流。</p></div>
-<div class="card"><div class="num">05</div><h3>性质评价</h3><p>通过 ADMET 等能力对候选结果进行进一步分析。</p></div>
-<div class="card"><div class="num">06</div><h3>结果可视化</h3><p>结构、状态和计算结果回到统一的 Viewer 上下文。</p></div>
-</div>
-</section>
-
-<section class="sec" id="架构">
-<div class="kicker">03 · Architecture</div><h2>Agent → Skill → Scientific Engine → Viewer</h2>
-<p>用户提出任务后，Agent 理解并拆解任务，根 SKILL 负责路由与编排，Deploy Skill 准备环境，Run Skill 执行科学计算，结果写入统一工作区，Viewer 负责呈现。</p>
-<div class="pipeline">
-<div class="step"><b>Natural Language</b><span>提出科研问题</span></div><div class="arrow">→</div>
-<div class="step"><b>Agent</b><span>理解与任务拆解</span></div><div class="arrow">→</div>
-<div class="step"><b>Skill</b><span>路由与执行</span></div><div class="arrow">→</div>
-<div class="step"><b>Scientific Engine</b><span>模型 / 工具 / GPU</span></div><div class="arrow">→</div>
-<div class="step"><b>Viewer</b><span>结构与结果呈现</span></div>
-</div>
-<div class="code">User
+<section class="sec" id="摘要"><h2>摘要</h2><p>在计算生物学和 AI 制药领域，结构预测、分子生成、蛋白/多肽设计、分子对接、分子动力学以及 ADMET 评价已经形成丰富的算法与工具生态，但“工具很多”并不等于“科研流程已经自动化”。真实研究任务需要在不同程序、数据格式和计算环境之间反复切换。</p><p>BioBench 的目标，是把这些分散的生物计算能力重新组织成 Agent 可以理解、调用、组合和执行的 Skills。项目以 Agent 为任务入口，以 Skills 为能力单元，以 DGX Spark 的本地 AI 与计算资源为执行基础，以 Web Viewer 为结果呈现界面，形成“自然语言提出任务—Agent 拆解任务—Skill 执行计算—结果回到可视化工作台”的闭环。</p></section>
+<section class="sec" id="产品"><h2>一、我们真正想做的，不是再造一个工具</h2><p>2026 年 9 月 21 日，我们开始进入 DGX Spark Agent Skills 开发挑战赛的实际开发阶段。最初提出了 AI 自动化设计和优化环肽药物、自动化视频生产两个方向，经过讨论最终确定“BioBench：一个生物工作台”。</p><div class="note">我们的宏观叙事：把 AI 从“会回答问题”推进到“能够完成科研工作流”。</div><p>最终产品不是十几个按钮的工具集合，而是一个面向生物分子设计与分析的智能工作台。中央区域呈现蛋白质、配体和复合物三维结构；左侧提供结构指标、链信息和序列；右侧保留 Agent 对话区，使任务提出、计算过程和结果观察处于同一个界面。</p></section>
+<section class="sec" id="架构"><h2>二、核心架构：Agent → Skill → Scientific Engine → Viewer</h2><p>用户提出任务后，Agent 理解并拆解任务，根 SKILL 负责路由与编排，Deploy Skill 准备环境，Run Skill 执行科学计算，结果写入统一工作区，Viewer 负责呈现。</p><div class="code">User
   ↓
 Agent / Harness
   ↓
@@ -147,13 +37,8 @@ BioBench 根 SKILL.md
               ↓
         Result Artifacts
               ↓
-         BioBench Viewer</div>
-<p>这种设计避免 Agent 直接凭记忆操作复杂科研软件，而是通过结构化、可复用、可验证的 Skills 完成专业工作。</p>
-</section>
-
-<section class="sec" id="代码">
-<div class="kicker">04 · Engineering</div><h2>把科研能力拆成可以组合的 Skill</h2>
-<div class="code">BioBench/
+         BioBench Viewer</div><p>这种设计避免 Agent 直接凭记忆操作复杂科研软件，而是通过结构化、可复用、可验证的 Skills 完成专业工作。</p></section>
+<section class="sec" id="代码"><h2>三、代码结构：把科研能力拆成可以组合的 Skill</h2><div class="code">BioBench/
 ├── SKILL.md
 ├── README.md
 ├── opencode.jsonc
@@ -180,45 +65,9 @@ BioBench 根 SKILL.md
 │   ├── _shared/
 │   └── viewer/
 ├── webapp/
-└── vendor/</div>
-<p><strong>Deploy Skills</strong>解决模型权重、Python、CUDA/PyTorch 和系统依赖的准备；<strong>Run Skills</strong>执行真正的科研动作；<strong>_shared</strong>统一路径、结构文件、环境匹配和错误处理；<strong>Viewer</strong>把计算结果重新变成蛋白结构、序列、指标等科研对象。</p>
-</section>
-
-<section class="sec" id="流程">
-<div class="kicker">05 · Workflow</div><h2>从一个想法，到一个可以运行的工作台</h2>
-<ol>
-<li><strong>方向确定：</strong>从 AI 环肽设计和自动化视频等方向出发，最终确定生物计算工作台。</li>
-<li><strong>建立 Skill 思维：</strong>将算法重新定义为 Agent 可以调用的能力单元，形成 Deploy、Run、Shared、Viewer 分层。</li>
-<li><strong>接入科学能力：</strong>逐步建立结构预测、分子生成、分子编辑、蛋白/结合肽设计、对接、动力学和 ADMET 等 Skills。</li>
-<li><strong>建立统一结果层：</strong>让不同计算任务产生的结构、状态和指标以统一方式发布。</li>
-<li><strong>Agent 与 Viewer 联调：</strong>把自然语言入口、Skill 路由、科学计算和三维可视化连成闭环。</li>
-</ol>
-<div class="note">一个典型流程：目标蛋白 → 结构预测 / 加载 → 口袋检测 → 分子或结合肽生成 → 分子编辑 → 对接 → 动力学 → ADMET。</div>
-<p>每个 Skill 可以独立存在，但真正的价值来自 Skills 之间的组合。</p>
-</section>
-
-<section class="sec" id="创新">
-<div class="kicker">06 · Innovation</div><h2>不是增加一个模型，而是改变模型使用工具的方式</h2>
-<div class="feature-grid">
-<div class="card"><div class="num">01</div><h3>工具集合 → 能力网络</h3><p>重点不是工具数量，而是能否被 Agent 理解、调用和组合。</p></div>
-<div class="card"><div class="num">02</div><h3>给答案 → 执行任务</h3><p>Agent 可以把对接、动力学、生成等能力作为可执行 Skill。</p></div>
-<div class="card"><div class="num">03</div><h3>单点算法 → 科研工作流</h3><p>多个计算阶段能够连续衔接，形成更完整的任务链。</p></div>
-<div class="card"><div class="num">04</div><h3>命令行 → 科研对象</h3><p>计算结果回到蛋白结构、序列、链和指标的上下文中。</p></div>
-<div class="card"><div class="num">05</div><h3>Demo → 可扩展框架</h3><p>新增模型时可以优先增加 Deploy / Run Skill，而不必重做整个 Agent。</p></div>
-</div>
-<div class="note">我们对 Agent Skills 的理解：不是给 Agent 增加一个“生物学知识库”，而是给 Agent 增加一套“做生物计算的手”。</div>
-</section>
-
-<section class="sec" id="展望">
-<div class="kicker">07 · Next</div><h2>为什么是 DGX Spark，以及下一步</h2>
-<p>BioBench 不能只停留在文本层。真实生物计算需要模型推理、结构计算、GPU 加速和大量中间结果处理。DGX Spark 作为本地 AI 与计算底座，使 Agent 更接近实际科学计算执行过程。</p>
-<p>下一步，我们将继续提升复杂多步骤任务的自动规划、计算失败后的自动恢复、实验记录与结果追踪、多目标候选筛选，以及蛋白质工程、酶分子设计和 AI 制药模型的覆盖。</p>
-<h2 style="margin-top:38px">结语</h2>
-<p>传统计算生物学软件给研究者提供一把把工具；BioBench 想做的是把这些工具组织成一个真正能够工作的智能工作台。研究者先描述自己想解决的科学问题，Agent 再把科学问题拆解成可以执行的计算任务，并把每一步结果重新带回科研对象本身。</p>
-<div class="note"><strong>让 Agent 不只是知道科学，更能够真正参与科学计算。</strong></div>
-</section>
-</article>
-<footer class="footer">BioBench · NVIDIA DGX Spark Agent Skills 开发挑战赛参赛项目<br>Designed for computational biology & AI drug discovery</footer>
-</div>
-</body>
-</html>
+└── vendor/</div><p><strong>Deploy Skills</strong>解决模型权重、Python、CUDA/PyTorch 和系统依赖的准备；<strong>Run Skills</strong>执行真正的科研动作；<strong>_shared</strong>统一路径、结构文件、环境匹配和错误处理；<strong>Viewer</strong>把计算结果重新变成蛋白结构、序列、指标等科研对象。</p></section>
+<section class="sec" id="流程"><h2>四、从一个想法到一个可以运行的工作台</h2><ol><li><strong>方向确定：</strong>从 AI 环肽设计和自动化视频等方向出发，最终确定生物计算工作台。</li><li><strong>建立 Skill 思维：</strong>将算法重新定义为 Agent 可以调用的能力单元，形成 Deploy、Run、Shared、Viewer 分层。</li><li><strong>接入科学能力：</strong>逐步建立结构预测、分子生成、分子编辑、蛋白/结合肽设计、对接、动力学和 ADMET 等 Skills。</li><li><strong>建立统一结果层：</strong>让不同计算任务产生的结构、状态和指标以统一方式发布。</li><li><strong>Agent 与 Viewer 联调：</strong>把自然语言入口、Skill 路由、科学计算和三维可视化连成闭环。</li></ol><p>一个典型流程可以是：目标蛋白 → 结构预测/加载 → 口袋检测 → 分子或结合肽生成 → 分子编辑 → 对接 → 动力学 → ADMET。每个 Skill 可以独立存在，但真正的价值来自 Skills 之间的组合。</p></section>
+<section class="sec" id="创新"><h2>五、我们的创新：不是增加一个模型，而是改变模型使用工具的方式</h2><ul><li>从工具集合变成能力网络：重点不是工具数量，而是能否被 Agent 组合。</li><li>从“给答案”变成“执行任务”：Agent 可以把对接、动力学、生成等能力作为可执行 Skill。</li><li>从单点算法变成科研工作流：多个计算阶段能够连续衔接。</li><li>从命令行结果变成可视化科研对象：结果回到蛋白结构、序列、链和指标上下文。</li><li>从一次性 Demo 变成可扩展框架：新增模型时可以优先增加 Deploy/Run Skill，而不必重做整个 Agent。</li></ul><div class="note">我们对 Agent Skills 的理解：不是给 Agent 增加一个“生物学知识库”，而是给 Agent 增加一套“做生物计算的手”。</div></section>
+<section class="sec" id="展望"><h2>六、为什么是 DGX Spark，以及下一步</h2><p>BioBench 不能只停留在文本层。真实生物计算需要模型推理、结构计算、GPU 加速和大量中间结果处理。DGX Spark 作为本地 AI 与计算底座，使 Agent 更接近实际科学计算执行过程。</p><p>下一步，我们将继续提升复杂多步骤任务的自动规划、计算失败后的自动恢复、实验记录与结果追踪、多目标候选筛选，以及蛋白质工程、酶分子设计和 AI 制药模型的覆盖。</p><h2>结语</h2><p>传统计算生物学软件给研究者提供一把把工具；BioBench 想做的是把这些工具组织成一个真正能够工作的智能工作台。研究者先描述自己想解决的科学问题，Agent 再把科学问题拆解成可以执行的计算任务，并把每一步结果重新带回科研对象本身。</p><p><strong>这就是我们对 Agent Skills 最直接的理解：让 Agent 不只是知道科学，更能够真正参与科学计算。</strong></p></section>
+</article><div class="footer">BioBench · NVIDIA DGX Spark Agent Skills 开发挑战赛参赛征文</div>
+</div></body></html>
