@@ -13,11 +13,11 @@ article{background:#080d18dd;border:1px solid #ffffff14;border-radius:24px;overf
 </style></head><body><div class="wrap">
 <header class="top"><div class="brand"><span>●</span> BIOBENCH</div><a href="https://gitee.com/LRC-bit/biobench" target="_blank" rel="noopener">OPEN SOURCE · GITEE ↗</a></header>
 <section class="hero"><div class="eyebrow">NVIDIA DGX SPARK · AGENT SKILLS</div><h1>BioBench：让生物计算成为 <span>Agent 可以掌握的 Skill</span></h1><div class="sub">——面向计算生物学与 AI 制药的 Agent Skills 智能工作台</div><div class="tags"><span class="tag">DGX Spark</span><span class="tag">Agent Skills</span><span class="tag">计算生物学</span><span class="tag">AI 制药</span><span class="tag">分子设计</span></div><div class="hero-actions"><a class="hero-btn primary" href="#流程">了解开发过程 ↓</a><a class="hero-btn secondary" href="https://gitee.com/LRC-bit/biobench" target="_blank" rel="noopener">查看项目源码 ↗</a><a class="hero-btn secondary" href="https://www.bilibili.com/video/BV1jgaE6cEEz/" target="_blank" rel="noopener">观看演示视频 ↗</a></div></section>
-<nav><a href="#摘要">摘要</a><a href="#产品">产品</a><a href="#架构">核心架构</a><a href="#代码">代码结构</a><a href="#流程">开发流程</a><a href="#创新">创新</a><a href="#展望">下一步</a></nav>
+<nav><a href="#摘要">摘要</a><a href="#产品">项目定位</a><a href="#架构">系统架构</a><a href="#代码">代码结构</a><a href="#流程">开发历程</a><a href="#创新">核心创新</a><a href="#展望">算力与展望</a></nav>
 <article>
 <section class="sec" id="摘要"><h2>摘要</h2><p>在计算生物学和 AI 制药领域，结构预测、分子生成、蛋白/多肽设计、分子对接、分子动力学以及 ADMET 评价已经形成丰富的算法与工具生态，但“工具很多”并不等于“科研流程已经自动化”。真实研究任务需要在不同程序、数据格式和计算环境之间反复切换。</p><p>BioBench 的目标，是把这些分散的生物计算能力重新组织成 Agent 可以理解、调用、组合和执行的 Skills。项目以 Agent 为任务入口，以 Skills 为能力单元，以 DGX Spark 的本地 AI 与计算资源为执行基础，以 Web Viewer 为结果呈现界面，形成“自然语言提出任务—Agent 拆解任务—Skill 执行计算—结果回到可视化工作台”的闭环。</p></section>
-<section class="sec" id="产品"><h2>一、我们真正想做的，不是再造一个工具</h2><p>2026 年 9 月 21 日，我们开始进入 DGX Spark Agent Skills 开发挑战赛的实际开发阶段。最初提出了 AI 自动化设计和优化环肽药物、自动化视频生产两个方向，经过讨论最终确定“BioBench：一个生物工作台”。</p><div class="note">我们的宏观叙事：把 AI 从“会回答问题”推进到“能够完成科研工作流”。</div><p>最终产品不是十几个按钮的工具集合，而是一个面向生物分子设计与分析的智能工作台。中央区域呈现蛋白质、配体和复合物三维结构；左侧提供结构指标、链信息和序列；右侧保留 Agent 对话区，使任务提出、计算过程和结果观察处于同一个界面。</p></section>
-<section class="sec" id="架构"><h2>二、核心架构：Agent → Skill → Scientific Engine → Viewer</h2><p>用户提出任务后，Agent 理解并拆解任务，根 SKILL 负责路由与编排，Deploy Skill 准备环境，Run Skill 执行科学计算，结果写入统一工作区，Viewer 负责呈现。</p><div class="code">User
+<section class="sec" id="产品"><h2>一、项目定位</h2><p>2026 年 9 月 21 日，我们开始进入 DGX Spark Agent Skills 开发挑战赛的实际开发阶段。最初提出了 AI 自动化设计和优化环肽药物、自动化视频生产两个方向，经过讨论最终确定“BioBench：一个生物工作台”。</p><div class="note">我们的宏观叙事：把 AI 从“会回答问题”推进到“能够完成科研工作流”。</div><p>最终产品不是十几个按钮的工具集合，而是一个面向生物分子设计与分析的智能工作台。中央区域呈现蛋白质、配体和复合物三维结构；左侧提供结构指标、链信息和序列；右侧保留 Agent 对话区，使任务提出、计算过程和结果观察处于同一个界面。</p></section>
+<section class="sec" id="架构"><h2>二、系统架构</h2><p>用户提出任务后，Agent 理解并拆解任务，根 SKILL 负责路由与编排，Deploy Skill 准备环境，Run Skill 执行科学计算，结果写入统一工作区，Viewer 负责呈现。</p><div class="code">User
   ↓
 Agent / Harness
   ↓
@@ -40,7 +40,7 @@ BioBench 根 SKILL.md
         Result Artifacts
               ↓
          BioBench Viewer</div><p>这种设计避免 Agent 直接凭记忆操作复杂科研软件，而是通过结构化、可复用、可验证的 Skills 完成专业工作。</p></section>
-<section class="sec" id="代码"><h2>三、代码结构：把科研能力拆成可以组合的 Skill</h2><div class="code">BioBench/
+<section class="sec" id="代码"><h2>三、Skill 代码结构</h2><div class="code">BioBench/
 ├── SKILL.md
 ├── README.md
 ├── opencode.jsonc
@@ -68,7 +68,7 @@ BioBench 根 SKILL.md
 │   └── viewer/
 ├── webapp/
 └── vendor/</div><p><strong>Deploy Skills</strong>解决模型权重、Python、CUDA/PyTorch 和系统依赖的准备；<strong>Run Skills</strong>执行真正的科研动作；<strong>_shared</strong>统一路径、结构文件、环境匹配和错误处理；<strong>Viewer</strong>把计算结果重新变成蛋白结构、序列、指标等科研对象。</p></section>
-<section class="sec" id="流程"><h2>四、十天里，我们是怎么把这个想法做出来的</h2><p>这个项目真正开始动手的时候，我们手里的并不是一个已经成型的产品，而只是一个很朴素的想法：<strong>能不能让 Agent 不只是回答生物学问题，而是真的帮我们把计算做起来？</strong> 十天的开发时间并不长，所以我们没有试图一次把所有东西做到“完美”，而是边做边验证，边验证边调整架构。</p><p>我们最开始花的时间，其实不是写界面，而是在反复讨论：<strong>到底什么才应该算一个 Skill？</strong> 如果只是把几个模型的命令包装起来，Agent 仍然需要人告诉它每一步怎么做；只有把环境、模型、参数、输入输出和具体操作一起整理起来，Skill 才真正变成 Agent 可以调用的“能力”。这个认识也逐渐成为后面整个项目的设计基础。</p><div class="code">Day 1–2  先把“想做什么”说清楚
+<section class="sec" id="流程"><h2>四、十日开发历程</h2><p>这个项目真正开始动手的时候，我们手里的并不是一个已经成型的产品，而只是一个很朴素的想法：<strong>能不能让 Agent 不只是回答生物学问题，而是真的帮我们把计算做起来？</strong> 十天的开发时间并不长，所以我们没有试图一次把所有东西做到“完美”，而是边做边验证，边验证边调整架构。</p><p>我们最开始花的时间，其实不是写界面，而是在反复讨论：<strong>到底什么才应该算一个 Skill？</strong> 如果只是把几个模型的命令包装起来，Agent 仍然需要人告诉它每一步怎么做；只有把环境、模型、参数、输入输出和具体操作一起整理起来，Skill 才真正变成 Agent 可以调用的“能力”。这个认识也逐渐成为后面整个项目的设计基础。</p><div class="code">Day 1–2  先把“想做什么”说清楚
   ↓
 从最初的想法出发，明确 BioBench 要解决的问题
 梳理真实的计算生物学任务
@@ -111,7 +111,7 @@ Day 9–10  收尾、打磨，也重新审视整个项目
 优化项目结构和展示流程
 选择典型科研任务进行完整演示
 把一个十天前还比较模糊的想法，变成可以运行、可以展示、可以继续扩展的项目</div><p><strong>第一步，是先找到方向。</strong>刚开始我们其实有过不止一个想法，也讨论过 AI 环肽设计、自动化视频等方向。真正确定 BioBench 后，我们才开始把问题收拢到“生物计算工作台”上。这个过程看起来不像开发，但它决定了后面十天到底应该把力气花在哪里。</p><p><strong>接下来，我们开始学着用 Skill 的方式重新理解已有的工具。</strong>以前一个模型就是一个模型，一个软件就是一个软件；现在我们更关心的是：如果把它交给 Agent，它需要知道什么、准备什么、输入什么、最后能得到什么。因此，我们把系统逐渐整理成 Deploy、Run、Shared 和 Viewer 四个层次。这个过程也是我们整个项目中比较重要的一次思维转变——<strong>不是把更多工具塞进 Agent，而是把工具变成 Agent 真正能够使用的能力。</strong></p><p><strong>有了架构之后，真正麻烦的部分才开始。</strong>不同模型有不同的环境和依赖，输入输出也不完全一样。我们一边准备运行环境，一边逐个接入科学计算能力。结构预测、口袋检测、分子生成与编辑、蛋白/结合肽设计、分子对接、分子动力学、序列设计与搜索、结构比较和 ADMET 等能力，不是简单地“列在菜单里”，而是要实际跑通，确认输入能进去、计算能完成、结果能出来。</p><p><strong>单个 Skill 跑通以后，我们又遇到了另一个问题：怎么让 Agent 自己把这些能力串起来？</strong>于是我们建立根 <code>SKILL.md</code> 作为统一入口，让 Agent 从自然语言任务出发判断需要什么能力。这样，一个完整的科研任务就不再是“用户自己找八个工具”，而可以逐步变成 Agent 对任务进行拆解、调用 Skill、传递结果的过程。</p><p><strong>最后，我们才把注意力放到 Viewer 上。</strong>因为我们发现，如果计算结果最后只停留在命令行日志里，即使后台真的完成了计算，研究者仍然很难直观看到发生了什么。因此，我们把结构、序列、链信息、状态和指标重新组织起来，让计算结果回到蛋白结构等科研对象上。到这里，BioBench 才真正从“很多模型的集合”变成了一个能够被观察和使用的工作台。</p><p>十天里并不是每一步都一次成功。很多时候，我们是在“运行失败 → 找原因 → 调整 Skill → 再运行”的循环中推进的。也正是这些反复调试，让我们逐渐意识到：<strong>Agent Skills 的难点并不只是把模型接进来，而是把专业知识、工具调用、运行环境和科研流程整理成 Agent 能够稳定执行的结构。</strong></p><div class="note">一个典型的 BioBench 工作流可以是：目标蛋白 → 结构预测/加载 → 口袋检测 → 分子或结合肽生成 → 分子编辑 → 分子对接 → 分子动力学 → ADMET。单个 Skill 是一个能力单元，而多个 Skill 按科研逻辑组合后，才真正形成完整的 Agent 科研工作流。</div></section>
-<section class="sec" id="创新"><h2>五、我们的创新：不是增加一个模型，而是改变模型使用工具的方式</h2><ul><li>从工具集合变成能力网络：重点不是工具数量，而是能否被 Agent 组合。</li><li>从“给答案”变成“执行任务”：Agent 可以把对接、动力学、生成等能力作为可执行 Skill。</li><li>从单点算法变成科研工作流：多个计算阶段能够连续衔接。</li><li>从命令行结果变成可视化科研对象：结果回到蛋白结构、序列、链和指标上下文。</li><li>从一次性 Demo 变成可扩展框架：新增模型时可以优先增加 Deploy/Run Skill，而不必重做整个 Agent。</li></ul><div class="note">我们对 Agent Skills 的理解：不是给 Agent 增加一个“生物学知识库”，而是给 Agent 增加一套“做生物计算的手”。</div></section>
-<section class="sec" id="展望"><h2>六、为什么是 DGX Spark，以及下一步</h2><p>BioBench 不能只停留在文本层。真实生物计算需要模型推理、结构计算、GPU 加速和大量中间结果处理。DGX Spark 作为本地 AI 与计算底座，使 Agent 更接近实际科学计算执行过程。</p><p>下一步，我们将继续提升复杂多步骤任务的自动规划、计算失败后的自动恢复、实验记录与结果追踪、多目标候选筛选，以及蛋白质工程、酶分子设计和 AI 制药模型的覆盖。</p><h2>结语</h2><p>传统计算生物学软件给研究者提供一把把工具；BioBench 想做的是把这些工具组织成一个真正能够工作的智能工作台。研究者先描述自己想解决的科学问题，Agent 再把科学问题拆解成可以执行的计算任务，并把每一步结果重新带回科研对象本身。</p><p><strong>这就是我们对 Agent Skills 最直接的理解：让 Agent 不只是知道科学，更能够真正参与科学计算。</strong></p></section>
-</article><button class="backtop" onclick="window.scrollTo({top:0,behavior:\'smooth\'})" aria-label="返回顶部">↑</button><div class="footer">BioBench · NVIDIA DGX Spark Agent Skills 开发挑战赛参赛征文</div>
+<section class="sec" id="创新"><h2>五、核心创新</h2><ul><li>从工具集合变成能力网络：重点不是工具数量，而是能否被 Agent 组合。</li><li>从“给答案”变成“执行任务”：Agent 可以把对接、动力学、生成等能力作为可执行 Skill。</li><li>从单点算法变成科研工作流：多个计算阶段能够连续衔接。</li><li>从命令行结果变成可视化科研对象：结果回到蛋白结构、序列、链和指标上下文。</li><li>从一次性 Demo 变成可扩展框架：新增模型时可以优先增加 Deploy/Run Skill，而不必重做整个 Agent。</li></ul><div class="note">我们对 Agent Skills 的理解：不是给 Agent 增加一个“生物学知识库”，而是给 Agent 增加一套“做生物计算的手”。</div></section>
+<section class="sec" id="展望"><h2>六、算力与展望</h2><p>BioBench 不能只停留在文本层。真实生物计算需要模型推理、结构计算、GPU 加速和大量中间结果处理。DGX Spark 作为本地 AI 与计算底座，使 Agent 更接近实际科学计算执行过程。</p><p>下一步，我们将继续提升复杂多步骤任务的自动规划、计算失败后的自动恢复、实验记录与结果追踪、多目标候选筛选，以及蛋白质工程、酶分子设计和 AI 制药模型的覆盖。</p><h2>结语</h2><p>传统计算生物学软件给研究者提供一把把工具；BioBench 想做的是把这些工具组织成一个真正能够工作的智能工作台。研究者先描述自己想解决的科学问题，Agent 再把科学问题拆解成可以执行的计算任务，并把每一步结果重新带回科研对象本身。</p><p><strong>这就是我们对 Agent Skills 最直接的理解：让 Agent 不只是知道科学，更能够真正参与科学计算。</strong></p></section>
+</article><button class="backtop" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="返回顶部">↑</button><div class="footer">BioBench · NVIDIA DGX Spark Agent Skills 开发挑战赛参赛征文</div>
 </div></body></html>
