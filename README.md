@@ -15,6 +15,8 @@ harness 用自然语言驱动它们，并在一个 Web 查看器里看到结果�
 - **硬件**：NVIDIA DGX Spark（GB10，aarch64，CUDA 13.0，121 GB 统一内存）
 - **智能体模型**：StepFun 阶跃星辰 `step-5-preview`
 - **许可**：MIT
+- **演示视频**：[Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
+- **参赛征文**：[BioBench · DGX Spark Agent Skills](https://luomu369.github.io/BioBench/)
 
 ---
 
@@ -579,7 +581,7 @@ ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
 - **`pocket-molecule-design` 会把多个设计叠在一起发布**：10 个分子占同一位置，
   后续编辑会歧义。脚本现在会警告，但发布环节还没修。
 - **单用户、单机**：没有多用户，没有远程部署，没有集群调度。
-- **视频演示**：受 Gitee 单文件 100 MB 限制，计划放 Release 附件而非进 git。
+- **视频演示**：放在 Bilibili（见页首链接）。Gitee 单文件限 100 MB，一段演示视频进 git 会让每次 clone 都多下载一遍，而且早期版本永远留在历史里。
 
 ### 10.3 一句话
 

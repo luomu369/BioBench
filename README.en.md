@@ -17,6 +17,8 @@ publishes to the same page, and you watch the structure take shape.
 - **Hardware**: NVIDIA DGX Spark (GB10, aarch64, CUDA 13.0, 121 GB unified memory)
 - **Agent model**: StepFun `step-5-preview`
 - **License**: MIT
+- **Demo video**: [Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
+- **Competition write-up**: [BioBench · DGX Spark Agent Skills](https://luomu369.github.io/BioBench/)
 
 ---
 
@@ -618,8 +620,9 @@ ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
   now; the publish side is not fixed.
 - **Single user, single machine**: no multi-user, no remote deployment, no
   cluster scheduling.
-- **Video demo**: bounded by Gitee's 100 MB per-file limit; planned as a Release
-  attachment rather than into git.
+- **Video demo**: hosted on Bilibili (link at the top). Gitee caps a single file
+  at 100 MB, and a demo video in git would be downloaded on every clone while
+  early versions stayed in the history forever.
 
 ### 10.3 In one sentence
 
