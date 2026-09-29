@@ -599,6 +599,33 @@ Every publish is also archived under `webapp/static/structures/` and listed
 in `structures.json`, so a reload of the viewer reopens the whole session's
 structures as tabs instead of only the latest one.
 
+### Finding a structure that is already published
+
+`structures.json` is the index of everything this session published. Read it
+before searching the filesystem:
+
+```bash
+python3 -c "
+import json
+d = json.load(open('webapp/static/structures.json'))
+entries = d if isinstance(d, list) else d.get('structures', [])
+for e in entries:
+    m = e.get('meta') or {}
+    print(f\"{m.get('name'):32} {m.get('source',''):20} {m.get('updated','')}\")
+"
+```
+
+Each entry carries the `meta` the structure was published with — name, source,
+chains, roles, metrics, notes, and the `params` block when the publisher wrote
+one. That is enough to answer "which of these is the cyclic peptide" without
+opening a single file, and enough to re-publish one without recomputing
+anything.
+
+A request like "find the cyclic peptide from earlier" or "show me that
+structure again" is a lookup here, not a search. `ls` on the structures
+directory gives filenames, which say nothing about what is inside; the index
+says what each one is.
+
 ### Highlighting what you just changed
 
 `--highlight` names residues the viewer should select on arrival, so the

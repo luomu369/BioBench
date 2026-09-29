@@ -169,3 +169,51 @@ atoms are numbered from 1, which is why the mistake survived as long as it
 did.
 
 Take the serial from `atom.pdbline`, which is the original PDB record.
+
+## `pgrep -f` matches the command that is looking for it
+
+`pgrep -f simulate_complex.py` matches any process whose *whole command line*
+contains that string — including the shell running the pgrep itself, and
+including the `bash -c` wrapper the agent's own tool call arrives in. A run
+that finished an hour ago is reported as still running, and the panel waits on
+work that ended long ago.
+
+This is not hypothetical. A 1 ns simulation finished at 15:02 and wrote its
+`final.pdb`; at 16:00 `pgrep -f simulate_complex.py` still returned a pid, and
+the conclusion drawn was "the process is still going". It was the pgrep.
+
+Check the pid the run reported, not a name:
+
+```bash
+kill -0 "$PID" 2>/dev/null && echo alive || echo gone
+```
+
+`kill -0` asks the kernel about one process and answers for that process only.
+When the pid was recorded with `--pid`, `pending_jobs()` already does this —
+and compares the process start time as well, because a pid is eventually
+reused by something unrelated.
+
+If a name search is unavoidable, exclude the searcher:
+
+```bash
+pgrep -f "simulate_complex" | grep -v "^$$\$"
+```
+
+which is still weaker than the pid, and says nothing about *which* run it
+found.
+
+## A file that was just listed can fail to open
+
+`ls` shows `1ru7_F542_cycpep12.cif` at 810,582 bytes; the next command opens it
+and gets `FileNotFoundError`. Nothing deleted it. The viewer's poll rewrites
+`structures.json` and the archive index on a two-second cycle, and a publish
+replaces files in place — so a path that existed when it was listed can be
+gone, or momentarily mid-rename, when it is read.
+
+`publish.py` writes atomically (`.tmp` then rename), which is why this is rare
+and brief rather than corrupting. But "rare and brief" still costs a turn: the
+model stops to work out what happened, re-lists the directory, and tries again
+with an absolute path.
+
+Read the file again. If it fails twice, something really did remove it — and
+that is worth reporting. Once is the filesystem, twice is a fact.

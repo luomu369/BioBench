@@ -253,17 +253,52 @@ atom system, 5000 steps with no trajectory output:
 | `ns_per_day` | Throughput — the number to quote when asked about performance |
 | `potential_energy_kj_mol` | Should be large and negative after minimisation |
 
-Publish the final frame so the user can see the relaxed structure:
+Publish the **solute** frame — protein plus ligand, without the water:
 
 ```bash
-python3 $PUB --structure md_out/final.pdb --name nk2r_md_relaxed \
+# Strip the solvent first. final.pdb is the whole solvated system: a 1 ns run
+# of a trimer is 375,290 atoms, of which 117,328 are water.
+$PY - <<'EOF'
+import gemmi
+st = gemmi.read_structure('md_out/final.pdb')
+st.setup_entities()
+keep = {'HOH', 'WAT', 'DOD', 'NA', 'CL', 'K', 'NA+', 'CL-'}
+out = gemmi.Structure()
+for mi, model in enumerate(st):
+    m = gemmi.Model(str(mi + 1))
+    for ch in model:
+        c = gemmi.Chain(ch.name)
+        for res in ch:
+            if res.name in keep:
+                continue
+            c.add_residue(res)
+        if len(c):
+            m.add_chain(c)
+    out.add_model(m)
+out.setup_entities()
+out.write_pdb('md_out/final_solute.pdb')
+print('solute atoms:', sum(1 for ch in out[0] for r in ch for a in r))
+EOF
+
+python3 $PUB --structure md_out/final_solute.pdb --name nk2r_md_relaxed \
   --source openmm --roles "A=nk2r_receptor" \
-  --notes "1 ns 动力学模拟后的结构。RMSD 平均 0.098 nm，Rg 2.30 nm，系统 86000 原子，OpenCL 平台，118 ns/天。" \
+  --notes "1 ns 动力学模拟后的结构（去水后的某质帧）。RMSD 平均 0.098 nm，Rg 2.30 nm，OpenCL 平台，118 ns/天。" \
   --job nk2r_md --step "动力学模拟" --index 2 --total 2 \
   --metrics '{"ns": 1, "rmsd_mean_nm": 0.098, "rg_mean_nm": 2.30, "ns_per_day": 118.6, "platform": "OpenCL"}' \
   --status --state done --skill molecular-dynamics \
   --message "1 ns 模拟完成，RMSD 0.098 nm，结构稳定"
 ```
+
+> **Publish the solute, not the solvated system.** `final.pdb` holds every
+> water and ion — 117,328 waters on a trimer, 375,290 atoms in total. The
+> viewer applies its style to *all* atoms (`setStyle({}, ...)`), so that many
+> waters stop a surface or stick render outright. And `publish.py`'s
+> `parse_chains` skips water residues by name, so a chain that is nothing but
+> water never reaches the chain list at all — the user cannot even hide it.
+>
+> Strip the solvent, publish the solute, and say in `--notes` that the frame is
+> desolvated. The full system and the trajectory stay on disk for anyone who
+> wants them; the viewer gets the 22,656 atoms that can actually be looked at.
 
 > **A short run says little about stability.** 0.1 ns has not left the local
 > potential well the crystal structure sat in — an RMSD of 0.1 nm at that
