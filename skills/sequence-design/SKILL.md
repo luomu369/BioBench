@@ -373,6 +373,17 @@ python3 $PUB \
   --skill sequence-design --message "8 sequences designed"
 ```
 
+### Review the backbone before the viewer shows it
+
+Before the final publish, spawn the `structure-reviewer` subagent with
+`--structure` the backbone file, `--source` the input backbone, and
+`--frozen-chains` every chain — sequence design changes residues' identities,
+not their coordinates, so the published backbone must be atom-for-atom the
+one that went in. A non-zero RMSD means the wrong file was published, or a
+step moved the backbone between design and publish; the reviewer names the
+atoms. The sequence metrics belong in `--metrics` and `--notes`, not in the
+structure.
+
 ### Highlight the positions you changed
 
 If you constrained specific positions — omitted the wild type to force a

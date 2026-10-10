@@ -217,3 +217,106 @@ with an absolute path.
 
 Read the file again. If it fails twice, something really did remove it — and
 that is worth reporting. Once is the filesystem, twice is a fact.
+
+
+## Switching away from a conversation is not a request to stop it
+
+The chat panel's ＋ button starts a new conversation. It does not stop the one
+being left. A design that takes twenty minutes should still be running when
+the user comes back — aborting on switch would make ＋ a stop button in
+disguise, and the work would be gone with nothing on screen to say so.
+
+The first fix for the reported bug ("switching away pauses the conversation")
+got this exactly backwards: `agentAfterSwitch()` was made to POST
+`/agent/abort` whenever a turn was in flight. That stopped the turn the user
+had asked to keep running. The symptom was real, but its cause was not a
+missing abort — it was that the panel had no way to *re-attach* to a turn it
+had stopped watching.
+
+What the panel needs when it opens a conversation whose turn is still running:
+
+1. **`/agent/session` returns `busy` and the `session` id.** The id is what
+   the panel subscribes to; without it the panel knows a turn is running but
+   not which one.
+2. **`agent.stream(..., attach=sid)` watches without sending.** It replays
+   only the turn in progress — walked back to the last user message, so the
+   earlier turns the panel already rendered from `/agent/history` are not
+   listed twice — then follows the event stream until `session.idle`.
+3. **The transcript's last assistant block is filled in, not replaced.**
+   Attaching reuses it; starting a second block below shows the same reply
+   twice. A reused block must not be `remove()`d on the error paths either —
+   it is history, not a placeholder this call owns.
+
+Two traps in the replay, both found by testing:
+
+- **The user's message is echoed through the same event stream** with the same
+  shape as the assistant's. The "first messageID seen is the user's" rule
+  works when starting a turn, but when attaching the echo went out long before
+  the connection existed — so the id is read out of the session instead, and
+  the first messageID seen is the assistant's reply being watched for. Getting
+  this wrong puts the question where the reply belongs.
+- **Only text and reasoning are replayed.** Tool calls are left to the event
+  stream, which is already running and publishes each as it happens;
+  replaying them lists the ones already made twice.
+
+The stop button still aborts both ends — the fetch, so the panel stops
+waiting, and `/agent/abort`, so opencode stops the model. That is a request to
+stop. Switching conversations is not.
+
+## A subagent cannot be run directly, and its whitelist is not the problem
+
+`opencode run --agent pocket-analyst "..."` does not run the subagent. It
+prints `agent "pocket-analyst" is a subagent, not a primary agent. Falling
+back to default agent` and then runs `biobench` — whose `bash: ask` permission
+auto-rejects in a non-interactive shell. Every command fails with
+`The user rejected permission to use this specific tool call`, which reads
+exactly like a broken whitelist in the subagent's own frontmatter.
+
+It is not. The whitelist was never consulted, because the subagent never ran.
+
+**Subagents are reached only through the `task` tool**, from a primary agent.
+To test one, drive the primary agent and tell it to delegate:
+
+```
+opencode run --agent biobench "用 task 工具调用 pocket-analyst。任务：..."
+```
+
+Two more things that cost time here:
+
+- **A newly added agent is not visible to a running server.** The primary
+  agent globs for it, finds nothing, and reports the tool as unavailable.
+  Restart `opencode serve` after adding an agent file.
+- **A whitelist of script names alone is too narrow.** `structure-reviewer`
+  only ever runs one script, so `"*verify_structure.py*": allow` is enough.
+  An agent that has to *find* something first — which ligand is in this file,
+  where does the pocket start — needs `grep`, `cat`, and `python3 -c` as well.
+  Denying those makes it fail on the first step of its own task.
+
+## A subagent is chosen by the model, and the model will not choose it
+
+`subagent_type` is a free string, and opencode injects every agent's name and
+`description` into the `task` tool's schema as a menu. So the routing is the
+model's to make — nothing in the config pins a task to an agent.
+
+Which is the problem. Asked to characterise a pocket, the main agent ran
+`bash ls` and then `read` on the PDB file itself. Asked to re-dock a ligand,
+same. It never called `task` once, in either case.
+
+Two reasons, both confirmed:
+
+- **The prompt's rules were unequal.** "Read before answering. `current.json`
+  first" is unconditional; the subagent section asked it to weigh whether the
+  answer was small and the work large. An unconditional rule beats a judgement
+  call every time. The fix is to make delegating the stated default and to
+  scope the read-first rule to *answering*, not to running.
+- **It could not see what a subagent does.** It ran `Glob "**/pocket-analyst*"`
+  and got 0 matches — the agent definitions live in `.opencode/agent/`, outside
+  its search path. Faced with an agent it cannot inspect, it does the work
+  itself. The fix is to put the calling contract in the prompt: what to pass,
+  what comes back, and what the agent will refuse to give.
+
+**Write the contract, not the route.** A table of "when X, spawn Y" is a
+routing table the model follows mechanically and misapplies the moment a task
+does not match a row. What generalises is: delegate when you need the
+conclusion and not the data, pass paths plus one sentence on what the run was
+for, and never silently overrule a NOT SOUND verdict.

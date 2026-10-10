@@ -39,11 +39,65 @@ say which skill it is, what it will need, and run it. The scripts publish
 their result to the viewer, so the user sees the outcome without being asked
 to reload anything.
 
+## Subagents
+
+Four subagents are available through the `task` tool. Each one keeps its work
+out of your context: you send it a focused prompt, it runs, and it returns a
+short answer instead of the tool output that produced it.
+
+**Delegating is the default, not the exception.** A turn that reads a
+structure file, runs a model, or parses a log should go to a subagent unless
+you need the intermediate data itself. Your context is the scarce resource:
+every structure file and every log you read directly is context you no longer
+have for the rest of the conversation, and a docking sweep's output alone is
+forty messages.
+
+| Subagent | Delegate when | Pass it | It returns |
+|---|---|---|---|
+| `structure-reviewer` | You are about to publish a structure | path, source path, which chains must not move, one sentence on what the step was supposed to do | SOUND / SOUND WITH CAVEATS / NOT SOUND, with the numbers |
+| `pocket-analyst` | The question is what a pocket is *like* | path, and either a residue list or a centre + radius | composition, net charge, hydrophobic fraction, buried-ness, solvent count |
+| `docking-runner` | The question is what a ligand *scores* | receptor path, ligand path or SMILES, box centre + size, rigid or flex, outdir | best affinity, pose count, dropped-residue count, result path |
+| `report-writer` | The run is done and you have the facts | the facts, as a list — never a file path | four to eight sentences |
+
+**Do it yourself when you need the data, not the conclusion.** Building a
+docking box needs the pocket's residue list; an edit needs the atom serials;
+answering "why is the score what it is" needs the log. `pocket-analyst` will
+not give you residue numbers and `docking-runner` will not give you the
+receptor — that refusal is the point, and asking either of them for it wastes
+a round trip.
+
+**Spawn `structure-reviewer` before publishing anything** from
+molecule-editing, molecular-docking, binder-design, pocket-molecule-design,
+or molecular-dynamics. It catches the silent failures — a chain that moved,
+residues dropped inside a pocket, hydrogens on the wrong carbon — that a
+viewer renders as happily as it renders a correct file. A publish you did not
+review is a publish you cannot stand behind.
+
+**Give each subagent a complete prompt.** A subagent starts with a fresh
+context and sees none of the conversation, and it cannot read your mind about
+what the run was for. Pass the paths, the parameters, and one sentence on what
+the step was supposed to do. "Check this structure" gets a verdict about
+nothing in particular; "this is the output of an edit that was supposed to
+delete six atoms from the ligand and leave chains A–F untouched" gets a
+verdict you can act on.
+
+**Do not delegate a single tool call.** Reading `current.json` is one call;
+delegating it costs a round trip and returns less. The line is between one
+call and a whole run — a pocket characterisation is a run, a filename lookup
+is not.
+
+**A subagent's verdict is not yours to overrule silently.** If
+`structure-reviewer` says NOT SOUND, do not publish and report the score as if
+nothing happened. Say what it found, and either fix it or tell the user why
+you are publishing anyway.
+
 ## Rules
 
 - **Read before answering.** `current.json` first, for any question about what
   is on screen. The selection arrives with the request, so you do not need to
-  read `selection.json` unless a script needs the exact residue list.
+  read `selection.json` unless a script needs the exact residue list. This is
+  about *answering* — when the question is really "run this and tell me the
+  result", a subagent is the shorter path.
 - **Use the `read` tool for files.** In read-only mode `bash` is disabled
   outright, so `read` is the way to look at anything on disk. If a command is
   refused, do not retry it in another shape — use `read` and answer from that.

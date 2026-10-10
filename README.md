@@ -103,13 +103,16 @@ echo 'STEPFUN_API_KEY=sk-xxx' > webapp/agent.key
 ```
 biobench/
 ├── SKILL.md                  入口：环境检查、路由、编排
+├── opencode.jsonc            Agent 配置：provider、模型、权限、subagent 菜单
 ├── start.sh / stop.sh        一键启动 / 停止（查看器 + Agent）
 ├── skills/                   23 个技能（部署 8 / 运行 13 / 发布 1 + 共享）
-│   ├── _shared/              biobench_paths.py, pdb_format.py,
-│   │                          selection.py, silent-failures.md, pytorch-cuda.md
+│   ├── _shared/              biobench_paths.py, pdb_format.py, selection.py,
+│   │                          verify_structure.py, silent-failures.md
 │   └── <skill>/
 │       ├── SKILL.md          领域知识（何时用、参数怎么定、坑在哪）
 │       └── scripts/          可执行操作（preflight.py / 业务脚本）
+├── .opencode/
+│   └── agent/                4 个 subagent：reviewer / analyst / runner / writer
 ├── webapp/
 │   ├── serve.py              查看器服务端（静态服务 + Agent 面板 + 状态读写）
 │   ├── agent.py              opencode 客户端：会话、流式、权限、任务监控
@@ -119,6 +122,7 @@ biobench/
 │       ├── current.json      ← 发布的元数据
 │       └── status.json       ← 发布的进度
 └── vendor/                   内置的 opencode 二进制与项目配置
+    └── prompts/biobench.md   主 Agent 的系统提示（含 subagent 调用契约）
 ```
 
 ---
@@ -313,7 +317,8 @@ pocket-detection ──> pocket-molecule-design ──> molecular-docking
 | `biobench_paths.py` | 所有路径从机器解析，不写死 |
 | `pdb_format.py` | PDB 定宽列的读写，列宽不合就抛异常 |
 | `selection.py` | 读查看器的选择、解析序列号、建 RDKit mol |
-| `silent-failures.md` | 12 个真实发生过的静默失败 |
+| `verify_structure.py` | 发布前的结构校验器（13 类检查，reviewer subagent 调用） |
+| `silent-failures.md` | 13 个真实发生过的静默失败 |
 | `pytorch-cuda.md` | 哪个 PyTorch wheel 匹配哪个驱动 |
 
 ### 5.4 从对话中学习
@@ -328,6 +333,9 @@ Skills 不是一次写成的。项目运行中模型的每一轮困惑都会被�
 | MD 用 `sleep 280` 傻等 | 系统提示加「后台任务提交后就结束 turn」 |
 | `pgrep -f` 把已结束的任务报成在跑 | `silent-failures.md` 新增一节 |
 | MD 发布 375,290 原子的溶剂化帧 | SKILL.md 改为发布去溶剂帧 + 完整脚本 |
+| 切换对话后原任务像被暂停 | `agent.py` 加 `attach` 模式：订阅进行中的 turn 而不打断它 |
+| 改 `agentTurn` 守卫条件时写反，消息静默消失 | `silent-failures.md` 记录：改既有条件前先确认原语义 |
+| subagent 建了但模型从不派发 | prompt 把「外包是默认」写成明规则 + 每张调用契约 |
 
 ---
 
@@ -459,6 +467,18 @@ skill 的 turn 会为每一步产生一条 assistant 消息——一次对接加
 **④ 唤醒时附带日志尾部。** 模型醒来时，最后几行日志已经在消息里了，不需要第一
 个动作就是读文件。
 
+**⑤ 重活外包给 subagent。** `.opencode/agent/` 下定义了四个 subagent，主
+Agent 通过 `task` 工具派发：`structure-reviewer` 在发布前校验结构，
+`pocket-analyst` 只回传口袋的聚合描述符，`docking-runner` 只回传亲和力和
+pose 数，`report-writer` 只写汇报。它们各自持有一次运行的工具输出，主 Agent
+只收到结论——一次对接 sweep 四十条消息不会进主上下文。
+
+派发规则写在 `vendor/prompts/biobench.md` 而不是配置文件里：`subagent_type`
+是自由字符串，opencode 把每个 agent 的 name 和 description 注入成一份菜单，
+选谁是模型的事。而实测模型不会主动派——它更愿意自己读文件。所以 prompt 把
+"外包是默认"写成明规则，并给每个 subagent 一张调用契约（传什么、回什么、
+它拒绝给什么），而不是一张"遇到 X 就派 Y"的路由表。
+
 ### 7.3 工具调用优化
 
 这是本项目花力气最多的地方。一个苯环编辑曾经调用 100 次工具，根因是**信息不在
@@ -567,20 +587,27 @@ ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
 | 项 | 数 |
 |---|---|
 | 技能 | 23 |
-| 技能脚本（Python） | ~7,300 行 |
-| 技能文档（Markdown） | ~7,100 行 |
-| 查看器 + 服务端 | ~8,400 行 |
-| 记录的静默失败 | 12 |
+| 技能脚本（Python + shell） | ~9,000 行 |
+| 技能文档（Markdown） | ~7,500 行 |
+| 查看器 + 服务端 | ~8,600 行 |
+| 记录的静默失败 | 13 |
+| Subagent | 4 |
 | conda 环境 | 8 |
 | 模型权重 | ~20 GB |
 
 ### 10.2 已知边界
 
-- **opencode 1.18.32 的 bash 工具会卡死**：子进程退出后状态机收不到信号，
-  session 永远 busy。目前的解法是停止按钮 abort。
+- **subagent 的派发依赖 prompt 而非机制**：`subagent_type` 是自由字符串，选谁
+  是模型的决定，而实测它更愿意自己读文件。调用契约写在
+  `vendor/prompts/biobench.md` 里兜底，但这不是强制——换模型、换 harness 都
+  可能让派发率下降。
 - **`pocket-molecule-design` 会把多个设计叠在一起发布**：10 个分子占同一位置，
   后续编辑会歧义。脚本现在会警告，但发布环节还没修。
 - **单用户、单机**：没有多用户，没有远程部署，没有集群调度。
+- **隐私边界尚未建立**：Agent 能 `cat` 机器上任何文件，包括 `agent.key` 本身。
+  subagent 的权限已经可以逐个收窄，但主 Agent 仍是全权限。本地模型接管取数、
+  云端只做抽象推理的方案已验证可行（opencode 支持 agent 级 `model` 字段），
+  尚未落地。
 - **视频演示**：放在 Bilibili（见页首链接）。Gitee 单文件限 100 MB，一段演示视频进 git 会让每次 clone 都多下载一遍，而且早期版本永远留在历史里。
 
 ### 10.3 一句话

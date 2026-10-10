@@ -215,6 +215,16 @@ python3 $PUB \
 **Check the chain IDs in the generated `.cif` before setting `--roles`** —
 BoltzGen does not preserve the IDs from your spec.
 
+**Review the design before it reaches the viewer.** A cropped spec outputs
+a receptor in pieces, and a design's chains are renumbered from 1, so the
+correspondence to the target is by residue-name sequence rather than by
+number. Before the final publish, spawn the `structure-reviewer` subagent
+with `--structure` set to the file about to be published, `--source` the
+full target the design was run against, and one sentence on the spec
+(cropped or uncropped, which chains are the target). `residue_drops` and
+`interior_gaps` are the checks written for this failure; the verdict goes
+in the same report as the publish.
+
 ## Output layout
 
 ```

@@ -21,6 +21,9 @@ from pathlib import Path
 
 import gemmi
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from pdb_format import next_serial
+
 # One chain per pocket, named so the viewer's chain list reads in rank
 # order. fpocket's own IDs are by size, so the rank is what matters here.
 CHAIN_NAMES = "pqrstuvwxyzabcdefghijklmno"
@@ -111,6 +114,13 @@ def main() -> int:
 
     model = st[0]
     pocket_lines = []
+    # Continue the receptor's serial numbering. Restarting at 1 collides
+    # with the receptor's own atoms: the file draws fine and nothing
+    # errors, and every CONECT or serial-based selection then resolves
+    # against the wrong atom. One published pockets file carried 271 such
+    # collisions.
+    serial = next_serial(Path(args.receptor).read_text(errors="replace")) \
+        if args.receptor else 1
     for rank, p in enumerate(pockets):
         pqr = p.get("atoms_pdb")
         vert = Path(str(pqr).replace("_atm.pdb", "_vert.pqr"))
@@ -128,8 +138,9 @@ def main() -> int:
             # sphere render by it, and there is nowhere else to put a
             # per-atom number in PDB.
             pocket_lines.append(
-                pdb_line(i, name, x, y, z, r * args.scale * 10)
+                pdb_line(serial, name, x, y, z, r * args.scale * 10)
             )
+            serial += 1
 
     if not pocket_lines:
         print("error: no vertex data in any pocket", file=sys.stderr)

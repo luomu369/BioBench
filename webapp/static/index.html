@@ -2512,7 +2512,19 @@ function renderStructure(data, meta, snap) {
   // between the model swap and the next applyStyle.
   clearDistanceLines();
   viewer.removeAllModels();
-  viewer.addModel(data, fmt);
+  // keepH, because 3Dmol discards hydrogens by default.
+  //
+  // Its PDB parser does `const s = !t.keepH; ... "H"===f && s && continue` —
+  // every hydrogen in the file is dropped on load unless the options say
+  // otherwise, and the CIF parser has the same switch. The skills build
+  // hydrogens deliberately: prepare_complex.py runs PDBFixer and
+  // Modeller.addHydrogens so the MD system has 11k of them, and the
+  // molecule-editing skill places them on every group it grafts. Publishing
+  // that structure and having the viewer silently throw the hydrogens away
+  // reads as "the structure has no hydrogens" — the user asks for them to be
+  // filled in, they are already there, and nothing on screen says why they
+  // are not visible.
+  viewer.addModel(data, fmt, { keepH: true });
 
   // removeAllModels() clears click bindings — re-attach for the new model
   viewer.setClickable({}, true, onAtomClick);
@@ -3652,6 +3664,17 @@ function agentLoadSessions() {
 //
 // The stream from the previous conversation is dropped: it belongs to a turn
 // in another session, and its events would land in this transcript.
+//
+// The turn itself keeps running. Switching away is not a request to stop —
+// the user moved to another conversation, and a design that takes twenty
+// minutes should still be running when they come back. Aborting here would
+// make the ＋ button a stop button in disguise, and the work would be gone
+// with nothing on screen to say so.
+//
+// What is dropped is this panel's *view* of it. The turn continues in
+// opencode, the session stays busy, and the conversation it belongs to shows
+// a stop button when it is next opened — so it can still be stopped from
+// there, by the user, on purpose.
 function agentAfterSwitch(d) {
   if (agentAbort) {
     agentAbort.abort();
@@ -3666,7 +3689,29 @@ function agentAfterSwitch(d) {
   agentRenderTurns(d.turns);
   agentToggleSessions(false);
   agentSetBusy(!!d.busy);
+  // A turn still running in the conversation just opened is picked up live.
+  //
+  // The work continued in opencode while the user was elsewhere — switching
+  // away is not a request to stop, and a design that takes twenty minutes
+  // should still be running when they come back. So the panel subscribes to
+  // that turn and renders it as it continues, rather than leaving a snapshot
+  // taken when they left and a stop button that stops nothing they can see.
+  //
+  // The transcript is rebuilt first, so the turn's earlier messages are
+  // already on screen when the live part starts appending to them.
+  if (d.busy && d.session) agentAttach(d.session);
   if (!d.busy) agentInput.focus();
+}
+
+// Watch a turn that is already running, without sending anything.
+//
+// The panel's own stream was dropped when the user switched away — it
+// belonged to a turn in another conversation, and its events would have
+// landed in that transcript. The turn itself kept going. This re-subscribes
+// to it, so what the user sees on returning is the work in progress rather
+// than a frozen copy of it.
+function agentAttach(sid) {
+  agentTurn(null, sid);
 }
 
 function agentSwitchSession(id) {
@@ -4102,8 +4147,22 @@ function agentFlushDraft() {
 // message the user never typed. That message has to go through exactly the
 // same path — same selection summary, same streaming, same history — or the
 // model is woken into a conversation that is missing the turn before it.
-async function agentTurn(text) {
-  if (!text || agentBusy) return;
+//
+// `attach` names a session to watch instead of starting a turn. Nothing is
+// sent to the model; the panel subscribes to a turn that is already running
+// and renders it as it continues. See agentAttach().
+//
+// The two modes are mutually exclusive and each has its own guard, because
+// they refuse for opposite reasons: a turn cannot start while one is already
+// running, and a turn cannot be attached to while this panel is running one
+// of its own. Getting either backwards is silent — the caller has already
+// cleared the input box, so a refused turn is a message that vanishes.
+async function agentTurn(text, attach) {
+  if (attach) {
+    if (agentBusy) return;
+  } else {
+    if (!text || agentBusy) return;
+  }
 
   // The selection goes with the question, spelled out.
   //
@@ -4125,12 +4184,36 @@ async function agentTurn(text) {
   const selSummary = agentSelectionSummary();
   const sent = selSummary ? `${text}\n\n${selSummary}` : text;
 
-  agentAppend("user", text);
-  agentMessages.push({ role: "user", content: sent });
+  // Attaching shows no new user message — the question was asked before the
+  // user switched away, and it is already in the restored transcript.
+  if (!attach) {
+    agentAppend("user", text);
+    agentMessages.push({ role: "user", content: sent });
+  }
   agentSetBusy(true);
 
-  const pending = agentAppend("assistant", "…");
-  pending.classList.add("pending");
+  // Attaching continues the turn that is already on screen. The transcript
+  // was rebuilt from the session's history a moment ago, and its last
+  // assistant message is this turn's answer so far — so that block is filled
+  // in as the turn continues rather than a second one being started below
+  // it, which would show the same reply twice.
+  let pending = null;
+  // Whether the block being filled in is one this call created, or the last
+  // assistant message already on screen. Attaching reuses the latter, and a
+  // reused block must not be removed on the error paths below — it is part of
+  // the conversation's history, not a placeholder this call owns.
+  let pendingIsMine = true;
+  if (attach) {
+    const rows = agentLog.querySelectorAll(".ag-msg.assistant");
+    if (rows.length) {
+      pending = rows[rows.length - 1];
+      pendingIsMine = false;
+    }
+  }
+  if (!pending) {
+    pending = agentAppend("assistant", "…");
+    pending.classList.add("pending");
+  }
   const pendingText = pending.querySelector(".ag-text");
   let thinkBlock = null;
   let toolBox = null;
@@ -4148,7 +4231,9 @@ async function agentTurn(text) {
     const res = await fetch("agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: agentMessages, agent: agentName }),
+      body: JSON.stringify(attach
+        ? { messages: agentMessages, agent: agentName, attach }
+        : { messages: agentMessages, agent: agentName }),
       signal: agentAbort.signal,
     });
 
@@ -4156,7 +4241,7 @@ async function agentTurn(text) {
     const ct = res.headers.get("Content-Type") || "";
     if (!ct.includes("event-stream")) {
       const data = await res.json();
-      pending.remove();
+      if (pendingIsMine) pending.remove();
       agentAppend("error", data.error || `HTTP ${res.status}`);
       return;
     }
@@ -4209,7 +4294,7 @@ async function agentTurn(text) {
         if (ev.session) agentSessionId = ev.session;
         agentAskPermission(ev);
       } else if (ev.type === "error") {
-        pending.remove();
+        if (pendingIsMine) pending.remove();
         agentAppend("error", ev.message);
         return;
       } else if (ev.type === "waiting") {
@@ -4231,7 +4316,11 @@ async function agentTurn(text) {
     // what the user asked for, and the working is one click away.
     if (thinkBlock) thinkBlock.open = false;
     if (!reply) agentFormat(pendingText, "（无回复）");
-    agentMessages.push({ role: "assistant", content: reply });
+    // Not recorded when attaching. The transcript was rebuilt from the
+    // session's history a moment ago, which already holds this turn's
+    // earlier messages — pushing the reply again would send the model its
+    // own words twice on the next turn.
+    if (!attach) agentMessages.push({ role: "assistant", content: reply });
   } catch (e) {
     // An abort is the user's doing, not a fault, so it is reported as one:
     // whatever arrived before the stop is kept and marked, rather than
@@ -4241,14 +4330,16 @@ async function agentTurn(text) {
       if (thinkBlock) thinkBlock.open = false;
       if (reply) {
         agentFormat(pendingText, reply + "\n\n_（已停止）_");
-        agentMessages.push({ role: "assistant", content: reply });
+        if (!attach) {
+          agentMessages.push({ role: "assistant", content: reply });
+        }
       } else {
-        pending.remove();
+        if (pendingIsMine) pending.remove();
         agentAppend("assistant", "（已停止）");
       }
       return;
     }
-    pending.remove();
+    if (pendingIsMine) pending.remove();
     agentAppend("error", `请求失败：${e.message}`);
   } finally {
     agentAbort = null;

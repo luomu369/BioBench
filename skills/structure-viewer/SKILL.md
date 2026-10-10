@@ -539,6 +539,20 @@ dropdown shows their purpose.
 Both actions can be combined in one call by passing `--structure` and
 `--status` together.
 
+### Review the file before it reaches the viewer
+
+A publish is a claim that the file is sound, and every silent failure this
+repo has hit was a file that wrote cleanly and was wrong. Before the final
+publish, spawn the `structure-reviewer` subagent with `--structure` set to
+the file about to be published, the source it came from as `--source`, and
+one sentence on what the producing step was supposed to do. Its verdict
+goes in the same report as the publish: `NOT SOUND` means fix it or state
+the caveat, never publish quietly. The checks, and the WARNs that are
+normal for each producing skill's output, are listed in
+`.opencode/agent/structure-reviewer.md` — so an expected finding costs one
+line rather than an investigation. Each workflow skill names the arguments
+to pass for its own output.
+
 ### Ligands sharing a chain with the protein
 
 **A ligand must never be dropped, and it must be visible as a ligand.** Many
@@ -815,6 +829,13 @@ misdiagnosis: a chain rendered in pieces was blamed on residue ordering,
 then on a format-detection bug, and only turned out to be 19 residues
 deleted from one chain by a number-only match. Each guess was plausible
 and each was wrong.
+
+Then run the mechanical checks rather than reasoning about the rendering:
+spawn the `structure-reviewer` subagent on the structure that is on screen
+(`current.json`'s file, with the archive entry in `structures.json` as its
+`--source`). It compares chains, residues, bonds, hydrogens and clashes
+against the source and names the atoms involved — the difference between
+"19 residues deleted by a number-only match" and another plausible guess.
 
 The useful questions, in order:
 

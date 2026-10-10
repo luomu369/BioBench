@@ -142,6 +142,7 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 | "is this residue in a strained conformation?" | `conformational-analysis` | Compares the crystal rotamer against the preferred one |
 | "change this into a benzene ring" | `molecule-editing` | Selected atoms rebuilt as a ring; the rest kept |
 | "replace this fragment" / "make these atoms a phenyl" | `molecule-editing` | Same, in place, with the complex intact |
+| "is this structure sound?" / "the viewer looks wrong" | `structure-reviewer` agent | Verifies the structure on screen against its source; verdict with the numbers |
 | "simulate this structure" / "run MD on it" | `molecular-dynamics` | OpenMM in explicit water; trajectory and stability metrics |
 | "is this design stable?" / "relax this complex" | `molecular-dynamics` | Minimisation, equilibration, production, RMSD/Rg |
 | "how much does the binding site move?" | `molecular-dynamics` | Trajectory analysis over the selected residues |
@@ -159,6 +160,39 @@ Pick the skill that matches the request, read its `SKILL.md`, and follow it.
 
 Read the relevant `SKILL.md` before acting — each one contains the operational
 detail (flags, failure modes, output conventions) that this overview omits.
+
+## Subagents
+
+`.opencode/agent/` holds subagents the main agent can delegate to through the
+`task` tool. Each one keeps its work out of the main agent's context: it runs,
+and it returns a conclusion instead of the tool output that produced it.
+
+| Agent | Delegated for | Returns |
+|-------|---------------|---------|
+| `structure-reviewer` | Verifying a structure before it is published | SOUND / SOUND WITH CAVEATS / NOT SOUND, with numbers |
+| `pocket-analyst` | Characterising a pocket's chemistry | Composition, charge, buried-ness — never residue numbers |
+| `docking-runner` | Running a Vina job | Affinity, pose count, dropped-residue count, result path |
+| `report-writer` | Writing the user-facing summary | Four to eight sentences from facts it is given |
+
+**The routing is the model's, not the config's.** `subagent_type` is a free
+string and opencode injects every agent's name and description into the tool
+schema as a menu — nothing pins a task to an agent. In practice the main agent
+does not reach for them on its own: it reads the file itself instead. The
+calling contract therefore lives in `vendor/prompts/biobench.md`, which states
+delegating as the default and scopes "read before answering" to answering
+rather than running.
+
+**Write the contract, not the route.** A table of "when X, spawn Y" is followed
+mechanically and misapplied the moment a task matches no row. What generalises:
+delegate when the conclusion is needed and not the data, pass paths plus one
+sentence on what the run was for, and never silently overrule a NOT SOUND
+verdict.
+
+Adding an agent means writing a file under `.opencode/agent/` and restarting
+`opencode serve` — a running server does not see new agents. See
+`skills/_shared/silent-failures.md` for the two traps: a subagent cannot be run
+directly with `--agent`, and a whitelist of script names alone is too narrow
+for an agent that has to find something first.
 
 ## Confirm before running anything expensive
 

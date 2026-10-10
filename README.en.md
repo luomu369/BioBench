@@ -160,13 +160,16 @@ is the recommended route.
 ```
 biobench/
 ├── SKILL.md                  Entry point: bootstrap, route, orchestrate
+├── opencode.jsonc            Agent config: provider, model, permissions, subagent menu
 ├── start.sh / stop.sh        One-command start / stop (viewer + agent)
 ├── skills/                   23 skills (8 deploy / 13 run / 1 publish + shared)
-│   ├── _shared/              biobench_paths.py, pdb_format.py,
-│   │                          selection.py, silent-failures.md, pytorch-cuda.md
+│   ├── _shared/              biobench_paths.py, pdb_format.py, selection.py,
+│   │                          verify_structure.py, silent-failures.md
 │   └── <skill>/
 │       ├── SKILL.md          Domain knowledge (when, which parameters, which traps)
 │       └── scripts/          Executable operations (preflight.py / business scripts)
+├── .opencode/
+│   └── agent/                4 subagents: reviewer / analyst / runner / writer
 ├── webapp/
 │   ├── serve.py              Viewer server (static files + agent panel + state)
 │   ├── agent.py              opencode client: sessions, streaming, permissions, job watching
@@ -175,8 +178,8 @@ biobench/
 │       ├── current.cif       ← published structure
 │       ├── current.json      ← published metadata
 │       └── status.json       ← published progress
-├── vendor/                   Vendored opencode binary and project config
-└── structures/               Locally cached PDB entries
+└── vendor/                   Vendored opencode binary and project config
+    └── prompts/biobench.md   Main agent's system prompt (with the subagent contract)
 ```
 
 ---
@@ -338,7 +341,8 @@ writes its own copy and they drift apart":
 | `biobench_paths.py` | Every path resolved from the machine, nothing hard-coded |
 | `pdb_format.py` | PDB fixed-column read/write; a column that does not fit raises |
 | `selection.py` | Reads the viewer's selection, resolves serials, builds the RDKit mol |
-| `silent-failures.md` | Twelve silent failures that actually happened |
+| `verify_structure.py` | Pre-publish structure verifier (13 checks; called by the reviewer subagent) |
+| `silent-failures.md` | Thirteen silent failures that actually happened |
 | `pytorch-cuda.md` | Which PyTorch wheel matches which driver |
 
 ### 5.4 Learning from the conversation
@@ -354,6 +358,9 @@ into documentation:
 | `sleep 280` waiting on an MD run | "End the turn once the job is backgrounded" in the system prompt |
 | `pgrep -f` reporting a finished job as running | A new section in `silent-failures.md` |
 | Publishing a 375,290-atom solvated frame | Publish the desolvated frame, with the script |
+| Switching conversations looked like it paused the running task | `attach` mode in `agent.py`: subscribe to a turn in progress without disturbing it |
+| An inverted guard in `agentTurn` made messages vanish silently | `silent-failures.md`: confirm the original semantics before changing an existing condition |
+| Subagents existed but the model never dispatched to them | "Delegating is the default" as an explicit prompt rule, plus a calling contract each |
 
 ---
 
@@ -493,6 +500,22 @@ outside the window and the conversation disappears from the list.
 **④ The wake-up carries the log tail.** The model wakes with the last few lines
 already in the message, so its first act is not reading a file.
 
+**⑤ Heavy work goes to subagents.** `.opencode/agent/` defines four subagents
+the main agent dispatches through the `task` tool: `structure-reviewer` verifies
+a structure before it is published, `pocket-analyst` returns only aggregate
+pocket descriptors, `docking-runner` returns only affinity and pose count,
+`report-writer` only writes the summary. Each holds its own run's tool output
+and the main agent receives the conclusion — the forty messages of a docking
+sweep never enter the main context.
+
+The dispatch rules live in `vendor/prompts/biobench.md` rather than in config:
+`subagent_type` is a free string, opencode injects every agent's name and
+description as a menu, and choosing is the model's business. Measured, the model
+does not reach for them on its own — it would rather read the file itself. So
+the prompt states "delegating is the default" as an explicit rule and gives each
+subagent a calling contract (what to pass, what comes back, what it refuses to
+give) rather than a "when X, spawn Y" routing table.
+
 ### 7.3 Tool-call optimisation
 
 Where this project has spent the most effort. One benzene edit once took 100
@@ -603,23 +626,31 @@ ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
 | Item | Count |
 |------|-------|
 | Skills | 23 |
-| Skill scripts (Python) | ~7,300 lines |
-| Skill docs (Markdown) | ~7,100 lines |
-| Viewer + server | ~8,400 lines |
-| Silent failures recorded | 12 |
+| Skill scripts (Python + shell) | ~9,000 lines |
+| Skill docs (Markdown) | ~7,500 lines |
+| Viewer + server | ~8,600 lines |
+| Silent failures recorded | 13 |
+| Subagents | 4 |
 | conda environments | 8 |
 | Model weights | ~20 GB |
 
 ### 10.2 Known limits
 
-- **opencode 1.18.32's bash tool can stick**: the child exits but the state
-  machine never hears about it, and the session stays busy forever. The current
-  answer is the stop button's abort.
+- **Subagent dispatch rests on the prompt, not on a mechanism**:
+  `subagent_type` is a free string, choosing is the model's decision, and
+  measured it would rather read the file itself. The calling contract in
+  `vendor/prompts/biobench.md` is the backstop, but it is not enforced — a
+  different model or harness can lower the dispatch rate.
 - **`pocket-molecule-design` publishes several designs superimposed**: ten
   molecules in one place, which makes a later edit ambiguous. The script warns
   now; the publish side is not fixed.
 - **Single user, single machine**: no multi-user, no remote deployment, no
   cluster scheduling.
+- **The privacy boundary is not built yet**: the agent can `cat` any file on the
+  machine, `agent.key` included. A subagent's permissions can be narrowed
+  individually, but the main agent still has all of them. The split — a local
+  model fetching data, a cloud model reasoning over abstractions — is verified
+  feasible (opencode supports a per-agent `model` field) but not implemented.
 - **Video demo**: hosted on Bilibili (link at the top). Gitee caps a single file
   at 100 MB, and a demo video in git would be downloaded on every clone while
   early versions stayed in the history forever.

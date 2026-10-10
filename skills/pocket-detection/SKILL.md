@@ -273,6 +273,18 @@ reorder the transparent pass and fade the others with it.
 > **Publish the count you found, not the count you drew.** 40 pockets were
 > detected and 3 shown is a useful sentence; "3 pockets" is wrong.
 
+> **Review the visualisation before the viewer shows it.** Spawn the
+> `structure-reviewer` subagent with `--structure` the visualisation and
+> `--source` the receptor input. The `serials` check is the guard on a
+> defect this pipeline has already produced once: the pocket chains are
+> appended to the receptor's text, and an append that restarts atom serials
+> at 1 collides with the receptor's own — the file draws fine and nothing
+> errors, and every CONECT or serial-based selection then resolves against
+> the wrong atom. `pocket_cloud.py` continues the receptor's numbering via
+> `pdb_format.next_serial`; if the check ever fires again, that is where it
+> regressed. `STP` pseudo-residues — and the overlapping alpha spheres
+> inside them — are expected and skipped by the verifier.
+
 ## Handing a pocket to the next step
 
 The centroid is what a docking box or a generation run needs:

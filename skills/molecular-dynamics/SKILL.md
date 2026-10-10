@@ -305,6 +305,16 @@ python3 $PUB --structure md_out/final_solute.pdb --name nk2r_md_relaxed \
 > length is the expected result, not evidence of stability. Say so rather
 > than reporting it as a pass. Real conclusions need 10 ns or more.
 
+> **Review the published frame before the viewer shows it.** The failure
+> modes here are in the file, not the trajectory: a solvent strip that
+> silently failed (the atom count says so), a frame from the wrong end of
+> the run, a ligand that left the pocket. Spawn the `structure-reviewer`
+> subagent before the final publish with `--structure` the solute frame,
+> `--source` the structure the simulation started from, and **no**
+> `--frozen-chains` — the protein is supposed to have moved. Its per-chain
+> RMSD should be MD-scale and consistent with the run's own `rmsd_nm`; a
+> jump to Ångströms means the wrong frame was published.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

@@ -493,8 +493,8 @@ is the full target with the designed chain on it, never the crop.
 1. `boltzgen check` reports the residues it trims ("Removing leading
    and/or trailing unresolved residues"). The design output may be short
    only by those.
-2. Every target chain in the output carries the source's residue count
-   minus that trim, with no interior residues missing:
+ 2. Every target chain in the output carries the source's residue count
+    minus that trim, with no interior residues missing:
 
 ```bash
 $PY -c "
@@ -516,6 +516,18 @@ for c in out:
 print('every target chain is complete')
 " <source.cif> <rank1_design.cif>
 ```
+
+Then the mechanical gate. Spawn the `structure-reviewer` subagent with:
+
+- `--structure` the file about to be published
+- `--source` the full target file the design was run against
+- one sentence: cropped or uncropped spec, and which chains are the target
+
+It does the same comparison as the two checks above — chain by chain,
+residue by residue, aligned by residue-name sequence because a design's
+chains are renumbered from 1 — and names the atoms when something is
+missing. A crop published as a receptor shows up here as `residue_drops`
+and `interior_gaps`; that is the failure this gate exists for.
 
 **If the spec was cropped**, the design is rebuilt onto the full target
 before anything is published. The crop is a subset of the same file, so the

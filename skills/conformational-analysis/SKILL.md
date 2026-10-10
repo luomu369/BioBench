@@ -174,6 +174,16 @@ python3 $PUB --structure runs/torsion_464/minimum.pdb \
   --skill conformational-analysis --message "已导出 B:464 最低能构象（30°）"
 ```
 
+Review it before the viewer shows it: spawn the `structure-reviewer`
+subagent with `--structure runs/torsion_464/minimum.pdb`, `--source` the
+structure the scan started from, and `--frozen-chains` the protein chains
+only. The scanned bond's two sides are *supposed* to have moved — that is
+the scan — so the ligand chain stays out of `--frozen-chains` and the
+protein must not have moved at all. The check that matters for this skill
+is `clash`: the writer places the minimum conformer geometrically, and a
+rotamer that fits the torsion can still land a heavy atom on its
+neighbour.
+
 ## The scan is in vacuum — say so
 
 The residue is scanned alone. No neighbouring chains, no ligand, no

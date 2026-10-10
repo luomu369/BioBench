@@ -560,10 +560,26 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(400, {"error": "invalid JSON"})
             return
 
+        # Watching a turn that is already running, rather than starting one.
+        #
+        # The panel sends this when it switches back to a conversation whose
+        # turn is still going: the work continued in opencode while the user
+        # was elsewhere, and coming back has to show it live. Nothing is sent
+        # to the model, so the turn is not disturbed and no second turn is
+        # queued behind it.
+        #
+        # Read before the messages check, because an attach carries no
+        # message — there is nothing to send, which is the whole point.
+        attach = data.get("attach")
+        if attach is not None and not isinstance(attach, str):
+            attach = None
+
         messages = data.get("messages")
-        if not isinstance(messages, list) or not messages:
+        if not attach and (not isinstance(messages, list) or not messages):
             self._json(400, {"error": "no messages"})
             return
+        if attach:
+            messages = []
 
         # Which agent to use. The panel offers a read-only mode for questions
         # about the structure and a full one that can run skills; the choice
@@ -595,7 +611,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         try:
-            for ev in agent.stream(messages, agent=which):
+            for ev in agent.stream(messages, agent=which, attach=attach):
                 line = "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
                 self.wfile.write(line.encode())
                 self.wfile.flush()
@@ -663,11 +679,18 @@ class Handler(SimpleHTTPRequestHandler):
             # conversation has to put the button in its stopping state, or the
             # user presses send on a session that cannot accept a message and
             # the click does nothing.
-            busy = agent.session_busy(agent.current_session_id())
+            #
+            # The session id goes with it. A busy conversation is one whose
+            # turn is still running, and the panel subscribes to it so the
+            # work is shown live rather than as the snapshot taken when the
+            # user switched away.
+            current = agent.current_session_id()
+            busy = agent.session_busy(current)
         except Exception as e:
             self._json(200, {"error": str(e)})
             return
-        self._json(200, {"ok": True, "turns": turns, "busy": busy})
+        self._json(200, {"ok": True, "turns": turns, "busy": busy,
+                         "session": current})
 
     def do_POST_clear(self):
         """Forget the conversation, in the panel and in opencode.

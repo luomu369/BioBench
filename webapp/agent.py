@@ -692,7 +692,7 @@ def chat(messages, agent=None):
     return reply, reasoning, tools
 
 
-def stream(messages, agent=None, on_event=None):
+def stream(messages, agent=None, on_event=None, attach=None):
     """One turn, yielding events as they happen instead of at the end.
 
     Yields dicts: {"type": "text"|"reasoning"|"tool"|"done"|"error", ...}
@@ -708,6 +708,13 @@ def stream(messages, agent=None, on_event=None):
     event ever arrives and the read blocks until the timeout. A background
     thread holds the connection and queues what it reads, so nothing is lost
     to the race either way.
+
+    `attach` names a session to watch without sending anything. This is what
+    the panel uses when it switches back to a conversation whose turn is still
+    running: the work continues in opencode while the user is elsewhere, and
+    coming back has to show it live rather than a snapshot taken when they
+    left. Nothing is sent, so the turn is not disturbed and no second turn is
+    queued behind it.
     """
     import queue
     import threading
@@ -717,16 +724,38 @@ def stream(messages, agent=None, on_event=None):
         yield {"type": "error", "message": detail}
         return
 
-    last = None
-    for m in reversed(messages or []):
-        if m.get("role") == "user" and (m.get("content") or "").strip():
-            last = m["content"]
-            break
-    if not last:
-        yield {"type": "error", "message": "no user message to send"}
-        return
+    # The id of the user message this turn answers, or None when it is not
+    # known yet. The user's own message is echoed back through the event
+    # stream with the same shape as the assistant's, and showing it as the
+    # answer would put the question where the reply belongs — so it is
+    # skipped wherever it is recognised.
+    #
+    # Attaching already knows it: the message was sent before this connection
+    # existed, and its id is read out of the session below. A turn being
+    # started learns it from the stream, where the echo arrives first.
+    user_mid = None
 
-    sid = ensure_session()
+    if attach:
+        # Watching an existing turn. The session is confirmed to exist so a
+        # stale id from an old page does not leave the panel waiting on a
+        # stream that will never produce anything.
+        try:
+            _request("GET", f"/session/{attach}", timeout=15)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            yield {"type": "error",
+                   "message": f"会话不存在或已删除：{e}"}
+            return
+        sid = attach
+    else:
+        last = None
+        for m in reversed(messages or []):
+            if m.get("role") == "user" and (m.get("content") or "").strip():
+                last = m["content"]
+                break
+        if not last:
+            yield {"type": "error", "message": "no user message to send"}
+            return
+        sid = ensure_session()
 
     def emit(ev):
         if on_event:
@@ -776,30 +805,89 @@ def stream(messages, agent=None, on_event=None):
     import time
     time.sleep(0.3)
 
-    body = {
-        "parts": [{"type": "text", "text": last}],
-        "agent": agent or DEFAULT_AGENT,
-    }
-    try:
-        _request("POST", f"/session/{sid}/prompt_async", body, timeout=30)
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:300]
-        stop.set()
-        yield {"type": "error",
-               "message": f"opencode returned {e.code}: {detail}"}
-        return
-    except urllib.error.URLError as e:
-        stop.set()
-        yield {"type": "error",
-               "message": f"could not reach opencode: {e.reason}"}
-        return
+    if attach:
+        # Watching a turn that is already running. Nothing is sent — the
+        # message that started it went out while the user was in this
+        # conversation, and sending anything now would queue a second turn
+        # behind the one being watched.
+        #
+        # Only the turn in progress is replayed, not the whole conversation.
+        # The panel has already rendered the earlier turns from
+        # /agent/history, and replaying every tool call the session ever made
+        # would list them a second time under the turn being watched. So the
+        # messages are walked back from the end to the last user message, and
+        # only what came after it is forwarded.
+        try:
+            prior = _request("GET", f"/session/{sid}/message?limit=200",
+                             timeout=30) or []
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+            prior = []
+        # Walk back to the user message that started this turn. Everything
+        # after it belongs to the turn; everything before it is history the
+        # panel already has.
+        start = 0
+        for i in range(len(prior) - 1, -1, -1):
+            if (prior[i].get("info") or {}).get("role") == "user":
+                start = i + 1
+                # Its id is kept so the event stream below can skip it. The
+                # user's message is echoed through the same stream with the
+                # same shape as the assistant's, and showing it as the answer
+                # would put the question where the reply belongs.
+                user_mid = (prior[i].get("info") or {}).get("id")
+                break
+        seen_text = seen_reasoning = ""
+        for m in prior[start:]:
+            if (m.get("info") or {}).get("role") != "assistant":
+                continue
+            ptext, preason, _ = _extract_text(m.get("parts"))
+            if len(ptext) > len(seen_text):
+                seen_text = ptext
+            if len(preason) > len(seen_reasoning):
+                seen_reasoning = preason
+        # Only the text and the working are replayed. The tool calls are left
+        # to the event stream below, which is already running and will publish
+        # each call as it happens — replaying them here would list the ones
+        # already made twice, once from this read and once from the stream's
+        # own deduplication missing them.
+        if seen_text:
+            yield {"type": "text", "text": seen_text}
+        if seen_reasoning:
+            yield {"type": "reasoning", "text": seen_reasoning}
+        # The turn may already be over — the user switched away, it finished,
+        # and they have come back to a completed conversation. Waiting for an
+        # idle event that was published before this connection would block
+        # until the timeout, so the session's own state is asked instead.
+        try:
+            status = _request("GET", "/session/status", timeout=10) or {}
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+            status = {}
+        if (status.get(sid) or {}).get("type") != "busy":
+            yield {"type": "done", "reply": seen_text}
+            return
+    else:
+        body = {
+            "parts": [{"type": "text", "text": last}],
+            "agent": agent or DEFAULT_AGENT,
+        }
+        try:
+            _request("POST", f"/session/{sid}/prompt_async", body, timeout=30)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode(errors="replace")[:300]
+            stop.set()
+            yield {"type": "error",
+                   "message": f"opencode returned {e.code}: {detail}"}
+            return
+        except urllib.error.URLError as e:
+            stop.set()
+            yield {"type": "error",
+                   "message": f"could not reach opencode: {e.reason}"}
+            return
 
     # Each text part arrives whole rather than as a delta — opencode
     # publishes the accumulated text on every update — so the last value seen
     # for a part is its current state, and that is what gets forwarded.
     seen_tools = set()
     tool_order = []
-    user_mid = None
     text = reasoning = ""
     # The turn ends when opencode says so, and not before.
     #
@@ -907,9 +995,14 @@ def stream(messages, agent=None, on_event=None):
 
         # The user's own message is echoed back through the same stream with
         # the same shape as the assistant's, and showing it as the answer
-        # would put the question where the reply belongs. The echo always
-        # arrives first, so the first messageID seen is the user's and is
-        # skipped; every later one is the assistant's.
+        # would put the question where the reply belongs.
+        #
+        # Attaching already knows the id — it was read out of the session
+        # above, because the echo went out long before this connection
+        # existed and the "first messageID seen is the user's" rule would
+        # instead skip the assistant's reply being watched for. A turn being
+        # started has no id yet, so the first one seen is taken to be the
+        # user's, which is what the echo always is.
         mid = part.get("messageID")
         if mid:
             if user_mid is None:

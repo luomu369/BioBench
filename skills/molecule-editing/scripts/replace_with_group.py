@@ -11,12 +11,22 @@ the deletion broke, and `GetAlignmentTransform` computes the rigid transform
 that puts every heavy atom of the group onto it. `TransformMol` applies it. No
 centroid is guessed, no rotation is searched — the transform is solved.
 
+With `--delete` the selected atoms are simply removed, and the atoms they
+leave behind are given the hydrogens their valence now lacks. That second
+part is not optional: taking three carbons out of a ring turns the two that
+remain into a chain, and a chain carbon needs hydrogens the ring carbon did
+not. Publishing the removal without them leaves a fragment that draws fine
+and reads as a fragment everywhere else.
+
 Usage:
   python3 replace_with_group.py --structure complex.pdb --out edited.pdb \
       --group benzene
+  python3 replace_with_group.py --structure complex.pdb --out edited.pdb \
+      --delete
 """
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -225,6 +235,195 @@ def selected_residues(structure: Path, serials) -> set:
     return out
 
 
+def complete_hydrogens(edited, sel_res):
+    """Give the edited residue the hydrogens the removal took away.
+
+    Removing atoms does not only break the bonds of the atoms they were bonded
+    to. Taking three carbons out of a ring turns the two that remain into a
+    chain, and a chain carbon needs hydrogens the ring carbon did not: the
+    middle one, which lost no bond at all, is short one as well. So the test
+    is not "the neighbours of the removed atoms" but "the atoms of the
+    affected residue whose valence is incomplete" — which is every atom of it
+    with a non-zero implicit hydrogen count after the removal.
+
+    A structure published without those hydrogens is not a molecule. It draws
+    fine, and every tool that reads it downstream sees a fragment: a carbon
+    with two bonds and no charge is a carbene to RDKit and a hole to a force
+    field.
+
+    The counts come from sanitisation, and sanitisation is what makes them
+    right: a PDB read with proximityBonding has every bond single, so an
+    aromatic carbon with two ring bonds looks like it wants two hydrogens,
+    while sanitised it wants none. Without this the hydrogens would land on
+    every ring carbon of the ligand.
+
+    Only the selected residue is hydrogenated. Sanitising the whole complex
+    and filling every non-zero count would put hydrogens on every unbonded
+    protein atom — the rest of the file arrives with no bonds at all, so a
+    bare carbon reads as methane.
+
+    Returns (mol, {new atom index: host atom index}).
+    """
+    try:
+        Chem.SanitizeMol(edited)
+    except Exception as e:
+        print(f"warning: could not sanitise the edited molecule ({e}); "
+              f"hydrogen counts fall back to element valences",
+              file=sys.stderr)
+        edited.UpdatePropertyCache(strict=False)
+    conf = edited.GetConformer()
+
+    def xyz(i):
+        p = conf.GetAtomPosition(i)
+        return np.array([p.x, p.y, p.z])
+
+    rw = Chem.RWMol(edited)
+    added = {}
+    for a in list(rw.GetAtoms()):
+        info = a.GetPDBResidueInfo()
+        if info is None:
+            continue
+        key = (info.GetChainId().strip(), info.GetResidueName(),
+               info.GetResidueNumber())
+        if key not in sel_res:
+            continue
+        need = max(0, a.GetNumImplicitHs())
+        if need <= 0:
+            continue
+        h = a.GetIdx()
+        p = xyz(h)
+        # The bonds the atom still has, as unit vectors away from it.
+        dirs = []
+        for nb in a.GetNeighbors():
+            v = xyz(nb.GetIdx()) - p
+            n = float(np.linalg.norm(v))
+            if n > 1e-6:
+                dirs.append(v / n)
+        if dirs:
+            away = -np.mean(dirs, axis=0)
+            away = away / float(np.linalg.norm(away))
+        else:
+            away = np.array([1.0, 0.0, 0.0])
+        # Where the new hydrogens go: one along the bisector pointing away
+        # from the neighbours, two symmetric about it in the plane the
+        # neighbours define, more spread on a cone around it. A real C-H is
+        # 1.09 A; the angle is the tetrahedral complement, not an optimisation.
+        if need == 1 or len(dirs) < 2:
+            newdirs = [away]
+        elif need == 2:
+            nrm = np.cross(dirs[0], dirs[1])
+            if float(np.linalg.norm(nrm)) < 1e-3:
+                arb = (np.array([1.0, 0.0, 0.0]) if abs(away[0]) < 0.9
+                       else np.array([0.0, 1.0, 0.0]))
+                nrm = np.cross(away, arb)
+            nrm = nrm / float(np.linalg.norm(nrm))
+            th = np.radians(55.0)
+            newdirs = [np.cos(th) * away + np.sin(th) * nrm,
+                       np.cos(th) * away - np.sin(th) * nrm]
+        else:
+            e1 = (np.array([1.0, 0.0, 0.0]) if abs(away[0]) < 0.9
+                  else np.array([0.0, 1.0, 0.0]))
+            e1 = e1 - np.dot(e1, away) * away
+            e1 = e1 / float(np.linalg.norm(e1))
+            e2 = np.cross(away, e1)
+            th = np.radians(70.0)
+            newdirs = [np.cos(th) * away
+                       + np.sin(th) * (np.cos(2 * np.pi * k / need) * e1
+                                       + np.sin(2 * np.pi * k / need) * e2)
+                       for k in range(need)]
+        for k in range(need):
+            d = newdirs[k] / float(np.linalg.norm(newdirs[k]))
+            idx = rw.AddAtom(Chem.Atom(1))
+            q = p + 1.09 * d
+            added[idx] = h
+            # The position is kept aside: a conformer does not grow with the
+            # molecule, so the coordinates are written into a fresh one below.
+            rw.GetAtomWithIdx(idx).SetDoubleProp("hx", float(q[0]))
+            rw.GetAtomWithIdx(idx).SetDoubleProp("hy", float(q[1]))
+            rw.GetAtomWithIdx(idx).SetDoubleProp("hz", float(q[2]))
+            rw.AddBond(h, idx, Chem.BondType.SINGLE)
+    mol = rw.GetMol()
+    if added:
+        newconf = Chem.Conformer(mol.GetNumAtoms())
+        for i in range(mol.GetNumAtoms()):
+            if i in added:
+                a = mol.GetAtomWithIdx(i)
+                newconf.SetAtomPosition(i, Point3D(
+                    a.GetDoubleProp("hx"), a.GetDoubleProp("hy"),
+                    a.GetDoubleProp("hz")))
+            else:
+                newconf.SetAtomPosition(i, conf.GetAtomPosition(i))
+        mol.RemoveAllConformers()
+        mol.AddConformer(newconf)
+    return mol, added
+
+
+def hydrogen_names(mol, added):
+    """Names for the added hydrogens, continuing their residue's numbering.
+
+    The file's atom names have to stay unique within a residue. The added
+    hydrogens take the next numbers after the ones already there, so H1..H12
+    in a residue gets H13, H14 rather than a second H1.
+    """
+    per_res = {}
+    for a in mol.GetAtoms():
+        info = a.GetPDBResidueInfo()
+        if info is None or a.GetSymbol() != "H":
+            continue
+        key = (info.GetChainId().strip(), info.GetResidueName(),
+               info.GetResidueNumber())
+        per_res.setdefault(key, []).append(info.GetName().strip())
+    counters, names = {}, {}
+    for idx, host in sorted(added.items()):
+        hinfo = mol.GetAtomWithIdx(host).GetPDBResidueInfo()
+        key = (hinfo.GetChainId().strip(), hinfo.GetResidueName(),
+               hinfo.GetResidueNumber())
+        if key not in counters:
+            mx = 0
+            for n in per_res.get(key, []):
+                m = re.search(r"(\d+)$", n)
+                if m:
+                    mx = max(mx, int(m.group(1)))
+            counters[key] = mx
+        counters[key] += 1
+        names[idx] = f"H{counters[key]}"
+    return names
+
+
+def write_deleted(out_path, mol, added):
+    """The complex after a deletion: every atom with its own residue info,
+    the added hydrogens named and bonded, CONECT from the bond list."""
+    names = hydrogen_names(mol, added)
+    conf = mol.GetConformer()
+    lines, serial = [], 0
+    for a in mol.GetAtoms():
+        idx = a.GetIdx()
+        info = a.GetPDBResidueInfo()
+        p = pos(conf, idx)
+        serial += 1
+        if info is not None:
+            name = info.GetName().strip()
+            resn = info.GetResidueName()
+            chain = info.GetChainId()
+            resi = info.GetResidueNumber()
+        else:
+            hinfo = mol.GetAtomWithIdx(added[idx]).GetPDBResidueInfo()
+            name = names[idx]
+            resn = hinfo.GetResidueName()
+            chain = hinfo.GetChainId()
+            resi = hinfo.GetResidueNumber()
+        record = "ATOM" if resn in STANDARD_AA else "HETATM"
+        lines.append(atom_line(
+            serial=serial, name=name, resn=resn, chain=chain, resi=resi,
+            x=p[0], y=p[1], z=p[2], elem=a.GetSymbol(), record=record))
+    conect = [conect_line(b.GetBeginAtomIdx() + 1, b.GetEndAtomIdx() + 1)
+              for b in mol.GetBonds()]
+    text = "\n".join(lines + conect) + "\nEND\n"
+    check_serials_unique(text)
+    Path(out_path).write_text(text)
+    return len(lines), len(conect)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--structure", required=True,
@@ -235,6 +434,10 @@ def main():
     ap.add_argument("--chain", default="L", help="chain id for the new group")
     ap.add_argument("--resi", type=int, default=900,
                     help="residue number for the new group")
+    ap.add_argument("--delete", action="store_true",
+                    help="remove the selected atoms instead of replacing them "
+                         "with a group; the atoms they leave behind are given "
+                         "the hydrogens their valence now lacks")
     args = ap.parse_args()
 
     smiles = GROUPS[args.group]
@@ -449,6 +652,27 @@ def main():
     for i in sorted(removed, reverse=True):
         rw.RemoveAtom(i)
     edited = rw.GetMol()
+
+    if args.delete:
+        # Nothing is placed and nothing is bonded in: the atoms are simply
+        # gone. What the removal leaves behind is the valence it broke, and
+        # publishing that without repair is how a fragment reaches the viewer
+        # — it draws fine and reads as a fragment everywhere else.
+        # `sel_res` was computed from the atoms being removed, so it names the
+        # residue the edit touched; complete_hydrogens fills every atom of it
+        # whose valence is now short, which is not only the neighbours of the
+        # removed atoms — taking three carbons out of a ring makes a chain of
+        # the two that remain, and the middle one lost no bond at all.
+        # It was collected with the chain id as the PDB wrote it; the hydrogen
+        # pass matches on the stripped form, so normalise here rather than
+        # have a chain named "G " match nothing.
+        sel_res = {(c.strip(), r, n) for c, r, n in sel_res}
+        edited, added = complete_hydrogens(edited, sel_res)
+        n_atoms, n_conect = write_deleted(args.out, edited, added)
+        print(f"wrote {args.out}: {n_atoms} atoms, {len(removed)} selected "
+              f"atoms removed, {len(added)} hydrogens added to complete the "
+              f"valence, {n_conect} bonds", file=sys.stderr)
+        return 0
 
     # The group template, with real geometry from an MMFF optimisation — a
     # thiazole's C-S is 1.72 A and its C-N 1.32 A, which no regular polygon

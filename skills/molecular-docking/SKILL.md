@@ -356,6 +356,26 @@ $PY $PUB --structure docking_out/complex.pdb \
 The viewer renders ligand chains as orange ball-and-stick on top of the
 protein style, so the pose stays visible under cartoon/surface views.
 
+### Review the complex before it reaches the viewer
+
+The complex is assembled from the PDBQT, not from the input PDB, so the
+file the viewer shows and the receptor Vina scored against can differ —
+and the differences that matter are invisible in a picture: a residue
+meeko could not template, a receptor chain written as HETATM, a pose with
+real heavy-atom overlap that the softened vdW term still scores well.
+Before the final publish, spawn the `structure-reviewer` subagent with:
+
+- `--structure docking_out/complex.pdb`
+- `--source` the receptor the run started from (its hydrogens are meeko's
+  and will show as unmatched atoms — expected)
+- one sentence: rigid or flexible, and which pocket was targeted
+
+The `residue_drops`, `record_type` and `clash` checks are the ones written
+for this skill's failure modes. The long C–H bonds and H–H CONECT records
+on a prepared receptor, and the heavy-atom-only ligand's under-valence, are
+listed in the agent file as expected — one line each, not an
+investigation.
+
 ### Writing `--notes`
 
 See `structure-viewer` for how `--notes` is shown. What to put in it:

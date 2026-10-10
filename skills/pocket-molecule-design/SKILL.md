@@ -363,6 +363,18 @@ centre, the designs are free to differ from it.
 > The latter already contains whatever was last published, so re-reading it
 > double-prefixes chain names (`ra` → `rra`).
 
+> **Review the combined file before the viewer shows it.** Spawn the
+> `structure-reviewer` subagent with `--structure` the combined file,
+> `--source` the receptor input, and one sentence on the run. Two findings
+> are expected and listed in the agent file: the designs grew from one
+> pocket seed, so chains `ra`–`rj` lie on top of each other and the clash
+> check reports them at 0.00 Å — inherent to publishing all designs in one
+> file, and it also means no per-molecule measurement taken on that file
+> (a distance, a contact count) describes any one design. And the
+> co-crystallised reference ligand must be gone: if `extra_residues` names
+> it, the `remove_ligands_and_waters()` step did not run and the user is
+> looking at the new molecules overlapping the old one.
+
 ## Interpreting the results
 
 ResGen optimises for pocket fit, not drug-likeness. Check each molecule

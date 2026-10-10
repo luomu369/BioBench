@@ -304,6 +304,15 @@ selection as too small to act on.
 
 ## Verify before publishing
 
+An edit places atoms geometrically, and the failures this produces are
+invisible in the file: hydrogens rebuilt onto the wrong carbons while CONECT
+still names the old ones (the viewer then draws bonds straight across the
+ring), a group deleted from the middle of a ring leaving a dangling
+fragment, an attachment left with an orphaned hydrogen. All of them write
+cleanly.
+
+The quick local check:
+
 ```bash
 # The group is there and the rest survived
 grep -c "^HETATM\|^ATOM" runs/edited.pdb
@@ -311,8 +320,20 @@ grep "BEN" runs/edited.pdb | head
 ```
 
 The atom count should be `original - selected + heavy + H`. If it equals the
-group's size alone, the script was pointed at the wrong `--structure` and the
-complex was dropped.
+group's size alone, the script was pointed at the wrong `--structure` and
+the complex was dropped.
+
+Then the gate, before the final publish. Spawn the `structure-reviewer`
+subagent with:
+
+- `--structure runs/edited.pdb`
+- `--source` the pre-edit structure, and `--frozen-chains` every protein
+  chain — an in-place edit must leave the protein atom-for-atom untouched
+- one sentence: which atoms were replaced by which group
+
+The `conect_h`, `valence` and `frozen_chain` checks are the ones written
+for this skill's failure modes; a `WARN` on the trim site is the user's own
+deletion and should be reported as the fragment it is, not as corruption.
 
 ## What this skill does not do
 
