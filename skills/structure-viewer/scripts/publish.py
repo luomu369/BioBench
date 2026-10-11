@@ -426,14 +426,22 @@ def proc_log(pid):
         if a == "--out" and i + 1 < len(argv):
             out = argv[i + 1]
             break
+        # `--out=dir` is the other form a script may accept. The prefix is six
+        # characters — "--out=" — and slicing at five keeps the "=" and eats
+        # the path's first character, which resolves to a directory that does
+        # not exist and returns None as silently as having no --out at all.
         if a.startswith("--out="):
-            out = a[5:]
+            out = a[len("--out="):]
             break
     if not out:
         return None
     base = Path(out)
     if not base.is_absolute():
-        base = HERE / base
+        # Resolved against the repo root, which is where the viewer starts its
+        # children and where the skills are run from. parents[3] is the root:
+        # this file is skills/<skill>/scripts/publish.py, so 0=scripts,
+        # 1=<skill>, 2=skills, 3=the repo.
+        base = Path(__file__).resolve().parents[3] / base
     # The directory itself, then each immediate subdirectory. Two levels is
     # where the skills stop: docking_out/ and md_out/ are the deepest nesting
     # in use, and a recursive walk of a run directory finds every intermediate
