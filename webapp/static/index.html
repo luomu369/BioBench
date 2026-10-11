@@ -550,6 +550,46 @@
   #agent-panel.collapsed .ag-body { display: none; }
   #agent-panel.collapsed #ag-collapse { transform: rotate(180deg); }
 
+  /* Narrow screens — a phone in landscape, or a small laptop.
+     
+     The desktop widths above are two fixed numbers that assume there is room
+     for both: the left column takes up to 400px and the agent panel refuses to
+     go under 300px. At 740px wide that leaves the 3D view minus two pixels,
+     and at 800-900px it leaves a 40px slit. The structure is the thing being
+     looked at, so it is the one that gets the space back.
+     
+     Both columns become a share of the screen rather than a size of their
+     own, and the agent panel's min-width goes with them: 300px is a desktop
+     comfort, and a panel that will not shrink is a panel that takes the
+     stage.
+     
+     The layout stays three-across. A phone in landscape is wide enough for
+     that, and re-flowing to a stacked layout would be a different interface
+     rather than a smaller one.
+     
+     These come after the desktop rules on purpose. CSS lets the later rule
+     win, so a media query placed before the block it is meant to override is
+     overridden by it and does nothing at all. */
+  @media (max-width: 1100px) {
+    #left-col {
+      width: min(340px, 32%);
+      left: 10px;
+    }
+    #agent-panel {
+      width: min(360px, 34%);
+      min-width: 240px;
+      right: 10px;
+    }
+  }
+  /* A phone in landscape is also short. The columns are anchored to the same
+     58px top and bottom as the desktop, which on a 400px-tall screen leaves
+     under 300px of column — enough for the metrics and a couple of chat
+     lines, and nothing else. Tightening the gutters buys most of it back. */
+  @media (max-height: 480px) {
+    #left-col, #agent-panel { top: 44px; bottom: 44px; }
+    #topbar { top: 8px; }
+  }
+
   #agent-panel .ag-head {
     display: flex;
     align-items: center;
