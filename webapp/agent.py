@@ -1161,8 +1161,14 @@ def _pid_alive(pid, starttime=None):
 # rather than ours — so the candidates are the ones actually in use, and a
 # miss is not an error: a job with no log found simply wakes the model with
 # nothing attached, which is what happened before this existed.
+#
+# Kept in step with publish.py's list, which is the one that matters: the
+# publisher records the path while the process is still alive to ask, and this
+# is only the fallback for a job published before that existed.
 LOG_NAMES = ("md.log", "run.log", "gen.log", "dock.log", "boltzgen.log",
-             "simulate.log")
+             "simulate.log", "vina.log", "fpocket.log", "prepare.log",
+             "torsion.log", "admet.log", "search.log", "foldseek.log",
+             "mmseqs.log", "resgen.log", "mpnn.log")
 
 
 def _log_tail(path, lines=12):
@@ -1223,10 +1229,15 @@ def _find_log(group, pid=None):
         d = base / group
         if not d.is_dir():
             continue
-        for name in LOG_NAMES:
-            for cand in (d / name, d / "md_out" / name, d / "out" / name):
-                if cand.is_file():
-                    return str(cand)
+        # The directory itself, then each immediate subdirectory. The skills
+        # nest their output — a docking run writes docking_out/vina.log under
+        # the run directory rather than vina.log directly in it — so a search
+        # of the top level alone misses most of them.
+        for sub in [d] + [p for p in sorted(d.glob("*")) if p.is_dir()]:
+            for name in LOG_NAMES:
+                for cand in (sub / name,):
+                    if cand.is_file():
+                        return str(cand)
     return None
 
 
@@ -1320,13 +1331,35 @@ def finished_jobs_tail(limit=3):
     published five structures is one job with five steps, not five things to
     report. The newest by `updated` wins, because that is the one the user was
     watching.
+
+    "Ended" means what `pending_jobs()` means by it, and the two have to agree:
+    the panel asks that first, and wakes the model when it comes back empty. A
+    job whose process is gone has ended whether or not anyone wrote `done` —
+    that is the whole case the pid exists for, a script that crashed or was
+    killed and never got to say so. Filtering on the state word alone would
+    return nothing in exactly the case the tail is most needed, and the model
+    would wake to a log it has to go and read.
     """
     try:
         status = json.loads(STATUS_FILE.read_text())
     except (OSError, json.JSONDecodeError):
         return []
-    done = [j for j in (status.get("jobs") or [])
-            if isinstance(j, dict) and j.get("state") in ("done", "error")]
+
+    def ended(j):
+        if not isinstance(j, dict):
+            return False
+        if j.get("state") in ("done", "error"):
+            return True
+        # Still marked running, but the process behind it is gone. Same test
+        # pending_jobs() applies, so the two cannot disagree about what is
+        # over. A job with no pid recorded is believed: there is nothing to
+        # check it against, and dropping it would lose a run that finished
+        # cleanly and simply never reported a pid.
+        if j.get("state") not in ("queued", "running"):
+            return False
+        return _pid_alive(j.get("pid"), j.get("pid_start")) is False
+
+    done = [j for j in (status.get("jobs") or []) if ended(j)]
     done.sort(key=lambda j: j.get("updated") or "", reverse=True)
 
     out = []

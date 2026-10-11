@@ -390,6 +390,62 @@ def proc_starttime(pid):
         return None
 
 
+# Log filenames the skills write, looked for inside a run's output directory.
+#
+# Wider than the viewer's own list, because the viewer's is what it can find
+# *after* a process has gone and this one is what the run actually wrote. A
+# docking run's log is vina.log; a pocket search's is fpocket.log. Missing a
+# name here means the model wakes with no log tail and spends its first tool
+# call reading the file, which is the thing the tail exists to avoid.
+LOG_NAMES = ("md.log", "run.log", "gen.log", "dock.log", "boltzgen.log",
+             "simulate.log", "vina.log", "fpocket.log", "prepare.log",
+             "torsion.log", "admet.log", "search.log", "foldseek.log",
+             "mmseqs.log", "resgen.log", "mpnn.log")
+
+
+def proc_log(pid):
+    """The log a running process is writing, or None.
+
+    Read from /proc/<pid>/cmdline: the skills take `--out <dir>` and write
+    their log inside it, so the directory is right there in argv. This is the
+    only route that works — by the time anyone asks, the process is usually
+    gone and /proc with it.
+
+    Searched one level down as well as the directory itself, because the
+    skills nest their output: a docking run writes docking_out/vina.log under
+    the --out directory rather than vina.log directly in it.
+    """
+    try:
+        with open(f"/proc/{int(pid)}/cmdline", "rb") as f:
+            raw = f.read()
+    except (OSError, ValueError, OverflowError):
+        return None
+    argv = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+    out = None
+    for i, a in enumerate(argv):
+        if a == "--out" and i + 1 < len(argv):
+            out = argv[i + 1]
+            break
+        if a.startswith("--out="):
+            out = a[5:]
+            break
+    if not out:
+        return None
+    base = Path(out)
+    if not base.is_absolute():
+        base = HERE / base
+    # The directory itself, then each immediate subdirectory. Two levels is
+    # where the skills stop: docking_out/ and md_out/ are the deepest nesting
+    # in use, and a recursive walk of a run directory finds every intermediate
+    # file a long run leaves behind.
+    for d in [base] + [p for p in sorted(base.glob("*")) if p.is_dir()]:
+        for name in LOG_NAMES:
+            cand = d / name
+            if cand.is_file():
+                return str(cand)
+    return None
+
+
 def load_status():
     """The current status file, or an empty one.
 
@@ -510,9 +566,49 @@ def publish_status(args) -> int:
             start = proc_starttime(args.pid)
             if start is not None:
                 target["pid_start"] = start
+            # The log, recorded while the process is still here to ask.
+            #
+            # After the run ends there is nothing left to infer it from: the
+            # pid is gone, /proc with it, and the group name has nothing to
+            # do with the directory the skill wrote to. So the path is taken
+            # now, from the process's own argv, and kept for the wake-up.
+            log = args.log or proc_log(args.pid)
+            if log:
+                target["log"] = log
         elif args.state in ("done", "error", "idle"):
+            # The pid goes — a finished step has no process to check, and a
+            # stale one would eventually be reused by something unrelated and
+            # read as this run still going. The log stays: it is what the
+            # wake-up reads, and a finished run's log is the one thing about
+            # it that is still worth having.
             target.pop("pid", None)
             target.pop("pid_start", None)
+        elif args.state == "running":
+            # A step that says it is running and names no process.
+            #
+            # Not refused — a script that reports progress without owning a
+            # process is still better believed than ignored. But it is said
+            # out loud, because the failure it leads to is invisible: the
+            # viewer has nothing to check the step against, so a run that
+            # dies without writing `error` sits at `running` until someone
+            # notices. One real run did exactly that for eighteen minutes.
+            #
+            # `queued` is not warned about: it has not started yet, so there
+            # is no process to name and nothing yet to check. Warning there
+            # would fire on every declared plan.
+            #
+            # Only when the step does not already carry a pid from an earlier
+            # call — a multi-step run reports the same pid on each step, and
+            # warning about the ones that omit it would be noise.
+            if not target.get("pid"):
+                print("warning: --state running with no --pid. The viewer "
+                      "cannot tell this run from a stalled one, so a step "
+                      "that dies without reporting it will sit at 'running' "
+                      "until someone notices. Pass --pid from "
+                      "`setsid ... & echo $!`.",
+                      file=sys.stderr)
+        if args.log:
+            target["log"] = args.log
         # The pill is one line and ellipsizes what does not fit, so a long
         # message is not lost — but it is not readable either, and the status
         # bar is the one thing that must stay glanceable while a run is going.
@@ -666,6 +762,13 @@ def main() -> int:
                          "status.json so the viewer can tell a finished run "
                          "from a stalled one by asking the OS rather than "
                          "believing the last thing the script said.")
+    ap.add_argument("--log",
+                    help="path to this run's log. Recorded so the viewer can "
+                         "wake the model with the log's tail when the run "
+                         "ends. Inferred from --pid when not given: the "
+                         "process's own argv carries the --out directory the "
+                         "skill writes its log into, and that is the only "
+                         "route that still works once the process is gone.")
     ap.add_argument("--skill", help="skill name for attribution")
     ap.add_argument("--job",
                     help="identify this run so several can proceed at once. "
