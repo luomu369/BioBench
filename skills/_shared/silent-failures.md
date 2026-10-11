@@ -320,3 +320,40 @@ routing table the model follows mechanically and misapplies the moment a task
 does not match a row. What generalises is: delegate when you need the
 conclusion and not the data, pass paths plus one sentence on what the run was
 for, and never silently overrule a NOT SOUND verdict.
+
+## Two functions disagreed about what "finished" means
+
+`pending_jobs()` decides a step is over when its pid is gone — that is the
+whole point of recording one, and it is what catches a script that crashed
+without writing `error`. `finished_jobs_tail()` decided it from the state
+word alone: `state in ("done", "error")`.
+
+The panel asks the first, and wakes the model when it comes back empty. Then
+it asks the second for the log tail to send with the wake-up. So a process
+that died without reporting it triggered the wake-up and arrived with no log
+at all — the model's first act was to go and read the file, which is exactly
+what the tail exists to prevent.
+
+**When two functions answer the same question, they must answer it the same
+way.** The fix was to make `finished_jobs_tail` use `pending_jobs`' test:
+the state word, or a dead pid. A job with no pid recorded is believed rather
+than dropped — there is nothing to check it against, and dropping it would
+lose a run that finished cleanly and simply never reported one.
+
+## A log path inferred after the fact is a log path that is gone
+
+`_find_log()` recovers a job's log from `/proc/<pid>/cmdline`, reading the
+`--out` directory out of argv. That works while the process runs and never
+again: once it exits, `/proc` entry and all, the only route left is the group
+name — which has nothing to do with the directory the skill wrote to. One
+docking run wrote `docking_out/vina.log` under `runs/g6_redock/`, and the
+group-name search looked for six filenames directly in `runs/g6_redock/`,
+missing both the name and the subdirectory.
+
+Thirteen finished jobs had `log: None`. The wake-up carried nothing.
+
+**Take the path while the thing that knows it is still alive.** `publish.py`
+now reads argv at publish time and records the result, so the log survives
+the process. The pid is cleared when the step finishes — a stale one gets
+reused eventually and reads as this run still going — but the log stays,
+because a finished run's log is the one thing about it still worth having.
