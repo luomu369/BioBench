@@ -43,6 +43,17 @@ COL = {
 MAX_SERIAL = 99999
 MAX_RESI = 9999
 
+# The standard amino acids, in one place. A protein written as HETATM is not
+# a protein to the tools that read it: meeko templates HETATM as ligand and
+# drops the side chains, so a receptor converted this way reaches docking
+# with holes in it. Callers that write records use this to pick ATOM vs
+# HETATM rather than keeping a private copy that drifts.
+STANDARD_AA = {
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "MSE", "SEC", "PYL",
+}
+
 
 class PdbFormatError(ValueError):
     """A field does not fit its column, and writing it would corrupt the line."""

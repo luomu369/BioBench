@@ -29,8 +29,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
 from biobench_paths import env_python, tool
-from pdb_format import (atom_line, check_serials_unique, conect_line,
-                        iter_atoms)
+from pdb_format import (STANDARD_AA, atom_line, check_serials_unique,
+                        conect_line, iter_atoms)
 
 DOCK_PY = str(env_python("docking"))
 VINA = str(tool("vina"))
@@ -43,6 +43,14 @@ COVALENT_RADII = {
     "H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66, "S": 1.05,
     "P": 1.07, "F": 0.57, "Cl": 1.02, "Br": 1.20, "I": 1.39,
     "Se": 1.20, "Si": 1.11, "B": 0.84,
+}
+
+# Element symbols, for validating the element column when a PDBQT pose is
+# converted back to PDB. Distinct from COVALENT_RADII: that table is about
+# bond lengths, and a symbol missing from it (a metal) is still an element.
+ELEMENTS = {
+    "H", "B", "C", "N", "O", "F", "SI", "P", "S", "CL", "K", "CA", "BR",
+    "I", "SE", "NA", "MG", "ZN", "FE", "MN", "CU", "CO", "NI", "HG", "CD",
 }
 
 
@@ -257,30 +265,39 @@ def pdbqt_to_pdb(src: Path, dst: Path, model: int = 1,
             # PDB fixed-column layout: name, resName, chainID, resSeq, coords
             name = line[12:16].strip()
             x, y, z = line[30:38], line[38:46], line[46:54]
-            # The element is the last field on the line, not a fixed column.
-            # PDBQT is not always 80 columns: AutoDock's atom type is one or
-            # two characters ("C", "Cl", "NA", "OA"), and a two-character type
-            # pushes the element one column right. Reading cols 77-78 on such
-            # a line returns " C" for a chlorine, and the atom comes out a
-            # carbon — which is invisible in the file and obvious on screen,
-            # where the chlorines render as carbon grey.
+            # The element is columns 77-78. The last field on the line is
+            # AutoDock's atom TYPE, not the element: "OA" for a carboxyl
+            # oxygen, "HD" for a donor hydrogen, "NA" for an acceptor
+            # nitrogen, "A" for aromatic carbon. Reading the last field
+            # writes the type into the element column — "C" and "N" happen
+            # to be both a type and an element, and every two-character
+            # type becomes an element no parser knows. The viewer then
+            # colours those atoms wrong, and every element-based check
+            # (bonds, valence, clashes) silently stops working on the whole
+            # structure: 4,955 of this receptor's 14,163 atoms, on a run
+            # whose score was fine.
             #
-            # AutoDock also uses "A" for aromatic carbon, which is not a real
-            # element symbol; parsers read it as unknown and the atom loses
-            # its identity. Map it back to carbon.
-            tail = line.rstrip().split()
-            raw = tail[-1] if len(tail) >= 2 else ""
-            if raw.upper() == "A":
-                raw = "C"
-            elem = (raw or name[0])[:2].rjust(2)
-            # The line is written by the shared formatter rather than by an
-            # f-string here. It owns the column layout, and it refuses a value
-            # that would not fit instead of shifting the columns after it.
-            #
+            # The type sits at [77:79], one column right of the element —
+            # which is what "a two-character type pushes the element one
+            # column right" describes. It pushes the type; the element
+            # stays at [76:78].
+            elem = line[76:78].strip().upper()
+            if elem not in ELEMENTS:
+                # No usable element column (a hand-trimmed or headerless
+                # PDBQT). Fall back to the atom name the way any reader
+                # must: two letters only when the first letter alone is
+                # not an element, so "CL1" is chlorine while a protein's
+                # "CA" stays the alpha carbon.
+                two = name[:2].upper()
+                elem = (two if two in ELEMENTS and name[:1].upper() not in ELEMENTS
+                        else name[:1].upper())
             # A ligand is written as one UNL residue in its own chain, which
             # is what Vina's output is. A receptor keeps the residue names and
             # numbers it arrived with, so the converted PDBQT still reads as
-            # the protein it came from rather than as one enormous ligand.
+            # the protein it came from rather than as one enormous ligand —
+            # and its standard amino acids are ATOM records, because meeko
+            # templates HETATM as ligand and a receptor written entirely as
+            # HETATM reaches the next step with whole side chains missing.
             if keep_residues:
                 out_resn = line[17:20].strip() or "UNL"
                 out_chain = line[21] or chain_id
@@ -288,12 +305,15 @@ def pdbqt_to_pdb(src: Path, dst: Path, model: int = 1,
                     out_resi = int(line[22:26])
                 except ValueError:
                     out_resi = 1
+                record = "ATOM" if out_resn in STANDARD_AA else "HETATM"
             else:
                 out_resn, out_chain, out_resi = "UNL", chain_id, 1
+                record = "HETATM"
             lines.append(atom_line(
                 serial=serial, name=name, resn=out_resn, chain=out_chain,
                 resi=out_resi,
-                x=float(x), y=float(y), z=float(z), elem=elem))
+                x=float(x), y=float(y), z=float(z), elem=elem,
+                record=record))
             xyz.append((float(x), float(y), float(z)))
             elems.append(elem.strip())
             seen_any = True
