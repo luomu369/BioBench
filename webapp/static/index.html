@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The mark that is already on the empty stage, as a file rather than only an
+     inline SVG. Without this the browser shows its default icon in the tab,
+     which is the one place the page's own identity is visible before anything
+     has loaded. -->
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/favicon-64.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/logo-180.png">
 <title>BioBench Viewer</title>
 <script src="3Dmol-min.js"></script>
 <style>
