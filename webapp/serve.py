@@ -181,6 +181,23 @@ class Handler(SimpleHTTPRequestHandler):
         if route == "/agent/sessions":
             self.do_GET_sessions()
             return
+        # The current conversation, and whether it has a turn running.
+        #
+        # The panel's resume check asks this every ten seconds: a turn started
+        # by another tab, or by the server's own hourly backstop, is not one
+        # this page knows about, and without the session id there is nothing
+        # to attach to. It used to 404 — the route existed only under DELETE
+        # and POST — so the check returned at once every time and a wake turn
+        # landed in a transcript nobody was looking at.
+        if route == "/agent/session":
+            try:
+                import agent
+                sid = agent.current_session_id()
+                busy = agent.session_busy(sid)
+            except ImportError:
+                sid, busy = None, False
+            self._json(200, {"session": sid, "busy": busy})
+            return
         super().do_GET()
 
     def do_GET_jobs(self):
