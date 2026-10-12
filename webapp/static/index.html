@@ -3554,6 +3554,9 @@ fetch("agent/status").then(r => r.json()).then(s => {
   // session is doing, rather than offering a send that would queue behind it.
   if (s.busy) agentSetBusy(true);
   agentRestore();
+  // The transcript is rebuilt first, so a watch resumed now appends to what
+  // is already on screen rather than rendering into an empty panel.
+  agentResumeWatching();
 }).catch(() => { /* the panel still works; the first send reports the fault */ });
 
 // Rebuild the transcript after a reload.
@@ -3741,6 +3744,11 @@ function agentAfterSwitch(d) {
   // already on screen when the live part starts appending to them.
   if (d.busy && d.session) agentAttach(d.session);
   if (!d.busy) agentInput.focus();
+  // A job whose turn is over is not covered by the attach above — that
+  // watches a turn in progress, and this one's turn ended before the page
+  // was opened. The watch that would have caught it died with the stream
+  // this page dropped, so it is taken up again from the server's answer.
+  agentResumeWatching();
 }
 
 // Watch a turn that is already running, without sending anything.
@@ -3815,6 +3823,19 @@ function agentDeleteSession(id, title) {
 
 agentNewBtn.addEventListener("click", agentNewSession);
 agentHistBtn.addEventListener("click", () => agentToggleSessions());
+
+// A slow sweep for the case the boot and the switch do not cover: the page
+// has been open the whole time, the watch was never started here (the run
+// belongs to another tab, or to a turn that ended before this page loaded),
+// and the server's backstop has since woken the model. Without this the
+// wake turn runs and its reply lands in a transcript nobody is looking at.
+//
+// Ten seconds because it is a backstop for a backstop: the boot and the
+// switch handle the common cases immediately, and this only has to notice
+// eventually. The function guards itself — it returns at once while a turn
+// or a watch of ours is live — so the cost when there is nothing to do is
+// one small request.
+setInterval(agentResumeWatching, 10000);
 
 // Clicking outside the dropdown closes it. Without this the list stays open
 // over the transcript until the button is pressed again, which is not where
@@ -4383,11 +4404,14 @@ async function agentTurn(text, attach) {
     agentAppend("error", `请求失败：${e.message}`);
   } finally {
     agentAbort = null;
-    // A watched task keeps the panel busy after the turn ends — the button
-    // stays a stop control, because there is something in flight the user may
-    // want to cancel. Clearing busy here would let a second message queue
-    // behind the wake-up turn that is about to happen.
-    if (!agentWatchedJobs) agentSetBusy(false);
+    // The turn is over, so the button goes back to send — always. A watched
+    // task does not keep it busy: that was tried, and it made the panel
+    // unusable for the hours a design runs, because the compose handler
+    // routes a submit to agentStop() while busy. A message sent during a run
+    // starts an ordinary turn; the watch keeps polling beside it, and if the
+    // run lands while that turn is going the panel's wake is refused (busy)
+    // and the server-side backstop sends it a moment later instead.
+    agentSetBusy(false);
     agentScrollToEnd();
     agentInput.focus();
     // Whatever was typed during the turn goes now. After the flush rather
@@ -4441,13 +4465,67 @@ function agentStop() {
 let agentWatchedJobs = null;
 let agentJobTimer = null;
 
+// Re-establish a watch that this page does not know it should be keeping.
+//
+// The watch lives in this page's memory and starts when a turn ends with a
+// `waiting` event. Everything that restarts the page — a reload, a
+// conversation switched away from and back — drops it, and nothing
+// re-established it: the run finished, the model was never woken, and the
+// user found out by asking. The server has the answer (the same file the
+// watcher reads), so the panel asks it instead of assuming.
+//
+// Also picks up a turn this page did not start — the server-side backstop's
+// wake, sent while this tab was closed — by attaching to it, which is what
+// `agentAttach` is for. `?poll=0` because this is a look, not the watch: the
+// server tells the two apart by the timestamp of the last real poll, and a
+// resume check that stamped it would suppress the backstop it exists to
+// complement.
+async function agentResumeWatching() {
+  if (agentWatchedJobs || agentJobTimer) return;   // already watching
+  if (agentBusy || agentAbort) return;             // a turn of our own is live
+  try {
+    const r = await fetch("agent/jobs?poll=0");
+    if (!r.ok) return;
+    const d = await r.json();
+    // Only jobs with a recorded pid. A step marked running with no pid is a
+    // turn's own progress marker — the model published it while it works and
+    // will mark it done in the same turn — and watching one produces exactly
+    // one duplicate wake per synchronous skill run, seconds after the turn
+    // that already reported it.
+    const watchable = (d.jobs || []).filter(j => j.pid);
+    if (watchable.length) {
+      agentWatchJobs(watchable);
+      return;
+    }
+  } catch (e) {
+    return;  // the server is between restarts; the next sweep tries again
+  }
+  // No job is running. A turn may be — one this page did not start, which is
+  // what a backstop wake looks like from here.
+  try {
+    const r = await fetch("agent/session");
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.busy && d.session) agentAttach(d.session);
+  } catch (e) { /* nothing to attach to */ }
+}
+
 function agentWatchJobs(jobs) {
   if (!jobs.length) return;
+  // One watcher, not one per caller. The watch is a single poll of
+  // /agent/jobs that reads the file fresh each tick, so a second interval
+  // for the same work would double-wake: two turns reporting one run. The
+  // resume check and the turn-end event can both arrive, and the first one
+  // to start the timer owns it.
+  if (agentWatchedJobs || agentJobTimer) return;
   agentWatchedJobs = jobs;
-  // The panel stays busy even though the turn is over: the button stays a stop
-  // control, because there is something in flight the user may want to cancel.
-  // The box stays usable — a message typed now is held and sent after the
-  // wake-up turn, which is when it can actually be answered.
+  // The panel does NOT stay busy for this. "Busy" means a turn is running,
+  // and the turn that started this job is over — holding the button in its
+  // stopping state for the hours a design runs makes the panel unusable:
+  // the compose handler routes a submit to agentStop() while busy, so a
+  // message typed during a run was not queued, it cancelled the watch. The
+  // run is not cancellable from here anyway; the watch only reports it.
+  //
   // The wait is stated in the compose box rather than in the transcript. The
   // model's own reply already says it started the run, and a second message
   // saying the same thing one line below it is the panel talking over the

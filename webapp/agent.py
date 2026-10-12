@@ -1303,14 +1303,42 @@ def pending_jobs():
         }
 
     def still_running(j):
-        if j.get("state") not in ("queued", "running"):
+        if j.get("state") != "running":
+            # A queued step is a plan label — publish.py writes one per step
+            # of a declared route, and nothing flips them until the final
+            # publish marks the whole group done. Believing them keeps this
+            # list non-empty forever after the process behind the run has
+            # exited, and the panel, which wakes on an empty list, never
+            # wakes: two long designs sat unreported for a quarter of an
+            # hour each, with the run finished and the watcher polling
+            # faithfully, for exactly this reason. A group is pending when
+            # one of its steps is actually running.
             return False
         alive = _pid_alive(j.get("pid"), j.get("pid_start"))
         # None means no pid was recorded — believe the step's own word.
         return alive is not False
 
-    out = [describe(j) for j in (status.get("jobs") or [])
-           if isinstance(j, dict) and still_running(j)]
+    # Grouped, because the queued labels belong to a group whose running
+    # step is the work: they are listed while that step lives and dropped
+    # when it does, rather than held on their own.
+    jobs = [j for j in (status.get("jobs") or []) if isinstance(j, dict)]
+    active = status.get("active")
+    if isinstance(active, dict):
+        jobs.append(active)
+    live_groups = {(j.get("group") or j.get("id") or "")
+                   for j in jobs if still_running(j)}
+    out, seen_ids = [], set()
+    for j in jobs:
+        if (j.get("group") or j.get("id") or "") not in live_groups:
+            continue
+        # The active step and the jobs list hold the same run twice — a
+        # publish writes both — so the same id can arrive twice and the
+        # wake message would name one step twice.
+        jid = j.get("id") or ""
+        if jid and jid in seen_ids:
+            continue
+        seen_ids.add(jid)
+        out.append(describe(j))
     # The active step is the one the user is waiting on even when it has not
     # been written into the jobs list yet, so it is included on its own.
     active = status.get("active")
@@ -1365,17 +1393,20 @@ def finished_jobs_tail(limit=3):
     out = []
     for j in done[:limit]:
         path = j.get("log") or _find_log(j.get("group"), j.get("pid"))
-        tail = _log_tail(path)
-        if not tail:
-            continue
+        # A job whose log cannot be found is kept, with an empty tail. It was
+        # skipped before, which dropped the whole entry: the wake then carried
+        # no record of a run that had genuinely finished, and a job whose
+        # group name is not a runs/ directory — a test, a one-off — vanished
+        # from the list entirely. An empty tail says "no log found"; a
+        # missing entry says nothing at all.
         out.append({
             "id": j.get("id") or "",
             "group": j.get("group") or "",
             "step": j.get("step") or "",
             "state": j.get("state"),
             "message": j.get("message") or "",
-            "log": path,
-            "log_tail": tail,
+            "log": path or "",
+            "log_tail": _log_tail(path),
         })
     return out
 

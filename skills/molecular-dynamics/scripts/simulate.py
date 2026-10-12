@@ -56,6 +56,14 @@ def build_parser():
     ap.add_argument("--water-model", default="amber14/tip3pfb.xml")
     ap.add_argument("--report-interval", type=int, default=1000,
                     help="steps between trajectory frames")
+    ap.add_argument("--ligand-smiles", default="",
+                    help="SMILES of a ligand present in the structure. Its "
+                         "GAFF2 template is generated and loaded into the "
+                         "force field, without which the ligand residue "
+                         "fails with 'No template found'. Pass the same "
+                         "SMILES prepare_complex.py was given.")
+    ap.add_argument("--ligand-resname", default="UNL",
+                    help="residue name the ligand carries in the structure")
     return ap
 
 
@@ -90,7 +98,9 @@ def main():
            "--padding", str(args.padding),
            "--forcefield", args.forcefield,
            "--water-model", args.water_model,
-           "--report-interval", str(args.report_interval)]
+           "--report-interval", str(args.report_interval),
+           "--ligand-smiles", args.ligand_smiles,
+           "--ligand-resname", args.ligand_resname]
     r = subprocess.run(cmd)
     return r.returncode
 
@@ -118,6 +128,8 @@ ap.add_argument("--padding", type=float, default=1.0)
 ap.add_argument("--forcefield", default="amber14/protein.ff14SB.xml")
 ap.add_argument("--water-model", default="amber14/tip3pfb.xml")
 ap.add_argument("--report-interval", type=int, default=1000)
+ap.add_argument("--ligand-smiles", default="")
+ap.add_argument("--ligand-resname", default="UNL")
 args = ap.parse_args()
 
 out = Path(args.out)
@@ -165,6 +177,29 @@ if fixer.missingAtoms:
 # The fixed topology and positions are what everything downstream uses.
 pdb = PDBFile(str(args.structure))
 ff = ForceField(args.forcefield, args.water_model)
+
+# ---- ligand parameters -------------------------------------------------
+# A ligand residue has no template in the protein force field, and every
+# downstream step that builds a system — addHydrogens, addSolvent,
+# createSystem — fails on it with "No template found for residue N (UNL)".
+# GAFF2 with am1-bcc charges covers it; openmmforcefields runs
+# antechamber/sqm itself, which takes a minute or two for a small molecule.
+# The template is generated once and loaded into the same force field the
+# protein uses, so nothing downstream needs to know a ligand is present.
+if args.ligand_smiles:
+    log(f"parameterising ligand {args.ligand_resname} with GAFF2")
+    from openmmforcefields.generators import SystemGenerator
+    from openff.toolkit.topology import Molecule
+    ligand = Molecule.from_smiles(args.ligand_smiles)
+    generator = SystemGenerator(
+        forcefields=[args.forcefield, args.water_model],
+        small_molecule_forcefield="gaff-2.11",
+    )
+    gaff_xml = generator.template_generator.generate_residue_template(ligand)
+    gaff_file = out / "ligand_gaff.xml"
+    gaff_file.write_text(gaff_xml)
+    ff.loadFile(str(gaff_file))
+    log(f"  ligand template written to {gaff_file.name}")
 
 log("adding solvent")
 modeller = Modeller(fixer.topology, fixer.positions)

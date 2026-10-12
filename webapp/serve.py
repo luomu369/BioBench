@@ -22,6 +22,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -193,6 +195,13 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             import agent
             jobs = agent.pending_jobs()
+            # The panel's watch is a two-second poll of this route, and the
+            # backstop thread reads the timestamp of the last one: a panel
+            # that polled recently is watching and will do its own waking, so
+            # the server stays out of it. `?poll=0` is the resume check and
+            # the idle sweep, which look without claiming to be the watch.
+            if "poll=0" not in self.path:
+                _last_jobs_poll[0] = time.time()
             # When nothing is running, the tail of what just finished.
             #
             # The panel asks this every two seconds while it watches, and the
@@ -840,6 +849,279 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+# The backstop's memory, in one place because two functions share it: the
+# route stamps the last panel poll, the thread reads it.
+_last_jobs_poll = [0.0]
+
+# How long ago a run may have ended and still be worth a wake for. A day,
+# not half an hour: a run that finishes while the user is away should still
+# be reported when they come back, and only a genuinely old leftover is
+# noise. Measured from when the run ended — see `_ended_recently` — not from
+# when the model last published progress, which for a long run is when it
+# started.
+RECENT_SECONDS = 24 * 60 * 60
+
+# How long a run may go before the model is asked to look at it.
+#
+# A design or a simulation leaves the model's turn ended an hour ago. The
+# panel shows the live step, but the model is not watching, and a run that
+# has quietly stalled — a crashed worker, a full disk — looks exactly like
+# one that is progressing. The nudge is a turn, not a notification: the
+# model reads the log and reports, so a stall is caught by something that
+# can say so.
+NUDGE_SECONDS = 60 * 60
+
+
+def _ended_recently(group, pid, updated, window=RECENT_SECONDS):
+    """Whether a run ended recently enough to be worth a wake.
+
+    The reference is when the RUN ended, not when the step last published.
+    A long run publishes nothing while it goes — BoltzGen does not write
+    status.json, the model publishes at the start and again at the end — so
+    a four-hour design's step carries a two-hour-old stamp by the time it
+    finishes. Judging by that stamp refused to report exactly the runs the
+    wake exists for: one ran four hours, finished, and sat unreported for
+    nine.
+
+    The log file's mtime is the run's own last write, which is when it
+    ended. Without a log, fall back to the step's stamp, and without either
+    believe the job rather than drop it.
+    """
+    stamp = None
+    try:
+        import agent
+        path = agent._find_log(group, pid)
+        if path:
+            stamp = Path(path).stat().st_mtime
+    except Exception:
+        stamp = None
+    if stamp is None and updated:
+        try:
+            from datetime import datetime
+            t = datetime.fromisoformat(str(updated).replace("Z", "+00:00"))
+            stamp = t.timestamp()
+        except ValueError:
+            return True  # an unparseable stamp is not evidence of age
+    if stamp is None:
+        return True  # nothing to go on; believe it rather than drop a run
+    return (time.time() - stamp) < window
+
+
+def _wake_backstop():
+    """Wake the model for a finished job the panel is not watching.
+
+    The panel wakes the model when a watched job's process disappears. That
+    watch lives in the browser: it starts when a turn ends with a `waiting`
+    event and it dies with the page — a reload, a closed tab, a dropped
+    connection, a conversation switched away from and not returned to. The
+    run then finishes with nothing to report it, and the model's last words
+    ("I'll report when it's done") are a promise nothing kept. Two runs in
+    one session sat unreported for a quarter of an hour before the user
+    asked.
+
+    This thread is the server-side half of the same promise. It reads the
+    same status.json, applies the same test `pending_jobs()` applies — a step
+    still marked running whose recorded pid is gone has ended whether or not
+    anyone wrote `done` — and sends the same wake message the panel would
+    have sent.
+
+    It stays out of the way when the panel is on it, by two rules:
+
+      * a panel that is watching polls /agent/jobs every two seconds, and the
+        timestamp of the last poll is the difference between "watching" and
+        "absent". The resume and idle checks poll with `?poll=0` so they do
+        not count as the watch.
+      * a job that ended moments ago is given a few seconds before it is
+        acted on, because the panel's own wake — a fetch, then a turn — takes
+        a moment to show up as a busy session. Without the grace both sides
+        wake for one run.
+
+    Once per group, not once per step: a run publishes six steps and the
+    process behind them is one, so six endings are one thing to report.
+    """
+    woken_groups = set()
+    ended_at = {}
+    pending_since = {}   # group -> when it was first seen still running
+    last_nudge = {}      # group -> when it was last nudged
+    while True:
+        time.sleep(2)
+        try:
+            import agent
+            status = json.loads(agent.STATUS_FILE.read_text())
+        except Exception:
+            continue  # between restarts, or a status file mid-rename
+        jobs = [j for j in (status.get("jobs") or []) if isinstance(j, dict)]
+        active = status.get("active")
+        if isinstance(active, dict):
+            jobs.append(active)
+
+        now = time.time()
+        try:
+            pending = agent.pending_jobs()
+        except Exception:
+            continue
+        live = {(j.get("group") or j.get("id") or "") for j in pending}
+
+        # ---- hourly progress nudge -------------------------------------
+        # Only for runs that are still going, once per hour per group, and
+        # never while a turn is running — a nudge that landed on top of the
+        # model's own reply would queue behind it and report nothing.
+        if live:
+            try:
+                sid = agent.current_session_id()
+                busy = bool(sid) and agent.session_busy(sid)
+            except Exception:
+                busy = False
+            for g in live:
+                first = pending_since.setdefault(g, now)
+                if now - first < NUDGE_SECONDS:
+                    continue
+                if now - last_nudge.get(g, 0.0) < NUDGE_SECONDS:
+                    continue
+                if busy:
+                    print(f"[nudge] {g}: skipped, a turn is running",
+                          flush=True)
+                    continue
+                last_nudge[g] = now
+                elapsed = now - first
+                print(f"[nudge] {g}: firing after {_age_text(elapsed)}",
+                      flush=True)
+                threading.Thread(target=_send_nudge, args=(g, elapsed),
+                                 daemon=True).start()
+        for g in list(pending_since):
+            if g not in live:
+                del pending_since[g]  # the run ended; the next one starts fresh
+
+        if pending:
+            continue  # something is still running; not the moment to wake
+        # Nothing is running. Every step still marked running or queued is
+        # one whose process is gone — the same conclusion pending_jobs()
+        # reached, read off the same file. A step with no pid recorded is
+        # believed by that function and so keeps this loop out, exactly as
+        # it keeps the panel waiting.
+        ended = {}
+        seen_ids = set()
+        for j in jobs:
+            if j.get("state") not in ("queued", "running"):
+                continue
+            # The active step and the jobs list hold the same run twice — a
+            # publish writes both — so the same id can arrive twice and the
+            # name would be reported as "step、step".
+            jid = j.get("id") or ""
+            if jid and jid in seen_ids:
+                continue
+            seen_ids.add(jid)
+            # And only what ended recently. A step still marked running whose
+            # pid died a day ago is a leftover, not a report anybody is
+            # waiting for; without this the first tick after every restart
+            # wakes the model for every test job ever left behind. Recency is
+            # measured from the run's end — see `_ended_recently` — because a
+            # long run's own status stamp is hours old the moment it stops.
+            g = j.get("group") or j.get("id") or ""
+            if not _ended_recently(g, j.get("pid"), j.get("updated")):
+                continue
+            ended.setdefault(g, []).append(j)
+            ended_at.setdefault(g, now)
+        if not ended:
+            continue
+        if now - _last_jobs_poll[0] < 6:
+            continue  # the panel is watching; it will wake for these
+
+        try:
+            sid = agent.current_session_id()
+            busy = bool(sid) and agent.session_busy(sid)
+        except Exception:
+            sid, busy = None, False
+        if busy:
+            continue  # a turn is already running — someone is reporting
+
+        for g, js in ended.items():
+            if g in woken_groups:
+                continue
+            if now - ended_at.get(g, now) < 8:
+                continue  # grace: the panel's wake may be mid-start
+            woken_groups.add(g)
+            names = "、".join(
+                (j.get("step") or j.get("group") or j.get("id") or "")
+                for j in js if (j.get("step") or j.get("group") or j.get("id")))
+            threading.Thread(target=_send_wake, args=(g, names or "任务"),
+                             daemon=True).start()
+
+
+def _running_log_tail(group):
+    """The tail of a still-running job's log, or "".
+
+    `finished_jobs_tail` only reports jobs that have ended — by design,
+    since that is what the completion wake needs. A nudge is sent while the
+    run is going, so its log is found here instead: the same status.json,
+    the same `_find_log` fallback the rest of the machinery uses.
+    """
+    try:
+        import agent
+        status = json.loads(agent.STATUS_FILE.read_text())
+    except Exception:
+        return ""
+    for j in (status.get("jobs") or []):
+        if not isinstance(j, dict) or j.get("group") != group:
+            continue
+        path = j.get("log") or agent._find_log(group, j.get("pid"))
+        if path:
+            return agent._log_tail(path)
+    return ""
+
+
+def _age_text(seconds):
+    """How long something has been running, in the largest useful unit."""
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f} 小时"
+    if seconds >= 60:
+        return f"{seconds / 60:.0f} 分钟"
+    return f"{seconds:.0f} 秒"
+
+
+def _send_nudge(group, elapsed):
+    """One progress check, in its own thread: draining is the turn."""
+    try:
+        import agent
+        body = (f"后台任务（{group}）已运行 {_age_text(elapsed)}，仍在进行。"
+                f"请查看 webapp/static/status.json 里该任务的最新步骤与消息，"
+                f"以及 runs/{group}/ 下的日志，向用户简要汇报当前进度；"
+                f"若发现任务已停滞或报错，直接说明，不要粉饰。")
+        tail = _running_log_tail(group)
+        if tail:
+            body += f"\n\n任务日志的最后几行：\n\n{tail}"
+        for _ in agent.stream([{"role": "user", "content": body}]):
+            pass
+        print(f"[nudge] {group}: turn completed", flush=True)
+    except Exception as e:
+        # A nudge that fails is a missed check, and a missed check that
+        # leaves no trace is indistinguishable from one that never fired.
+        print(f"[nudge] {group}: FAILED: {e}", flush=True)
+
+
+def _send_wake(group, names):
+    """One wake turn, in its own thread: draining the stream is the turn."""
+    try:
+        import agent
+        wake = f"后台任务已完成：{names}。请查看结果并汇报。"
+        mine = [f for f in agent.finished_jobs_tail()
+                if f.get("group") == group]
+        if mine:
+            parts = []
+            for f in mine:
+                head = f"—— {f.get('step') or f.get('group') or f.get('id')}" \
+                    + ("（失败）" if f.get("state") == "error" else "") + " ——"
+                tail = (f.get("log_tail") or "").strip()
+                if tail:
+                    parts.append(f"{head}\n{tail}")
+            if parts:
+                wake += "\n\n任务日志的最后几行：\n\n" + "\n\n".join(parts)
+        for _ in agent.stream([{"role": "user", "content": wake}]):
+            pass  # the turn runs to completion here; nothing to render to
+    except Exception:
+        pass  # a failed wake is a lost report, not a crashed server
+
+
 def main():
     import argparse
 
@@ -849,6 +1131,9 @@ def main():
     args = ap.parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    # The backstop starts before the server does, so a job that ends while
+    # the panel is closed is reported whenever the user comes back to it.
+    threading.Thread(target=_wake_backstop, daemon=True).start()
     print(f"== BioBench Viewer")
     print(f"   URL:        http://localhost:{args.port}")
     print(f"   Serving:    {STATIC}")

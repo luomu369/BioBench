@@ -231,6 +231,15 @@ talking while the model works.
 # then poll for completion
 ```
 
+**A run that outlives the hour is checked on.** The viewer wakes the model
+once an hour while a background task is still going, with the job's log tail
+attached, so the model reads the log and reports progress — a run that has
+quietly stalled looks exactly like one that is progressing, and something
+that can say so has to be looking. The wake is suppressed while a turn is
+running, so it lands in an idle moment rather than queueing behind a reply.
+A run shorter than an hour gets no such wake: its completion wake is the
+report.
+
 Anything that runs longer than a few seconds belongs in the background:
 model inference, docking sweeps, database downloads, installs. A command
 that blocks the terminal blocks the conversation, and the user cannot ask a
