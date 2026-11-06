@@ -2,6 +2,9 @@
 import concurrent.futures
 import http.client
 import json
+import os
+import io
+from contextlib import redirect_stderr
 from pathlib import Path
 import sys
 import tempfile
@@ -97,8 +100,77 @@ class ViewerTests(unittest.TestCase):
         self.assertIn(json.loads((self.root / 'selection.json').read_text())['selection'], range(24))
         self.assertEqual(list(self.root.glob('*.tmp')), [])
 
+    def test_huge_content_length(self):
+        self.assertEqual(self.request(headers={'Content-Length': '9' * 5000})[0], 413)
+
+    def test_zero_padded_content_length(self):
+        self.assertEqual(self.request(headers={'Content-Length': '0' * 5000 + '2'})[0], 200)
+
+    def test_delete_field_types_leave_state_unchanged(self):
+        path = self.root / 'status.json'
+        original = '{"jobs": []}'
+        path.write_text(original)
+        for field in ['group', 'structure']:
+            for value in [123, [], {}, False]:
+                with self.subTest(field=field, value=value):
+                    status, body = self.request(json.dumps({field: value}).encode(),
+                                                path='/task.json', method='DELETE')
+                    self.assertEqual(status, 400)
+                    self.assertIn(field, json.loads(body)['error'])
+                    self.assertEqual(path.read_text(), original)
+
+    def test_invalid_session_id_has_no_side_effect(self):
+        with patch('agent.use_session') as use, patch('agent.new_session') as new:
+            for value in [123, [], {}, False, '', '   ']:
+                with self.subTest(value=value):
+                    self.assertEqual(self.request(json.dumps({'id': value}).encode(),
+                                                  path='/agent/session')[0], 400)
+            use.assert_not_called()
+            new.assert_not_called()
+
+    def test_invalid_image_does_not_clear_backdrop(self):
+        with patch('agent.set_stage_image') as setter:
+            for value in [123, [], {}, False]:
+                with self.subTest(value=value):
+                    self.assertEqual(self.request(json.dumps({'image': value}).encode(),
+                                                  path='/stage-image')[0], 400)
+            setter.assert_not_called()
+
+    def test_empty_image_still_clears_backdrop(self):
+        with patch('agent.set_stage_image', return_value=None) as setter:
+            self.assertEqual(self.request(b'{"image":""}', path='/stage-image')[0], 200)
+            setter.assert_called_once_with('')
+
+    def test_null_session_still_creates_conversation(self):
+        with patch('agent.new_session') as new, patch('agent.history', return_value=[]), \
+             patch('agent.current_session_id', return_value='new-session'), \
+             patch('agent.session_busy', return_value=False):
+            self.assertEqual(self.request(b'{"id":null}', path='/agent/session')[0], 200)
+            new.assert_called_once_with()
+
     def test_missing_selection_request_is_empty(self):
         self.assertEqual(self.request(path='/select.json', method='GET'), (204, b''))
+
+class StartupTests(unittest.TestCase):
+    def test_local_only_by_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(serve.parse_args([]).host, '127.0.0.1')
+
+    def test_network_access_is_explicit(self):
+        with patch.dict(os.environ, {'BIOBENCH_HOST': '0.0.0.0'}):
+            self.assertEqual(serve.parse_args([]).host, '0.0.0.0')
+            self.assertEqual(serve.parse_args(['--host', '127.0.0.1']).host, '127.0.0.1')
+
+    def test_invalid_ports(self):
+        for port in ['0', '-1', '65536', 'abc']:
+            with self.subTest(port=port), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exc:
+                    serve.parse_args(['--port', port])
+                self.assertEqual(exc.exception.code, 2)
+
+    def test_valid_port_boundaries(self):
+        for port in [1, 65535]:
+            self.assertEqual(serve.parse_args(['--port', str(port)]).port, port)
 
 if __name__ == '__main__':
     unittest.main()

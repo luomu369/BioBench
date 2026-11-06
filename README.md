@@ -100,6 +100,34 @@ echo 'STEPFUN_API_KEY=sk-xxx' > webapp/agent.key
 环境变量 `STEPFUN_API_KEY` 同样有效，但活不过终端关闭——查看器比启动它的终端
 活得长，所以推荐用文件。
 
+### 访问地址与基础检查
+
+查看器默认仅监听 `127.0.0.1`，在运行它的电脑上打开
+`http://localhost:8282` 即可。远程使用优先通过 SSH 转发：
+
+```bash
+# 在自己的电脑运行，连接部署 BioBench 的机器
+ssh -L 8282:127.0.0.1:8282 user@server
+```
+
+确需局域网直连时，可显式启用网络监听：
+
+```bash
+BIOBENCH_HOST=0.0.0.0 bash start.sh
+# 单独启动查看器时也可指定
+python webapp/serve.py --host 0.0.0.0 --port 8282
+```
+
+查看器目前没有访问鉴权，Agent 能执行本机命令；网络监听只适合受控环境，
+不要直接暴露到公网。更改监听地址后需先停止现有服务，再重新启动。
+
+核心服务检查不需要 GPU 或模型 API key，使用 Python 3.10 或更新版本：
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q webapp skills
+```
+
 ### 目录结构
 
 ```

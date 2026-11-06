@@ -143,7 +143,12 @@ class Handler(SimpleHTTPRequestHandler):
         if not value.isascii() or not value.isdigit():
             self.send_error(400, "invalid Content-Length")
             return None
-        length = int(value)
+        # Avoid Python's integer-string limit for arbitrarily long headers.
+        digits = value.lstrip("0") or "0"
+        if len(digits) > len(str(limit)):
+            self.send_error(413, "request too large")
+            return None
+        length = int(digits)
         if length > limit:
             self.send_error(413, "request too large")
             return None
@@ -379,6 +384,10 @@ class Handler(SimpleHTTPRequestHandler):
         req = self._read_json(limit=1000000, empty=True)
         if req is None:
             return
+        for field in ("group", "structure"):
+            if req.get(field) is not None and not isinstance(req[field], str):
+                self._json(400, {"error": f"{field} must be a string"})
+                return
         group = (req.get("group") or "").strip()
         # A single structure, rather than a whole task. The structure
         # switcher's close button closes one tab, and closing it only in the
@@ -713,6 +722,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         sid = data.get("id")
+        if sid is not None and (not isinstance(sid, str) or not sid.strip()):
+            self._json(400, {"error": "id must be a non-empty string or null"})
+            return
         try:
             if sid:
                 agent.use_session(sid)
@@ -841,7 +853,11 @@ class Handler(SimpleHTTPRequestHandler):
         if data is None:
             return
 
-        image = data.get("image") or ""
+        image = data.get("image")
+        if image is not None and not isinstance(image, str):
+            self._json(400, {"error": "image must be a string or null"})
+            return
+        image = image or ""
         try:
             url = agent.set_stage_image(image)
         except Exception as e:
@@ -1138,13 +1154,28 @@ def _send_wake(group, names):
         pass  # a failed wake is a lost report, not a crashed server
 
 
-def main():
+# Modified 2026-11-06: explicit network opt-in and validated startup options.
+def parse_args(argv=None):
     import argparse
 
+    def port_number(value):
+        try:
+            number = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535")
+        if not 1 <= number <= 65535:
+            raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535")
+        return number
+
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--port", type=int, default=8282)
-    ap.add_argument("--host", default="0.0.0.0")
-    args = ap.parse_args()
+    ap.add_argument("--port", type=port_number, default=8282)
+    ap.add_argument("--host", default=os.environ.get("BIOBENCH_HOST") or "127.0.0.1",
+                    help="bind address (default: BIOBENCH_HOST or 127.0.0.1)")
+    return ap.parse_args(argv)
+
+
+def main():
+    args = parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     # The backstop starts before the server does, so a job that ends while
@@ -1152,6 +1183,9 @@ def main():
     threading.Thread(target=_wake_backstop, daemon=True).start()
     print(f"== BioBench Viewer")
     print(f"   URL:        http://localhost:{args.port}")
+    print(f"   Listening:  {args.host}:{args.port}")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print("   Network access enabled: this server has no authentication.")
     print(f"   Serving:    {STATIC}")
     print(f"   Selection:  POST /selection.json -> {SELECTION.name}")
     print(f"   Sysinfo:    GET /sysinfo.json (cpu / gpu / memory)")
@@ -1163,6 +1197,8 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

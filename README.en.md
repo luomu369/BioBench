@@ -85,6 +85,34 @@ general agent drive this pile of specialist tools safely and reproducibly.
 
 ---
 
+### Access and core checks
+
+The viewer binds to `127.0.0.1` by default. Open `http://localhost:8282`
+on the same computer. For a remote machine, prefer an SSH tunnel:
+
+```bash
+ssh -L 8282:127.0.0.1:8282 user@server
+```
+
+Explicitly opt into network access only in a controlled environment:
+
+```bash
+BIOBENCH_HOST=0.0.0.0 bash start.sh
+# Or run the viewer directly:
+python webapp/serve.py --host 0.0.0.0 --port 8282
+```
+
+The viewer has no authentication and the Agent can run local commands.
+Do not expose it directly to the public internet. Stop an existing server
+before changing its bind address and restarting it.
+
+Core checks require Python 3.10 or later, without a GPU or model API key:
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q webapp skills
+```
+
 ## 2. Highlights
 
 **① There is no LLM in the viewer, and no backend logic.** It is a static page

@@ -49,10 +49,10 @@ support for those workflows has not been established.
 
 ## Remaining work, in priority order
 
-1. Server access boundary: the existing default binds all interfaces, has no
-   viewer authentication and allows wildcard CORS. Keep it on loopback with
-   the command above until authentication, trusted origins and remote access
-   are designed and tested. The Agent can execute local commands.
+1. Server access boundary: the default now binds to loopback. Network access
+   requires an explicit --host or BIOBENCH_HOST setting. Viewer authentication
+   and trusted-origin enforcement remain unfinished (wildcard CORS is still
+   present). Prefer SSH forwarding. The Agent can execute local commands.
 2. Concurrent task/status/archive updates: selection writes are fixed; shared
    status writers still need an inter-process locking/transaction strategy.
 3. Installer: verify official release checksums and test network failure,
@@ -63,3 +63,13 @@ support for those workflows has not been established.
    independent structural validation fixtures before changing algorithms.
 
 This is a first engineering pass, not a full security or scientific audit.
+
+## Follow-up: startup and invalid input handling
+
+- Default to loopback; allow explicit network binding using --host or
+  BIOBENCH_HOST. Reject ports outside 1–65535 before starting the server.
+- Reject invalid task, session and image field types before changing state.
+  Empty image strings and null session IDs retain their existing behavior.
+- Handle extremely long Content-Length values without integer-conversion
+  exceptions. Preserve valid zero-padded lengths.
+- Close the listening socket on normal server exit or keyboard interruption.
