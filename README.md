@@ -17,7 +17,7 @@ harness 用自然语言驱动它们，并在一个 Web 查看器里看到结果�
 - **硬件**：本地 GPU 工作站（ARM64 GPU，aarch64，CUDA 13.0，121 GB 统一内存）
 - **智能体模型**：StepFun 阶跃星辰 `step-5-preview`
 - **许可**：Apache-2.0（见 [LICENSE](LICENSE)）
-- **演示视频**：[Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
+- **演示视频**：[Bilibili](https://www.bilibili.com/video/BV1HR4q6LELT/)
 - **项目展示**：[BioBench · 生物分子计算工作台](https://luomu369.github.io/BioBench/)
 
 ---

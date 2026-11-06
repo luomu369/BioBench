@@ -18,7 +18,7 @@ publishes to the same page, and you watch the structure take shape.
 - **Hardware**: local GPU workstation (ARM64 GPU, aarch64, CUDA 13.0, 121 GB unified memory)
 - **Agent model**: StepFun `step-5-preview`
 - **License**: Apache-2.0 (see [LICENSE](LICENSE))
-- **Demo video**: [Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
+- **Demo video**: [Bilibili](https://www.bilibili.com/video/BV1HR4q6LELT/)
 - **Project showcase**: [BioBench · Biomolecular Computing Workbench](https://luomu369.github.io/BioBench/)
 
 ---
