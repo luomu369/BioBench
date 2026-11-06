@@ -1,3 +1,4 @@
+<!-- Modified 2026-11-06: align license with LICENSE; add GitHub source. -->
 # BioBench
 
 > 一台 DGX Spark，一个 Agent，二十三个技能，和一个网页。
@@ -11,10 +12,11 @@ harness 用自然语言驱动它们，并在一个 Web 查看器里看到结果�
 的那个氢换成苯环"，它就去改结构；你说"做一下动力学模拟看这个姿态稳不稳"，它
 就去跑 OpenMM。每一步的结果都发布到同一个网页，你看着结构一步步长出来。
 
-- **仓库**：https://gitee.com/LRC-bit/biobench
+- **仓库**：https://github.com/luomu369/BioBench
+- **Gitee 来源**：https://gitee.com/LRC-bit/biobench
 - **硬件**：NVIDIA DGX Spark（GB10，aarch64，CUDA 13.0，121 GB 统一内存）
 - **智能体模型**：StepFun 阶跃星辰 `step-5-preview`
-- **许可**：MIT
+- **许可**：Apache-2.0（见 [LICENSE](LICENSE)）
 - **演示视频**：[Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
 - **参赛征文**：[BioBench · DGX Spark Agent Skills](https://luomu369.github.io/BioBench/)
 
@@ -356,7 +358,7 @@ Skills 不是一次写成的。项目运行中模型的每一轮困惑都会被�
 
 ```bash
 # 1. 克隆
-git clone https://gitee.com/LRC-bit/biobench.git
+git clone https://github.com/luomu369/BioBench.git
 cd biobench
 
 # 2. 检查环境（加 --fix 修复）

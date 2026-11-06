@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Modified 2026-11-06: verify version before accepting an installation.
 # Install the opencode binary the agent panel drives.
 #
 # The binary is not committed: it is ~177 MB, it is platform-specific, and a
@@ -52,12 +53,14 @@ trap 'rm -rf "$tmp"' EXIT
 if curl -fsSL https://opencode.ai/install -o "$tmp/install.sh"; then
     bash "$tmp/install.sh" --version "$VERSION" --no-modify-path \
         >"$tmp/log" 2>&1 || true
-    if [[ -x "$HOME/.opencode/bin/opencode" ]]; then
+    if [[ -x "$HOME/.opencode/bin/opencode" ]] &&
+       [[ "$("$HOME/.opencode/bin/opencode" --version 2>/dev/null)" == "$VERSION" ]]; then
         cp "$HOME/.opencode/bin/opencode" "$TARGET"
     fi
 fi
 
-if [[ ! -x "$TARGET" ]]; then
+if [[ ! -x "$TARGET" ]] ||
+   [[ "$("$TARGET" --version 2>/dev/null)" != "$VERSION" ]]; then
     echo "error: could not install opencode $VERSION" >&2
     [[ -f "$tmp/log" ]] && tail -5 "$tmp/log" >&2
     echo "       install it by hand and place it at $TARGET" >&2

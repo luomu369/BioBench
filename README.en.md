@@ -1,3 +1,4 @@
+<!-- Modified 2026-11-06: align license with LICENSE; add GitHub source. -->
 # BioBench
 
 > One DGX Spark, one agent, twenty-three skills, and a web page.
@@ -16,7 +17,7 @@ publishes to the same page, and you watch the structure take shape.
 - **Repo**: https://gitee.com/LRC-bit/biobench
 - **Hardware**: NVIDIA DGX Spark (GB10, aarch64, CUDA 13.0, 121 GB unified memory)
 - **Agent model**: StepFun `step-5-preview`
-- **License**: MIT
+- **License**: Apache-2.0 (see [LICENSE](LICENSE))
 - **Demo video**: [Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
 - **Competition write-up**: [BioBench · DGX Spark Agent Skills](https://luomu369.github.io/BioBench/)
 
@@ -381,7 +382,7 @@ into documentation:
 
 ```bash
 # 1. Clone
-git clone https://gitee.com/LRC-bit/biobench.git
+git clone https://github.com/luomu369/BioBench.git
 cd biobench
 
 # 2. Check the environment (add --fix to repair)

@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -130,6 +131,31 @@ def sysinfo() -> dict:
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC), **kwargs)
+
+    # Modified 2026-11-06: validate bounded JSON bodies before dispatch.
+    def _read_json(self, limit=1_000_000, empty=False):
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get("Transfer-Encoding") or len(lengths) > 1:
+            self.send_error(400, "unsupported request framing")
+            return None
+        value = lengths[0] if lengths else "0"
+        if not value.isascii() or not value.isdigit():
+            self.send_error(400, "invalid Content-Length")
+            return None
+        length = int(value)
+        if length > limit:
+            self.send_error(413, "request too large")
+            return None
+        try:
+            raw = self.rfile.read(length)
+            data = json.loads(raw or (b"{}" if empty else b""))
+        except (ValueError, UnicodeError):
+            self.send_error(400, "invalid JSON")
+            return None
+        if not isinstance(data, dict):
+            self.send_error(400, "JSON body must be an object")
+            return None
+        return data
 
     def do_GET(self):
         route = self.path.split("?")[0].rstrip("/")
@@ -349,12 +375,8 @@ class Handler(SimpleHTTPRequestHandler):
         unlink because its task left the list. The entry goes, the tab goes
         with it, and the file stays for anyone who wants it back.
         """
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b"{}"
-        try:
-            req = json.loads(raw)
-        except json.JSONDecodeError:
-            self.send_error(400, "invalid JSON")
+        req = self._read_json(limit=1000000, empty=True)
+        if req is None:
             return
         group = (req.get("group") or "").strip()
         # A single structure, rather than a whole task. The structure
@@ -539,22 +561,21 @@ class Handler(SimpleHTTPRequestHandler):
                                  "and /agent/session are supported")
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 1_000_000:
-            self.send_error(413, "selection too large")
-            return
-
-        raw = self.rfile.read(length)
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            self.send_error(400, "invalid JSON")
+        data = self._read_json(limit=1000000, empty=False)
+        if data is None:
             return
 
         # Atomic write so a skill never reads a partial file.
-        tmp = SELECTION.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, indent=2))
-        os.replace(tmp, SELECTION)
+        # A unique temporary file prevents concurrent selections sharing a name.
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                         dir=SELECTION.parent, suffix=".tmp",
+                                         delete=False) as f:
+            tmp = Path(f.name)
+            json.dump(data, f, indent=2)
+        try:
+            os.replace(tmp, SELECTION)
+        finally:
+            tmp.unlink(missing_ok=True)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -576,14 +597,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(500, {"error": f"agent module unavailable: {e}"})
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 1_000_000:
-            self.send_error(413, "request too large")
-            return
-        try:
-            data = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
-            self._json(400, {"error": "invalid JSON"})
+        data = self._read_json(limit=1000000, empty=False)
+        if data is None:
             return
 
         # Watching a turn that is already running, rather than starting one.
@@ -682,14 +697,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(500, {"error": f"agent module unavailable: {e}"})
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 100_000:
-            self.send_error(413, "request too large")
-            return
-        try:
-            data = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
-            self._json(400, {"error": "invalid JSON"})
+        data = self._read_json(limit=100000, empty=False)
+        if data is None:
             return
 
         sid = data.get("id")
@@ -747,14 +756,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(500, {"error": f"agent module unavailable: {e}"})
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 100_000:
-            self.send_error(413, "request too large")
-            return
-        try:
-            data = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
-            self._json(400, {"error": "invalid JSON"})
+        data = self._read_json(limit=100000, empty=False)
+        if data is None:
             return
 
         response = data.get("response")
@@ -793,14 +796,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(500, {"error": f"agent module unavailable: {e}"})
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 1_000:
-            self.send_error(413, "request too large")
-            return
-        try:
-            data = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
-            self._json(400, {"error": "invalid JSON"})
+        data = self._read_json(limit=1000, empty=True)
+        if data is None:
             return
 
         on = data.get("on")
@@ -829,17 +826,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(500, {"error": f"agent module unavailable: {e}"})
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        # A photograph is a few megabytes and a screenshot of a desktop more.
-        # The cap is on the encoded body, which is a third larger than the
-        # file, so it is generous rather than tight.
-        if length > 24_000_000:
-            self.send_error(413, "image too large")
-            return
-        try:
-            data = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
-            self._json(400, {"error": "invalid JSON"})
+        data = self._read_json(limit=24000000, empty=True)
+        if data is None:
             return
 
         image = data.get("image") or ""

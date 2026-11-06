@@ -1,0 +1,24 @@
+name: Check source
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m compileall -q webapp skills
+      - run: python -m unittest discover -s tests -v
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax
+        run: git ls-files -z '*.sh' | xargs -0 -r -n 1 bash -n
