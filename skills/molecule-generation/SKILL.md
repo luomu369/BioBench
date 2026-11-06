@@ -94,7 +94,7 @@ $PY $GEN --mode link --fragment "c1ccccc1.CC(=O)O" --num 10 --out molecules.txt
 > `fragment_linking_onestep` both return 0 molecules on `NV-GenMol-89M-v1` —
 > the substructure filter rejects everything the sampler produces. This is a
 > model limitation, not a setup problem. GenMol V2 improves fragment linking;
-> if you need it, download `nvidia/NV-GenMol-89M-v2` and point
+> if you need it, download `NV-GenMol-89M-v2` and point
 > `--checkpoint` at it. De novo and fragment completion work fine on v1.
 
 ### Modes
@@ -161,5 +161,4 @@ usable by RDKit or any downstream tool.
 
 ## References
 
-- [GenMol GitHub](https://github.com/NVIDIA-BioNeMo/GenMol)
 - GenMol: A Drug Discovery Generalist with Discrete Diffusion (ICML 2025)

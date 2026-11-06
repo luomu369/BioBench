@@ -5198,7 +5198,7 @@ async function renderSysinfo() {
       sysSet(sysCpu, "CPU", `${Math.round(s.cpu_percent)}%`, s.cpu_percent);
     }
 
-    // No nvidia-smi or no NVIDIA GPU: the server omits the block, and the
+    // No configured GPU monitor: the server omits the block, and the
     // span stays hidden rather than showing a permanent 0%.
     if (s.gpu && typeof s.gpu.util_percent === "number") {
       sysGpu.hidden = false;

@@ -221,9 +221,9 @@ python3 $PUB --status --state done --step "搜索序列数据库" --index 2 --to
 The GPU accelerates the prefilter only — the stage that picks candidate
 pairs. Alignment and everything after it runs on the CPU regardless.
 
-Measured on DGX Spark, 2000 queries against 200,000 targets: 23.6 s on 20
+Measured on local GPU workstation, 2000 queries against 200,000 targets: 23.6 s on 20
 CPU threads, 12.8 s on the GPU. **1.8×, not the 10–100× the paper reports**,
-because GB10 shares memory bandwidth between CPU and GPU and the prefilter
+because ARM64 GPU shares memory bandwidth between CPU and GPU and the prefilter
 is bandwidth-bound. On a discrete GPU the speedup is far larger.
 
 Small searches show no benefit — 200 queries against 5,000 targets runs in

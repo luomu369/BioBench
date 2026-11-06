@@ -1,7 +1,7 @@
 <!-- Modified 2026-11-06: align license with LICENSE; add GitHub source. -->
 # BioBench
 
-> 一台 DGX Spark，一个 Agent，二十三个技能，和一个网页。
+> 一台 本地 GPU 工作站，一个 Agent，二十三个技能，和一个网页。
 > **用自然语言做分子设计。**
 
 BioBench 是一个生物分子设计工作台：它把本地 GPU 上的一批 AI 模型——结构预测、
@@ -14,11 +14,11 @@ harness 用自然语言驱动它们，并在一个 Web 查看器里看到结果�
 
 - **仓库**：https://github.com/luomu369/BioBench
 - **Gitee 来源**：https://gitee.com/LRC-bit/biobench
-- **硬件**：NVIDIA DGX Spark（GB10，aarch64，CUDA 13.0，121 GB 统一内存）
+- **硬件**：本地 GPU 工作站（ARM64 GPU，aarch64，CUDA 13.0，121 GB 统一内存）
 - **智能体模型**：StepFun 阶跃星辰 `step-5-preview`
 - **许可**：Apache-2.0（见 [LICENSE](LICENSE)）
 - **演示视频**：[Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
-- **参赛征文**：[BioBench · DGX Spark Agent Skills](https://luomu369.github.io/BioBench/)
+- **项目展示**：[BioBench · 生物分子计算工作台](https://luomu369.github.io/BioBench/)
 
 ---
 
@@ -32,9 +32,8 @@ OpenMM 这些开源模型单个都能用，合起来用不了——每一个都�
 动力学验证"这条链，要在四套环境、五种文件格式之间手动搬运。BioBench 做的
 就是这层编排。
 
-**硬件门槛降到了一台机器。** DGX Spark 的 121 GB 统一内存，是 BoltzGen 一次
-典型设计所需（约 40 GB）的三倍。过去需要集群的工作，现在一台桌面盒子就能做。
-但"能跑"和"能用"之间还有距离。
+**在本地组织计算资源。** BioBench 将模型和工具部署在本地 GPU 工作站，
+通过独立环境管理依赖。可运行的模型规模与并发数量取决于任务和可用资源。
 
 **Agent 改变了交互的单位。** 大模型 harness 让"用自然语言驱动命令行"成为现实，
 Agent Skills 规范（`SKILL.md` + 脚本）给了它标准形态。BioBench 把这套形态用在
@@ -375,8 +374,8 @@ Skills 不是一次写成的。项目运行中模型的每一轮困惑都会被�
 
 | 项 | 值 |
 |---|---|
-| 机器 | NVIDIA DGX Spark |
-| GPU | NVIDIA GB10 |
+| 机器 | 本地 GPU 工作站 |
+| GPU | ARM64 GPU |
 | 内存 | 121 GB 统一内存（CPU/GPU 共享） |
 | 驱动 | 580.142 |
 | CUDA | 13.0 |
@@ -446,7 +445,7 @@ webapp/serve.py ──> webapp/agent.py ──> opencode (vendor/bin/opencode)
 ```
 
 关键点：**Agent 不直接调 GPU**。它生成 shell 命令，由各 conda 环境的 Python 解释
-器执行，PyTorch/OpenMM 通过 CUDA 13.0 驱动访问 GB10。这样 Agent 无需理解 CUDA
+器执行，PyTorch/OpenMM 通过 CUDA 13.0 驱动访问 ARM64 GPU。这样 Agent 无需理解 CUDA
 版本、wheel 兼容性、环境隔离——这些都在 `preflight.py` 和 `pytorch-cuda.md` 里
 处理掉了。
 
@@ -534,12 +533,12 @@ pose 数，`report-writer` 只写汇报。它们各自持有一次运行的工�
 
 ## 八、技术栈说明
 
-### 8.1 NVIDIA 相关
+### 8.1 计算平台
 
 | 项 | 版本/型号 |
 |---|---|
-| 硬件 | NVIDIA DGX Spark |
-| GPU | NVIDIA GB10（121 GB 统一内存） |
+| 硬件 | 本地 GPU 工作站 |
+| GPU | ARM64 GPU（121 GB 统一内存） |
 | 驱动 | 580.142 |
 | CUDA | 13.0 |
 | PyTorch wheel | `cu130` |
@@ -642,5 +641,15 @@ ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
 
 ### 10.3 一句话
 
-**BioBench 把一台 DGX Spark 上的生物分子 AI 工具，变成一个可以用自然语言对话的
+**BioBench 把一台 本地 GPU 工作站 上的生物分子 AI 工具，变成一个可以用自然语言对话的
 工作台——Agent 负责跑，查看器负责看，技能负责不出错。**
+
+### 可选部署配置
+
+GenMol 上游来源通过 `BIOBENCH_GENMOL_REPO`（可信 Git 地址）与
+`BIOBENCH_GENMOL_MODEL_ID`（发布者/模型标识）配置，已安装的工具和本地权重可继续使用。
+
+GPU 占用显示为可选功能。`BIOBENCH_GPU_MONITOR` 可指定可信监控程序的路径，
+该程序需支持 `--query-gpu=utilization.gpu,memory.used,memory.total` 和
+`--format=csv,noheader,nounits` 参数，依次返回百分比、已用 MiB、总 MiB 三列。
+未配置时查看器隐藏 GPU 占用信息，不影响计算任务。此变量仅接受程序路径，不接受附加参数。

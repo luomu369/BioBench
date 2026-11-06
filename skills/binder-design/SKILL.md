@@ -454,7 +454,7 @@ python3 -c "import torch; f,t = torch.cuda.mem_get_info(); print(f'{f/1024**3:.1
 | 40–80 GB | 4 | 8–16 |
 | > 80 GB | 8 | 16–32 |
 
-Each design takes ~2 minutes on a DGX Spark with `--use_kernels auto` and a
+Each design takes ~2 minutes on a local GPU workstation with `--use_kernels auto` and a
 cropped context; a 4-design run with folding and affinity takes roughly
 20–30 minutes. Against an uncropped trimer the same run is far slower — one
 1ru7 trimer run took 21 minutes for the design step and 25 for folding with
@@ -792,7 +792,7 @@ results/
 du -sh ~/.cache/huggingface; sleep 30; du -sh ~/.cache/huggingface
 
 # Is the GPU actually working?
-nvidia-smi --query-compute-apps=pid,used_memory --format=csv
+python -c "import torch; print(torch.cuda.mem_get_info())"
 
 # Is a child process alive and burning CPU?
 pgrep -af boltzgen

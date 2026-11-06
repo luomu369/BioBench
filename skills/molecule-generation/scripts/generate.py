@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate small molecules with GenMol and write them to a file.
 
-Wraps genmol.sampler.Sampler with the torch.load patch that NVIDIA's
+Wraps genmol.sampler.Sampler with the torch.load patch that the upstream
 checkpoint requires, and emits one SMILES per line.
 
 Usage:
@@ -29,9 +29,9 @@ DEFAULT_CKPT = str(models_root() / "genmol" / "NV-GenMol-89M-v1" / "model.ckpt")
 
 
 def patch_torch_load():
-    """NVIDIA's checkpoint stores omegaconf objects; torch 2.6+ rejects them
+    """The upstream checkpoint stores omegaconf objects; torch 2.6+ rejects them
     under the default weights_only=True. lightning passes None, which triggers
-    that default. The checkpoint is NVIDIA's official release."""
+    that default. Only load checkpoints from a trusted, verified source."""
     import torch
 
     _orig = torch.load

@@ -1,7 +1,7 @@
 <!-- Modified 2026-11-06: align license with LICENSE; add GitHub source. -->
 # BioBench
 
-> One DGX Spark, one agent, twenty-three skills, and a web page.
+> One local GPU workstation, one agent, twenty-three skills, and a web page.
 > **Molecular design in plain language.**
 
 BioBench is a biomolecular design workbench. It wraps a set of local-GPU AI
@@ -15,11 +15,11 @@ Say "replace that hydrogen with a benzene ring" and it edits the structure. Say
 publishes to the same page, and you watch the structure take shape.
 
 - **Repo**: https://gitee.com/LRC-bit/biobench
-- **Hardware**: NVIDIA DGX Spark (GB10, aarch64, CUDA 13.0, 121 GB unified memory)
+- **Hardware**: local GPU workstation (ARM64 GPU, aarch64, CUDA 13.0, 121 GB unified memory)
 - **Agent model**: StepFun `step-5-preview`
 - **License**: Apache-2.0 (see [LICENSE](LICENSE))
 - **Demo video**: [Bilibili](https://www.bilibili.com/video/BV1jgaE6cEEz/)
-- **Competition write-up**: [BioBench · DGX Spark Agent Skills](https://luomu369.github.io/BioBench/)
+- **Project showcase**: [BioBench · Biomolecular Computing Workbench](https://luomu369.github.io/BioBench/)
 
 ---
 
@@ -64,9 +64,8 @@ code at every step.
 
 ### The hardware threshold dropped to one machine
 
-A DGX Spark (GB10) has 121 GB of unified memory and a GPU that can carry the
-load. That is three times what a typical BoltzGen design needs (~40 GB). **Work
-that once needed a cluster now fits on a desktop box.**
+BioBench organizes models and tools on a local GPU workstation. Model size
+and concurrency depend on available memory and the workload.
 
 But "can run" and "can use" are different things: the models are on the machine,
 and the human still reaches them through SSH, `conda activate`, and
@@ -399,8 +398,8 @@ into documentation:
 
 | Item | Value |
 |------|-------|
-| Machine | NVIDIA DGX Spark |
-| GPU | NVIDIA GB10 |
+| Machine | local GPU workstation |
+| GPU | ARM64 GPU |
 | Memory | 121 GB unified (shared CPU/GPU) |
 | Driver | 580.142 |
 | CUDA | 13.0 |
@@ -473,7 +472,7 @@ webapp/serve.py ──> webapp/agent.py ──> opencode (vendor/bin/opencode)
 
 The key point: **the agent never touches the GPU directly.** It generates shell
 commands, executed by each environment's Python interpreter, and PyTorch/OpenMM
-reach the GB10 through the CUDA 13.0 driver. So the agent needs no understanding
+reach the ARM64 GPU through the CUDA 13.0 driver. So the agent needs no understanding
 of CUDA versions, wheel compatibility or environment isolation — those are
 handled in `preflight.py` and `pytorch-cuda.md`.
 
@@ -570,12 +569,12 @@ a static page is readable) and never enters git.
 
 ## 8. Tech stack
 
-### 8.1 NVIDIA
+### 8.1 Compute platform
 
 | Item | Version / model |
 |------|-----------------|
-| Hardware | NVIDIA DGX Spark |
-| GPU | NVIDIA GB10 (121 GB unified memory) |
+| Hardware | local GPU workstation |
+| GPU | ARM64 GPU (121 GB unified memory) |
 | Driver | 580.142 |
 | CUDA | 13.0 |
 | PyTorch wheel | `cu130` |
@@ -686,6 +685,18 @@ ln -s "$PWD/skills/binder-design" ~/.claude/skills/binder-design
 
 ### 10.3 In one sentence
 
-**BioBench turns the biomolecular AI tools on one DGX Spark into a workbench you
+**BioBench turns the biomolecular AI tools on one local GPU workstation into a workbench you
 can talk to in plain language — the agent runs, the viewer shows, and the skills
 keep it from being wrong.**
+
+### Optional deployment integrations
+
+External GenMol sources are configured through `BIOBENCH_GENMOL_REPO`
+(trusted Git URL) and `BIOBENCH_GENMOL_MODEL_ID` (publisher/model ID).
+Already-installed tools and local checkpoints remain usable.
+
+GPU utilization display is optional. Set `BIOBENCH_GPU_MONITOR` to a trusted
+executable that accepts `--query-gpu=utilization.gpu,memory.used,memory.total`
+and `--format=csv,noheader,nounits`, returning percentage and MiB columns.
+Without it, the viewer hides GPU metrics; this does not disable computation.
+Do not include arguments in the variable: it is a single executable path.

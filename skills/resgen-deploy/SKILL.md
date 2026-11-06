@@ -147,7 +147,7 @@ this runs for hours with no output.
 | `beam_size` | 500 | 20 | candidates per step; the dominant cost |
 | `max_steps` | 50 | 50 | atoms per molecule |
 
-`beam_size: 20` gives ~11 molecules in about 10 minutes on a DGX Spark.
+`beam_size: 20` gives ~11 molecules in about 10 minutes on a local GPU workstation.
 Raise it only if the pocket is small or quality is poor.
 
 ## Troubleshooting

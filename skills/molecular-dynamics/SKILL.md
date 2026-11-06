@@ -230,7 +230,7 @@ atom system, 5000 steps with no trajectory output:
 `--platform auto` picks OpenCL, which is what you want.
 
 > **`OpenCLPlatformName` comes back empty, and that is not a fault.** The
-> NVIDIA ICD resolves fine — `clGetPlatformIDs` reports one platform and the
+> GPU ICD resolves fine — `clGetPlatformIDs` reports one platform and the
 > kernels run on the GPU — but OpenMM's OpenCL plugin does not fill in the
 > device-name property on this driver. Do not read the empty string as "no
 > GPU" and fall back to CPU; that costs 24×.
@@ -326,7 +326,7 @@ python3 $PUB --structure md_out/final_solute.pdb --name nk2r_md_relaxed \
 | `compute_rg() got an unexpected keyword argument 'atom_indices'` | mdtraj's signature is `(traj, masses=None)` | Slice first: `compute_rg(traj.atom_slice(protein))` |
 | `ModuleNotFoundError: openmm.vecmath` | Removed in recent OpenMM | Do not import it |
 | Only Reference/CPU/OpenCL listed | No aarch64 `openmm-cuda` wheel | Expected on ARM64; OpenCL is the GPU path |
-| `OpenCLPlatformName` is empty | The NVIDIA driver does not fill it in | Not a fault — the GPU is still used |
+| `OpenCLPlatformName` is empty | The driver does not fill it in | Not a fault — the GPU is still used |
 | `ns_per_day` ~120 while the GPU does 145,000 | DCD writing every 1000 steps | Raise `--report-interval`; the integrator is not the bottleneck |
 | `No matching distribution found for openff-toolkit` | Every openff release is yanked | Pin the version: `pip install "openff-toolkit==0.18.0"` |
 | `SyntaxError` building `constraint` | `python-constraint` is Python 2 code | Install the shim (the install script does) |

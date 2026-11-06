@@ -141,7 +141,7 @@ import openmm
 # ---- platform ----------------------------------------------------------
 # auto prefers the fastest available. CUDA is absent on ARM64 (no
 # openmm-cuda wheel), so the real choice is between OpenCL on the GPU and
-# the CPU platform; OpenCL only appears if the NVIDIA ICD resolves.
+# the CPU platform; OpenCL only appears if the GPU ICD resolves.
 names = [Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())]
 if args.platform == "auto":
     for want in ("CUDA", "OpenCL", "CPU"):

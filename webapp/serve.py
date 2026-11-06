@@ -84,21 +84,18 @@ def _memory() -> dict:
 
 
 def _gpu() -> dict:
-    """GPU utilisation and memory from nvidia-smi, if present.
+    """Read optional GPU metrics from a configured compatible monitoring CLI.
 
-    Returns an empty dict when there is no nvidia-smi or no NVIDIA GPU, so
-    the viewer can hide the readout rather than show a permanent zero.
-
-    Memory fields are optional: unified-memory parts such as the DGX Spark
-    report `[N/A]` for memory.used/total because the GPU shares the system
-    pool. Utilisation is still reported in that case — it is the number that
-    says whether a run is actually on the GPU.
+    BIOBENCH_GPU_MONITOR names an executable supporting CSV utilization and
+    memory queries. No configured monitor means no GPU readout; computation
+    environments are independent of this optional display integration.
     """
-    if not shutil.which("nvidia-smi"):
+    monitor = os.environ.get("BIOBENCH_GPU_MONITOR", "")
+    if not monitor or not shutil.which(monitor):
         return {}
     try:
         out = subprocess.run(
-            ["nvidia-smi",
+            [monitor,
              "--query-gpu=utilization.gpu,memory.used,memory.total",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
@@ -117,7 +114,7 @@ def _gpu() -> dict:
         except ValueError:
             pass
         return info
-    except (subprocess.SubprocessError, ValueError, IndexError):
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
         return {}
 
 

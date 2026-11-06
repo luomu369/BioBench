@@ -25,7 +25,7 @@ commit history and the existing GitHub introduction-page history.
 - Python 3.12: 10 HTTP regression tests passed.
 - All Python files under webapp and skills compile successfully.
 - GPU inference, docking and dynamics were not executed: this Windows machine
-  is not the documented Linux/DGX Spark environment.
+  is not the documented Linux/local GPU workstation environment.
 - Shell runtime and installer failure behavior require Linux verification;
   CI checks shell syntax, not real installation or model downloads.
 

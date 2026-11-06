@@ -39,17 +39,17 @@ EXPECTED_CKPTS = {
 }
 
 
+# Modified 2026-11-06: query the configured compute environment directly.
 def check_gpu():
-    if not shutil.which("nvidia-smi"):
-        return check("nvidia-smi present", False, "not found in PATH")
+    if not PY.is_file():
+        return check("GPU detected", False, "compute environment is missing")
     try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=15,
-        ).stdout.strip()
-        return check("GPU detected", True, out)
-    except Exception as e:
-        return check("GPU detected", False, str(e))
+        result = run_py(PY, "import torch; print(torch.cuda.is_available())", timeout=15)
+        ready = result.returncode == 0 and result.stdout.strip() == "True"
+        return check("GPU detected", ready,
+                     "CUDA available" if ready else "CUDA unavailable in compute environment")
+    except Exception as exc:
+        return check("GPU detected", False, str(exc))
 
 
 def check_torch():

@@ -1,11 +1,11 @@
 ---
 name: biobench
-description: '**ENTRY SKILL** — BioBench: run biomolecular AI models on local NVIDIA hardware through Agent Skills, and see results in the BioBench Viewer. USE FOR: any request involving protein structure prediction, binder design, molecular property analysis, or structure visualization on this machine; getting started with BioBench; checking whether the environment is ready. DO NOT USE FOR: general coding tasks unrelated to structural biology. This skill is the entry point — it bootstraps the environment, launches the viewer, and routes work to the specialized skills below.'
+description: '**ENTRY SKILL** — BioBench: run biomolecular AI models on local hardware through Agent Skills, and see results in the BioBench Viewer. USE FOR: any request involving protein structure prediction, binder design, molecular property analysis, or structure visualization on this machine; getting started with BioBench; checking whether the environment is ready. DO NOT USE FOR: general coding tasks unrelated to structural biology. This skill is the entry point — it bootstraps the environment, launches the viewer, and routes work to the specialized skills below.'
 ---
 
 # BioBench
 
-BioBench turns local NVIDIA hardware into a biomolecular AI workbench. An
+BioBench turns local hardware into a biomolecular AI workbench. An
 agent reads these skills, runs the models on the local GPU, and publishes
 results to a web viewer.
 
@@ -315,7 +315,7 @@ The full contract, including atomic-write rules, is in
 
 ## Hardware
 
-Developed and tested on NVIDIA DGX Spark (GB10, aarch64, CUDA 13.0, 121 GB
+Developed and tested on local GPU workstation (ARM64 GPU, aarch64, CUDA 13.0, 121 GB
 unified memory). BoltzGen needs ~40 GB of that memory for a typical design.
 
 ## Typical session

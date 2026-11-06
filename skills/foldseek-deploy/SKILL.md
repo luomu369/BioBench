@@ -35,7 +35,7 @@ Pick the archive matching your architecture:
 
 | Archive | Architecture |
 |---------|--------------|
-| `foldseek-linux-arm64.tar.gz` | ARM64 (DGX Spark, Apple Silicon, Graviton) |
+| `foldseek-linux-arm64.tar.gz` | ARM64 (local GPU workstation, Apple Silicon, Graviton) |
 | `foldseek-linux-avx2.tar.gz` | x86-64 with AVX2 |
 | `foldseek-linux-gpu.tar.gz` | x86-64 with GPU support |
 | `foldseek-osx-universal.tar.gz` | macOS (Intel + Apple Silicon) |

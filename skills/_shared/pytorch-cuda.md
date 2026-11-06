@@ -7,13 +7,17 @@ each carrying a copy that drifts.
 
 ## Pick the wheel by driver, not by habit
 
+Inspect the installed driver version with your platform's driver diagnostics.
+The following command checks an existing PyTorch installation and its build
+runtime; it does not report the host driver version:
+
 ```bash
-nvidia-smi --query-gpu=driver_version,cuda_version --format=csv
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
 
 | Driver | CUDA | Wheel |
 |--------|------|-------|
-| 580+ (DGX Spark / GB10) | 13.0 | `cu130` |
+| 580+ (unified-memory GPU) | 13.0 | `cu130` |
 | 550–575 | 12.4 | `cu124` |
 
 The default PyPI wheel is CPU-only. Installing it on a GPU machine gives a
@@ -25,7 +29,7 @@ reports that CUDA is absent.
 # CUDA 12.4
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 
-# CUDA 13.0 (DGX Spark / GB10, driver 580+)
+# CUDA 13.0 (unified-memory GPU, driver 580+)
 pip install torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
@@ -41,7 +45,7 @@ debugging the model.
 
 ## ARM64 caveat
 
-On aarch64 (DGX Spark), some CUDA wheels have no build. `torch` itself does;
+On aarch64 (local GPU workstation), some CUDA wheels have no build. `torch` itself does;
 packages that compile against it at install time may not. Where a wheel is
 missing, install from source with `--no-build-isolation` so the build sees the
 already-installed torch:

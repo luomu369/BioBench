@@ -56,6 +56,16 @@ bad()  { echo "  [FAIL] $1"; FAIL=$((FAIL+1)); }
 warn() { echo "  [WARN] $1"; }
 head_() { echo; echo "== $1"; }
 
+# Modified 2026-11-06: configure optional external source at deployment time.
+ensure_genmol_source() {
+    [[ -d /tmp/genmol ]] && return 0
+    if [[ -z "${BIOBENCH_GENMOL_REPO:-}" ]]; then
+        bad "set BIOBENCH_GENMOL_REPO to a trusted GenMol Git URL before --fix"
+        return 1
+    fi
+    git clone --depth 1 -- "$BIOBENCH_GENMOL_REPO" /tmp/genmol
+}
+
 # ---------------------------------------------------------------- conda
 head_ "conda"
 if [[ -x "$CONDA/bin/conda" ]]; then
@@ -191,8 +201,8 @@ if env_exists genmol; then
         bad "genmol env exists but import fails"
         [[ $FIX -eq 1 ]] && {
             echo "         fixing: pip install -e /tmp/genmol"
-            [[ -d /tmp/genmol ]] || git clone --depth 1 https://github.com/NVIDIA-BioNeMo/GenMol.git /tmp/genmol
-            (cd /tmp/genmol && "$PY" -m pip install -q -e .) && ok "reinstalled genmol"
+            ensure_genmol_source &&
+                (cd /tmp/genmol && "$PY" -m pip install -q -e .) && ok "reinstalled genmol"
         }
     fi
     "$PY" -c "from safe.converter import SAFEConverter" 2>/dev/null \
@@ -211,9 +221,9 @@ else
         "$CONDA/envs/genmol/bin/pip" install -q torch --index-url https://download.pytorch.org/whl/cu130
         "$CONDA/envs/genmol/bin/pip" install -q safe-mol openbabel-wheel easydict \
             einops jaxtyping pandas omegaconf hydra-core huggingface_hub
-        git clone --depth 1 https://github.com/NVIDIA-BioNeMo/GenMol.git /tmp/genmol
-        (cd /tmp/genmol && "$CONDA/envs/genmol/bin/pip" install -q -e .)
-        env_exists genmol && ok "created genmol env"
+        ensure_genmol_source &&
+            (cd /tmp/genmol && "$CONDA/envs/genmol/bin/pip" install -q -e .) &&
+            ok "created genmol env"
     }
 fi
 

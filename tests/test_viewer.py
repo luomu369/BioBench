@@ -151,6 +151,34 @@ class ViewerTests(unittest.TestCase):
     def test_missing_selection_request_is_empty(self):
         self.assertEqual(self.request(path='/select.json', method='GET'), (204, b''))
 
+class GpuMonitorTests(unittest.TestCase):
+    def test_optional_monitor_is_not_run_by_default(self):
+        with patch.dict(os.environ, {}, clear=True), patch('serve.subprocess.run') as run:
+            self.assertEqual(serve._gpu(), {})
+            run.assert_not_called()
+
+    def test_configured_monitor_returns_metrics(self):
+        with patch.dict(os.environ, {'BIOBENCH_GPU_MONITOR': 'gpu-monitor'}), \
+             patch('serve.shutil.which', return_value='/tools/gpu-monitor'), \
+             patch('serve.subprocess.run') as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = '40, 1024, 4096\n'
+            self.assertEqual(serve._gpu(), {'util_percent': 40.0, 'mem_used_gb': 1.0,
+                                          'mem_total_gb': 4.0, 'mem_percent': 25.0})
+            self.assertEqual(run.call_args.args[0][0], 'gpu-monitor')
+            self.assertNotIn('shell', run.call_args.kwargs)
+
+    def test_unavailable_monitor_is_hidden(self):
+        with patch.dict(os.environ, {'BIOBENCH_GPU_MONITOR': 'missing'}), \
+             patch('serve.shutil.which', return_value=None):
+            self.assertEqual(serve._gpu(), {})
+
+    def test_monitor_launch_failure_is_hidden(self):
+        with patch.dict(os.environ, {'BIOBENCH_GPU_MONITOR': 'gpu-monitor'}), \
+             patch('serve.shutil.which', return_value='/tools/gpu-monitor'), \
+             patch('serve.subprocess.run', side_effect=OSError('not executable')):
+            self.assertEqual(serve._gpu(), {})
+
 class StartupTests(unittest.TestCase):
     def test_local_only_by_default(self):
         with patch.dict(os.environ, {}, clear=True):

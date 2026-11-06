@@ -1,6 +1,6 @@
 ---
 name: genmol-deploy
-description: '**DEPLOYMENT SKILL** — Install GenMol (NVIDIA discrete-diffusion small-molecule generator) on a CUDA machine and verify the installation. USE FOR: setting up GenMol from scratch; downloading model weights; diagnosing install or import failures; checking GPU readiness; verifying an existing installation. DO NOT USE FOR: generating molecules (use molecule-generation); protein design (use binder-design); publishing results (use structure-viewer). INVOKES: shell tools (conda/pip/git), file system tools, GPU diagnostics. Requires NVIDIA GPU with CUDA 12.x+ and ~3 GB free disk.'
+description: '**DEPLOYMENT SKILL** — Install GenMol (discrete-diffusion small-molecule generator) on a CUDA machine and verify the installation. USE FOR: setting up GenMol from scratch; downloading model weights; diagnosing install or import failures; checking GPU readiness; verifying an existing installation. DO NOT USE FOR: generating molecules (use molecule-generation); protein design (use binder-design); publishing results (use structure-viewer). INVOKES: shell tools (conda/pip/git), file system tools, GPU diagnostics. Requires GPU with CUDA 12.x+ and ~3 GB free disk.'
 ---
 
 # GenMol Deployment
@@ -40,15 +40,19 @@ conda activate genmol
 
 ### Step 2: Install PyTorch with CUDA
 
-Match the CUDA build to your driver. Check with `nvidia-smi`.
+Match the CUDA build to your driver. Use the platform driver diagnostics, then verify `torch.cuda.is_available()` in the target environment.
 
 Install PyTorch with CUDA — see `_shared/pytorch-cuda.md` for which wheel
 matches the driver, and the check that confirms it is using the GPU.
 
 ### Step 3: Clone and install GenMol
 
+Set `BIOBENCH_GENMOL_REPO` to the trusted upstream Git URL before running
+this step. No repository URL is bundled. Existing installations are unchanged.
+Review the upstream license before downloading or redistributing the package.
+
 ```bash
-git clone --depth 1 https://github.com/NVIDIA-BioNeMo/GenMol.git /tmp/genmol
+git clone --depth 1 "${BIOBENCH_GENMOL_REPO:?Set a trusted GenMol Git URL}" /tmp/genmol
 cd /tmp/genmol
 pip install -e .
 ```
@@ -84,13 +88,15 @@ python -c "import genmol; print('genmol OK')"
 
 ## Weights
 
-Download from Hugging Face (~1.3 GB):
+Download from Hugging Face (~1.3 GB). Set `BIOBENCH_GENMOL_MODEL_ID` to the
+trusted publisher/model identifier for the desired checkpoint. This setting
+must include the publisher namespace; the model names below are labels only.
 
 ```bash
 MODELS="${MODELS:-$HOME/models}"
 HF_ENDPOINT=https://hf-mirror.com python -c "
 from huggingface_hub import snapshot_download
-snapshot_download('nvidia/NV-GenMol-89M-v1',
+snapshot_download(__import__('os').environ['BIOBENCH_GENMOL_MODEL_ID'],
                   local_dir='$MODELS/genmol/NV-GenMol-89M-v1',
                   max_workers=8)
 "
@@ -98,12 +104,12 @@ snapshot_download('nvidia/NV-GenMol-89M-v1',
 
 | Model | Size | Notes |
 |-------|------|-------|
-| `nvidia/NV-GenMol-89M-v1` | 1.3 GB | Original release |
-| `nvidia/NV-GenMol-89M-v2` | 1.3 GB | Extended SAFE syntax, better de novo |
+| `NV-GenMol-89M-v1` | 1.3 GB | Original release |
+| `NV-GenMol-89M-v2` | 1.3 GB | Extended SAFE syntax, better de novo |
 
 ## Loading the checkpoint
 
-NVIDIA's checkpoint stores omegaconf config objects. PyTorch 2.6+ defaults to
+The upstream checkpoint stores omegaconf config objects. PyTorch 2.6+ defaults to
 `weights_only=True`, which rejects them, and lightning passes
 `weights_only=None` so torch applies that default.
 
@@ -123,8 +129,9 @@ from genmol.sampler import Sampler
 sampler = Sampler("/path/to/model.ckpt")
 ```
 
-The checkpoint is NVIDIA's official release, so full unpickling is safe. The
-`molecule-generation` skill's helper script already applies this patch.
+Only load checkpoints from a source you trust and have verified: full
+unpickling can execute code. The `molecule-generation` helper applies this
+compatibility patch, so verifying the source is required before use.
 
 ## Verifying an existing installation
 
@@ -150,6 +157,4 @@ weights, and that a checkpoint actually loads. Exits non-zero on failure.
 
 ## References
 
-- [GenMol GitHub](https://github.com/NVIDIA-BioNeMo/GenMol)
-- [GenMol weights on HF](https://huggingface.co/nvidia/NV-GenMol-89M-v1)
 - GenMol: A Drug Discovery Generalist with Discrete Diffusion (ICML 2025)

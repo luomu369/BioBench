@@ -35,7 +35,7 @@ see `sequence-search`.
 
 | Archive | Architecture | GPU |
 |---------|--------------|-----|
-| `mmseqs-linux-gpu-arm64.tar.gz` | ARM64 (DGX Spark, Apple Silicon, Graviton) | yes |
+| `mmseqs-linux-gpu-arm64.tar.gz` | ARM64 (local GPU workstation, Apple Silicon, Graviton) | yes |
 | `mmseqs-linux-gpu.tar.gz` | x86-64 | yes |
 | `mmseqs-linux-avx2.tar.gz` | x86-64 with AVX2 | no |
 | `mmseqs-osx-universal.tar.gz` | macOS | no |
@@ -92,12 +92,11 @@ The query database does not need it — only the target.
 
 ### 2. Confirm the GPU is actually working
 
-Watch utilisation while a search runs:
+Request GPU execution, then inspect the execution logs and use the system
+monitor to verify device activity:
 
 ```bash
-nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader -l 1 &
 mmseqs search qDB tDB res tmp --gpu 1 --threads 20
-kill %1
 ```
 
 A working GPU path shows sustained high utilisation. **0% means the GPU is
@@ -106,7 +105,7 @@ will be worse than CPU-only because of the transfer overhead.
 
 ### Expected speedup
 
-Measured on DGX Spark (GB10, unified memory), 2000 queries against 200,000
+Measured on local GPU workstation (ARM64 GPU, unified memory), 2000 queries against 200,000
 targets:
 
 | Path | Time |
@@ -114,7 +113,7 @@ targets:
 | CPU, 20 threads | 23.6 s |
 | GPU | 12.8 s |
 
-**1.8×, not the 10–100× the paper reports.** GB10 shares memory bandwidth
+**1.8×, not the 10–100× the paper reports.** ARM64 GPU shares memory bandwidth
 between CPU and GPU, so the prefilter is bandwidth-bound rather than
 compute-bound. The speedup is real but modest; on a discrete GPU it is far
 larger.
@@ -200,7 +199,7 @@ is the same content, already on disk, and takes twelve seconds.
 | `Database X is not a valid GPU database` | Target built without GPU mode | `createdb --createdb-mode 2` |
 | GPU utilisation 0% during a search | GPU path not engaged | Check the database mode; confirm `--gpu 1` reached the prefilter |
 | GPU run slower than CPU | Small database, or first-run JIT | Use CPU for small searches; re-run to skip the JIT |
-| `cannot execute binary file` | Wrong architecture | Take the arm64 archive on DGX Spark |
+| `cannot execute binary file` | Wrong architecture | Take the arm64 archive on local GPU workstation |
 | `mmseqs: command not found` | Not on PATH | `export PATH="$HOME/tools/mmseqs/bin:$PATH"` |
 | Database errors after an upgrade | Databases are version-specific | Rebuild with `createdb` |
 | Download stalls | Proxy blocking GitHub | `export https_proxy=http://127.0.0.1:6450` |

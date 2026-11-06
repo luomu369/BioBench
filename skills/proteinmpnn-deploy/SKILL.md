@@ -1,6 +1,6 @@
 ---
 name: proteinmpnn-deploy
-description: '**DEPLOYMENT SKILL** — Install ProteinMPNN (inverse folding / sequence design) on a CUDA machine and verify the installation. USE FOR: setting up ProteinMPNN from scratch; checking GPU/CUDA readiness; diagnosing install or import failures; verifying an existing installation. DO NOT USE FOR: designing sequences (use sequence-design); designing binders de novo (use binder-design); publishing results (use structure-viewer). INVOKES: shell tools (conda/pip), file system tools, GPU diagnostics. Requires NVIDIA GPU with CUDA 12.x+ and ~2 GB free disk.'
+description: '**DEPLOYMENT SKILL** — Install ProteinMPNN (inverse folding / sequence design) on a CUDA machine and verify the installation. USE FOR: setting up ProteinMPNN from scratch; checking GPU/CUDA readiness; diagnosing install or import failures; verifying an existing installation. DO NOT USE FOR: designing sequences (use sequence-design); designing binders de novo (use binder-design); publishing results (use structure-viewer). INVOKES: shell tools (conda/pip), file system tools, GPU diagnostics. Requires GPU with CUDA 12.x+ and ~2 GB free disk.'
 ---
 
 # ProteinMPNN Deployment
@@ -41,7 +41,7 @@ conda activate proteinmpnn
 
 ### Step 2: Install PyTorch with CUDA
 
-Match the CUDA build to your driver. Check with `nvidia-smi`.
+Match the CUDA build to your driver. Use the platform driver diagnostics, then verify `torch.cuda.is_available()` in the target environment.
 
 Install PyTorch with CUDA — see `_shared/pytorch-cuda.md` for which wheel
 matches the driver, and the check that confirms it is using the GPU.

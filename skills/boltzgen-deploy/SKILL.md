@@ -1,6 +1,6 @@
 ---
 name: boltzgen-deploy
-description: '**DEPLOYMENT SKILL** — Install BoltzGen and its model weights on a CUDA machine, and verify the installation is healthy. USE FOR: setting up BoltzGen from scratch; downloading or repairing model weights; checking GPU/CUDA readiness; diagnosing install failures; verifying an existing installation. DO NOT USE FOR: running a binder design (use binder-design); publishing results (use structure-viewer); sequence design on a fixed backbone (use proteinmpnn-deploy). INVOKES: shell tools (conda/pip), file system tools, GPU diagnostics. Requires NVIDIA GPU with CUDA 12.x+ and ~20 GB free disk.'
+description: '**DEPLOYMENT SKILL** — Install BoltzGen and its model weights on a CUDA machine, and verify the installation is healthy. USE FOR: setting up BoltzGen from scratch; downloading or repairing model weights; checking GPU/CUDA readiness; diagnosing install failures; verifying an existing installation. DO NOT USE FOR: running a binder design (use binder-design); publishing results (use structure-viewer); sequence design on a fixed backbone (use proteinmpnn-deploy). INVOKES: shell tools (conda/pip), file system tools, GPU diagnostics. Requires GPU with CUDA 12.x+ and ~20 GB free disk.'
 ---
 
 # BoltzGen Deployment
@@ -28,7 +28,7 @@ the viewer, see `structure-viewer`.
 | RAM | 16 GB | 64 GB+ |
 | Python | 3.11+ | 3.12 |
 
-**Unified-memory machines** (e.g. DGX Spark / GB10): VRAM is shared with system
+**Unified-memory machines** (e.g. unified-memory GPU): VRAM is shared with system
 RAM. Check with `free -g` before running large designs.
 
 ## Installation
@@ -42,7 +42,7 @@ conda activate boltzgen
 
 ### Step 2: Install PyTorch with CUDA
 
-Match the CUDA build to your driver. Check with `nvidia-smi`.
+Match the CUDA build to your driver. Use the platform driver diagnostics, then verify `torch.cuda.is_available()` in the target environment.
 
 Install PyTorch with CUDA — see `_shared/pytorch-cuda.md` for which wheel
 matches the driver, and the check that confirms it is using the GPU.

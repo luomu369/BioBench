@@ -47,7 +47,7 @@ print(','.join(Platform.getPlatform(i).getName()
               "where openmm-cuda has no wheel")
 
     # OpenCL is the GPU path on this machine. Its device-name property comes
-    # back empty on the NVIDIA driver even though the kernels do run on the
+    # back empty on the GPU driver even though the kernels do run on the
     # GPU, so an empty string says nothing either way — report it as
     # informational rather than as a failure to fix.
     if "OpenCL" in names:
@@ -59,7 +59,7 @@ print(p.getPropertyDefaultValue('OpenCLPlatformName') or '(empty)')
 """)
         dev = r.stdout.strip() if r.returncode == 0 else "(error)"
         print(f"       OpenCL device name: {dev}")
-        print("       note: empty is normal on the NVIDIA driver — the GPU "
+        print("       note: empty is normal on the GPU driver — the GPU "
               "is still used.")
         print("       measured: ~145,000 ns/day vs ~6,000 on CPU "
               "(80k atoms).")

@@ -36,7 +36,7 @@ compilation needed:
 mkdir -p ~/tools/vina && cd ~/tools/vina
 VERSION=1.2.7
 
-# ARM64 (DGX Spark, Apple Silicon, Graviton)
+# ARM64 (local GPU workstation, Apple Silicon, Graviton)
 curl -sL -o vina "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v${VERSION}/vina_${VERSION}_linux_aarch64"
 curl -sL -o vina_split "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v${VERSION}/vina_split_${VERSION}_linux_aarch64"
 

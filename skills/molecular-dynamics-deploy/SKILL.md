@@ -115,7 +115,7 @@ OpenCL is the GPU path and it is fast, measured on an 86,000 atom system:
 | CPU | 143.4 s | ~6,000 ns/day |
 
 > **`OpenCLPlatformName` comes back empty, and that is not a fault.** The
-> NVIDIA ICD resolves fine and the kernels run on the GPU; the driver just
+> GPU ICD resolves fine and the kernels run on the GPU; the driver just
 > does not fill in the property. Do not read the empty string as "no GPU" —
 > that costs 24×.
 
