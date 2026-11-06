@@ -7,8 +7,8 @@ GitHub destination: https://github.com/luomu369/BioBench
 The existing GitHub introduction page is retained. The Gitee LICENSE is
 Apache-2.0; README references to MIT were corrected without replacing LICENSE.
 External tools and model weights retain their own licenses and download terms.
-The local checkout retains both histories. The GitHub API import records a
-source snapshot on top of the existing GitHub history, not a full Gitee mirror.
+Both the local checkout and GitHub migration retain the original Gitee
+commit history and the existing GitHub introduction-page history.
 
 ## Changes
 
