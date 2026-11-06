@@ -1,6 +1,7 @@
 """Compute readiness must use the model environment and report probe failures."""
 import importlib.util
 import io
+import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,9 @@ from unittest.mock import patch
 path = Path(__file__).resolve().parents[1] / 'skills/boltzgen-deploy/scripts/preflight.py'
 spec = importlib.util.spec_from_file_location('boltzgen_preflight', path)
 probe = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(probe)
+sys.path.insert(0, str(path.parents[2] / '_shared'))
+with patch('biobench_paths.env_python', return_value=Path('/missing/compute/python')):
+    spec.loader.exec_module(probe)
 
 class ComputeProbeTests(unittest.TestCase):
     def test_missing_environment_does_not_run(self):
