@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 STATIC = Path(__file__).resolve().parent / "static"
 SELECTION = STATIC / "selection.json"
+_SELECTION_LOCK = threading.Lock()
 
 
 def _cpu_percent() -> float:
@@ -573,7 +574,17 @@ class Handler(SimpleHTTPRequestHandler):
             tmp = Path(f.name)
             json.dump(data, f, indent=2)
         try:
-            os.replace(tmp, SELECTION)
+            # Windows may briefly deny replacement while another writer or
+            # a reader holds the destination. Serialize writers and bound retries.
+            with _SELECTION_LOCK:
+                for attempt in range(6):
+                    try:
+                        os.replace(tmp, SELECTION)
+                        break
+                    except PermissionError:
+                        if os.name != "nt" or attempt == 5:
+                            raise
+                        time.sleep(0.01 * (attempt + 1))
         finally:
             tmp.unlink(missing_ok=True)
 
