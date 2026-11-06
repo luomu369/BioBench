@@ -1,0 +1,26 @@
+{
+  "_comment": "The opencode binary BioBench's agent panel drives. Pinned so a machine installs the version this was tested against, and so a bad upstream release cannot silently change the panel's behaviour. The binary itself is not committed — it is 177 MB and platform-specific; install.sh fetches it.",
+  "name": "opencode",
+  "version": "1.18.32",
+  "upstream": "https://github.com/anomalyco/opencode",
+  "install_script": "https://opencode.ai/install",
+  "license": "MIT",
+  "platforms": {
+    "linux-aarch64": {
+      "asset": "opencode-linux-arm64.tar.gz",
+      "sha256": ""
+    },
+    "linux-x64": {
+      "asset": "opencode-linux-x64.tar.gz",
+      "sha256": ""
+    },
+    "darwin-arm64": {
+      "asset": "opencode-darwin-arm64.tar.gz",
+      "sha256": ""
+    },
+    "darwin-x64": {
+      "asset": "opencode-darwin-x64.tar.gz",
+      "sha256": ""
+    }
+  }
+}
